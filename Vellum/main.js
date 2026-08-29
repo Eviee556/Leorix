@@ -51,3 +51,19 @@ ipcMain.handle('select-folder-dialog', async () => {
   });
   return result.filePaths[0] || null;
 });
+
+// Project file (.vellum) save/open — the whole texture set, layers, masks, and custom brushes.
+ipcMain.handle('save-project-dialog', async (event, filename) => {
+  const result = await dialog.showSaveDialog(win, {
+    defaultPath: (filename || 'untitled') + '.vellum',
+    filters: [{ name: 'Vellum Project', extensions: ['vellum'] }]
+  });
+  return result.filePath || null;
+});
+
+ipcMain.handle('open-project-dialog', async () => {
+  const result = await dialog.showOpenDialog(win, {
+    filters: [{ name: 'Vellum Project', extensions: ['vellum'] }]
+  });
+  return result.filePaths[0] || null;
+});
