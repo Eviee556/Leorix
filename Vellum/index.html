@@ -156,6 +156,34 @@
   ::-webkit-scrollbar-thumb:hover{background:var(--brass-dim);}
   #hidden-file-input{display:none;}
   #text-input-overlay{position:absolute; background:transparent; border:1px dashed var(--brass); color:inherit; outline:none; padding:2px; min-width:40px; z-index:20;}
+  #brush-cursor{
+    position:fixed; top:0; left:0; border-radius:50%; pointer-events:none; z-index:500;
+    border:1.5px solid #fff; mix-blend-mode:difference; transform:translate(-50%,-50%); display:none;
+    box-shadow:0 0 0 1px rgba(0,0,0,.6);
+  }
+  #brush-cursor::after{
+    content:''; position:absolute; top:50%; left:50%; width:2px; height:2px; margin:-1px 0 0 -1px;
+    background:#fff; border-radius:50%; mix-blend-mode:difference;
+  }
+  .cursor-none{cursor:none !important;}
+  .brush-preset-grid{display:flex; flex-direction:column; gap:4px; margin-top:2px;}
+  .brush-preset-btn{
+    height:24px; border:1px solid var(--border); border-radius:4px; background:var(--panel-alt);
+    cursor:pointer; padding:0; overflow:hidden; position:relative; display:block; width:100%;
+  }
+  .brush-preset-btn:hover{border-color:var(--brass-dim);}
+  .brush-preset-btn.active{border-color:var(--brass); box-shadow:inset 0 0 0 1px var(--brass);}
+  .brush-preset-btn img{width:100%; height:100%; object-fit:cover; display:block;}
+  .brush-preset-label{font-size:9.5px; letter-spacing:.5px; color:var(--text-muted); text-transform:uppercase;
+    font-family:ui-monospace,monospace; margin:10px 0 4px;}
+  .add-texture-btn{background:var(--panel); display:flex; align-items:center; justify-content:center;
+    font-size:10.5px; color:var(--text-muted); border-style:dashed;}
+  .add-texture-btn:hover{color:var(--brass); border-color:var(--brass-dim);}
+  .normal-dir-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:5px;}
+  .normal-dir-btn{aspect-ratio:1; border-radius:5px; border:1px solid var(--border); cursor:pointer;
+    display:flex; align-items:center; justify-content:center; font-size:13px; color:rgba(0,0,0,.55);}
+  .normal-dir-btn:hover{border-color:var(--brass);}
+  .normal-dir-btn.center{color:rgba(0,0,0,.35); font-size:10px;}
   #toast{position:fixed; bottom:36px; left:50%; transform:translateX(-50%); background:var(--panel-alt); border:1px solid var(--brass-dim);
     color:var(--text); padding:9px 16px; border-radius:6px; font-size:12.5px; box-shadow:0 8px 24px rgba(0,0,0,.5); z-index:200; opacity:0; pointer-events:none; transition:opacity .2s;}
   #toast.show{opacity:1;}
@@ -169,6 +197,10 @@
     <div class="menu" data-menu="file">
       <button>File</button>
       <div class="menu-drop">
+        <button data-action="open-project">Open Project…</button>
+        <button data-action="save-project">Save Project <kbd>⌘S</kbd></button>
+        <button data-action="save-project-as">Save Project As… <kbd>⇧⌘S</kbd></button>
+        <hr>
         <button data-action="new-canvas">New Texture Set… <kbd>⌘N</kbd></button>
         <button data-action="import">Import Image… <kbd>⌘O</kbd></button>
         <hr>
@@ -269,6 +301,17 @@
         <div id="color-swatch-current"></div>
         <input class="num-input" id="hex-input" type="text" value="#c98a4b" maxlength="7">
         <div class="swatch-grid" id="swatch-grid"></div>
+      </div>
+
+      <div class="panel" id="normal-brush-panel" style="display:none;">
+        <h3>Normal Brush</h3>
+        <p style="font-size:11.5px; color:var(--text-muted); margin:-4px 0 10px; line-height:1.5;">Directional colors for hand-painting tangent-space bumps on this Normal map.</p>
+        <div class="normal-dir-grid" id="normal-dir-grid"></div>
+        <div class="row" style="margin-top:8px;">
+          <label>Tilt</label>
+          <input type="range" id="normal-tilt-strength" min="10" max="100" value="50">
+          <span class="val" id="normal-tilt-val">50%</span>
+        </div>
       </div>
 
       <div class="panel" style="flex:1; display:flex; flex-direction:column;">
@@ -450,7 +493,10 @@
 </div>
 
 <input type="file" id="hidden-file-input" accept="image/*">
+<input type="file" id="hidden-project-file-input" accept=".vellum,application/json">
+<input type="file" id="hidden-brush-file-input" accept="image/*">
 <div id="toast"></div>
+<div id="brush-cursor"></div>
 
 <script>
 (function(){
@@ -487,14 +533,16 @@ const KIND_HINTS = {
 /* ============================= STATE ============================= */
 const State = {
   width: 2048, height: 2048, zoom: 1, tool: 'brush', color: '#c98a4b',
-  brush: { size: 28, opacity: 100, hardness: 70 },
+  brush: { size: 28, opacity: 100, hardness: 70, preset: 'soft' },
   pencil: { size: 4 },
-  eraser: { size: 28, opacity: 100, hardness: 70 },
+  eraser: { size: 28, opacity: 100, hardness: 70, preset: 'soft' },
   maskSelect: { size: 60, hardness: 60 },
   shape: { fill: false },
   text: { size: 48, font: 'Georgia, serif' },
   channelView: 'rgb',
   maps: {}, mapOrder: [], activeMapId: null, mapCounter: 1, nextLayerId: 1,
+  projectFilePath: null, projectName: 'untitled',
+  normalBrush: { strength: 50 },
 };
 
 const BLEND_MODES = [
@@ -516,13 +564,31 @@ const overlayCtx = overlayCanvas.getContext('2d');
 const stage = document.getElementById('canvas-stage');
 const wrap = document.getElementById('canvas-wrap');
 
+function createDefaultEffects(){
+  return {
+    dropShadow:   { enabled:false, color:'#000000', opacity:75, angle:120, distance:8,  blur:10 },
+    innerShadow:  { enabled:false, color:'#000000', opacity:60, angle:120, distance:5,  blur:8  },
+    outerGlow:    { enabled:false, color:'#c98a4b', opacity:70, blur:14 },
+    innerGlow:    { enabled:false, color:'#c98a4b', opacity:60, blur:10 },
+    stroke:       { enabled:false, color:'#ffffff', opacity:100, width:4 },
+    colorOverlay: { enabled:false, color:'#c98a4b', opacity:100 },
+    gradientOverlay: { enabled:false, colorA:'#c98a4b', colorB:'#6f9a8d', angle:90, opacity:100 },
+    bevelEmboss:  { enabled:false, size:10, angle:120, altitude:45, highlight:'#ffffff', shadow:'#000000', strength:60 },
+  };
+}
+function hasAnyEffectEnabled(effects){
+  return Object.keys(effects).some(k=>effects[k].enabled);
+}
+function invalidateLayerEffects(layer){ if(layer) layer.effectsCache = null; }
+
 /* ============================= Map / Layer helpers ============================= */
 function makeLayer(name, fill){
   const c = document.createElement('canvas'); c.width = State.width; c.height = State.height;
   const ctx = c.getContext('2d', {willReadFrequently:true});
   if(fill && fill !== 'transparent'){ ctx.fillStyle = fill; ctx.fillRect(0,0,c.width,c.height); }
   return { id: State.nextLayerId++, name, canvas:c, ctx, visible:true, opacity:100, blend:'source-over',
-    mask:null, activeTarget:'content', bgMode:'transparent', bgColor:'#ffffff' };
+    mask:null, activeTarget:'content', bgMode:'transparent', bgColor:'#ffffff',
+    effects: createDefaultEffects(), effectsCache:null };
 }
 function createMap(kind, name){
   const id = 'map'+(State.mapCounter++);
@@ -568,6 +634,7 @@ function getMaskAlphaCanvas(layer){
   return ac;
 }
 function getLayerRenderCanvas(layer){
+  if(layer.effectsCache) return layer.effectsCache;
   let src = layer.canvas;
   if(layer.bgMode==='color'){
     const tmp = document.createElement('canvas'); tmp.width=State.width; tmp.height=State.height;
@@ -583,7 +650,146 @@ function getLayerRenderCanvas(layer){
     t2ctx.drawImage(getMaskAlphaCanvas(layer),0,0);
     src = tmp2;
   }
+  if(layer.effects && hasAnyEffectEnabled(layer.effects)) src = applyLayerEffects(src, layer.effects);
+  layer.effectsCache = src;
   return src;
+}
+
+/* ============================= Layer Effects (fx) ============================= */
+function tintSilhouette(ctx, canvas, color){
+  const img = ctx.getImageData(0,0,canvas.width,canvas.height); const d = img.data;
+  const rgb = hexToRgb(color);
+  for(let i=0;i<d.length;i+=4){ if(d[i+3]>0){ d[i]=rgb.r; d[i+1]=rgb.g; d[i+2]=rgb.b; } }
+  ctx.putImageData(img,0,0);
+}
+function dilateSilhouette(srcCanvas, radius, color){
+  const w=srcCanvas.width, h=srcCanvas.height;
+  const solid = document.createElement('canvas'); solid.width=w; solid.height=h;
+  const sctx = solid.getContext('2d'); sctx.drawImage(srcCanvas,0,0);
+  tintSilhouette(sctx, solid, color);
+  const out = document.createElement('canvas'); out.width=w; out.height=h;
+  const octx = out.getContext('2d');
+  const steps = Math.max(8, Math.round(radius*1.2));
+  for(let i=0;i<steps;i++){
+    const ang = (i/steps)*Math.PI*2;
+    octx.drawImage(solid, Math.cos(ang)*radius, Math.sin(ang)*radius);
+  }
+  octx.drawImage(solid,0,0);
+  return out;
+}
+function applyOuterStroke(destCtx, contentCanvas, cfg){
+  const dilated = dilateSilhouette(contentCanvas, cfg.width, cfg.color);
+  const dctx = dilated.getContext('2d');
+  dctx.save(); dctx.globalCompositeOperation='destination-out'; dctx.drawImage(contentCanvas,0,0); dctx.restore();
+  destCtx.save(); destCtx.globalAlpha = cfg.opacity/100; destCtx.drawImage(dilated,0,0); destCtx.restore();
+}
+function invertedAlphaTint(contentCanvas, color){
+  const w=contentCanvas.width, h=contentCanvas.height;
+  const inv = document.createElement('canvas'); inv.width=w; inv.height=h;
+  const ictx = inv.getContext('2d'); ictx.drawImage(contentCanvas,0,0);
+  const img = ictx.getImageData(0,0,w,h); const d = img.data; const rgb = hexToRgb(color);
+  for(let i=0;i<d.length;i+=4){ d[i]=rgb.r; d[i+1]=rgb.g; d[i+2]=rgb.b; d[i+3]=255-d[i+3]; }
+  ictx.putImageData(img,0,0);
+  return inv;
+}
+function applyInnerShadow(cctx, contentCanvas, cfg){
+  const inv = invertedAlphaTint(contentCanvas, cfg.color);
+  const w=contentCanvas.width, h=contentCanvas.height;
+  const rad = cfg.angle*Math.PI/180, dx=Math.cos(rad)*cfg.distance, dy=-Math.sin(rad)*cfg.distance;
+  const shifted = document.createElement('canvas'); shifted.width=w; shifted.height=h;
+  const shctx = shifted.getContext('2d');
+  shctx.filter = cfg.blur>0 ? `blur(${cfg.blur}px)` : 'none';
+  shctx.drawImage(inv, dx, dy);
+  cctx.save(); cctx.globalCompositeOperation='source-atop'; cctx.globalAlpha = cfg.opacity/100;
+  cctx.drawImage(shifted,0,0); cctx.restore();
+}
+function applyInnerGlow(cctx, contentCanvas, cfg){
+  const inv = invertedAlphaTint(contentCanvas, cfg.color);
+  const w=contentCanvas.width, h=contentCanvas.height;
+  const blurred = document.createElement('canvas'); blurred.width=w; blurred.height=h;
+  const bctx = blurred.getContext('2d'); bctx.filter = `blur(${cfg.blur}px)`; bctx.drawImage(inv,0,0);
+  cctx.save(); cctx.globalCompositeOperation='source-atop'; cctx.globalAlpha = cfg.opacity/100;
+  cctx.drawImage(blurred,0,0); cctx.restore();
+}
+function applyBevelEmboss(cctx, contentCanvas, cfg){
+  const w=contentCanvas.width, h=contentCanvas.height;
+  const heightCanvas = document.createElement('canvas'); heightCanvas.width=w; heightCanvas.height=h;
+  const hctx = heightCanvas.getContext('2d'); hctx.drawImage(contentCanvas,0,0);
+  const himg = hctx.getImageData(0,0,w,h); const hd = himg.data;
+  for(let i=0;i<hd.length;i+=4){ const a=hd[i+3]; hd[i]=a; hd[i+1]=a; hd[i+2]=a; hd[i+3]=255; }
+  hctx.putImageData(himg,0,0);
+  const blurred = document.createElement('canvas'); blurred.width=w; blurred.height=h;
+  const bctx = blurred.getContext('2d'); bctx.filter = `blur(${Math.max(1,cfg.size)}px)`; bctx.drawImage(heightCanvas,0,0);
+  const bd = bctx.getImageData(0,0,w,h).data;
+  const lightRad = cfg.angle*Math.PI/180, altRad = cfg.altitude*Math.PI/180;
+  const lx = Math.cos(lightRad)*Math.cos(altRad), ly = -Math.sin(lightRad)*Math.cos(altRad), lz = Math.sin(altRad);
+  const hi = hexToRgb(cfg.highlight), sh = hexToRgb(cfg.shadow);
+  const ovCanvas = document.createElement('canvas'); ovCanvas.width=w; ovCanvas.height=h;
+  const ovCtx = ovCanvas.getContext('2d'); const ovImg = ovCtx.createImageData(w,h); const od = ovImg.data;
+  function H(x,y){ x=Math.max(0,Math.min(w-1,x)); y=Math.max(0,Math.min(h-1,y)); return bd[(y*w+x)*4]/255; }
+  const k = 3.0;
+  for(let y=0;y<h;y++){
+    for(let x=0;x<w;x++){
+      const dx=(H(x+1,y)-H(x-1,y))*k, dy=(H(x,y+1)-H(x,y-1))*k;
+      let nx=-dx, ny=-dy, nz=1; const len=Math.sqrt(nx*nx+ny*ny+nz*nz)||1; nx/=len; ny/=len; nz/=len;
+      const lambert = nx*lx+ny*ly+nz*lz;
+      const idx=(y*w+x)*4;
+      if(lambert>0){ od[idx]=hi.r; od[idx+1]=hi.g; od[idx+2]=hi.b; od[idx+3]=Math.min(255, lambert*255*(cfg.strength/100)); }
+      else { od[idx]=sh.r; od[idx+1]=sh.g; od[idx+2]=sh.b; od[idx+3]=Math.min(255, -lambert*255*(cfg.strength/100)); }
+    }
+  }
+  ovCtx.putImageData(ovImg,0,0);
+  ovCtx.globalCompositeOperation='destination-in'; ovCtx.drawImage(contentCanvas,0,0);
+  cctx.save(); cctx.globalCompositeOperation='overlay'; cctx.drawImage(ovCanvas,0,0); cctx.restore();
+}
+function applyLayerEffects(src, effects){
+  const w = State.width, h = State.height;
+  const result = document.createElement('canvas'); result.width=w; result.height=h;
+  const rctx = result.getContext('2d');
+
+  if(effects.dropShadow.enabled){
+    const ds = effects.dropShadow;
+    const rad = ds.angle*Math.PI/180, dx=Math.cos(rad)*ds.distance, dy=-Math.sin(rad)*ds.distance;
+    const shadowCanvas = document.createElement('canvas'); shadowCanvas.width=w; shadowCanvas.height=h;
+    const sctx = shadowCanvas.getContext('2d');
+    sctx.filter = ds.blur>0 ? `blur(${ds.blur}px)` : 'none';
+    sctx.drawImage(src, dx, dy);
+    tintSilhouette(sctx, shadowCanvas, ds.color);
+    rctx.save(); rctx.globalAlpha = ds.opacity/100; rctx.drawImage(shadowCanvas,0,0); rctx.restore();
+  }
+  if(effects.outerGlow.enabled){
+    const og = effects.outerGlow;
+    const glowCanvas = document.createElement('canvas'); glowCanvas.width=w; glowCanvas.height=h;
+    const gctx = glowCanvas.getContext('2d');
+    gctx.filter = `blur(${og.blur}px)`; gctx.drawImage(src,0,0);
+    tintSilhouette(gctx, glowCanvas, og.color);
+    rctx.save(); rctx.globalAlpha = og.opacity/100; rctx.globalCompositeOperation='lighter'; rctx.drawImage(glowCanvas,0,0); rctx.restore();
+  }
+
+  const content = document.createElement('canvas'); content.width=w; content.height=h;
+  const cctx = content.getContext('2d'); cctx.drawImage(src,0,0);
+
+  if(effects.bevelEmboss.enabled) applyBevelEmboss(cctx, content, effects.bevelEmboss);
+  if(effects.colorOverlay.enabled){
+    const co = effects.colorOverlay;
+    cctx.save(); cctx.globalCompositeOperation='source-atop'; cctx.globalAlpha = co.opacity/100;
+    cctx.fillStyle = co.color; cctx.fillRect(0,0,w,h); cctx.restore();
+  }
+  if(effects.gradientOverlay.enabled){
+    const go = effects.gradientOverlay;
+    const rad = go.angle*Math.PI/180;
+    const x1 = w/2-Math.cos(rad)*w, y1 = h/2-Math.sin(rad)*h, x2 = w/2+Math.cos(rad)*w, y2 = h/2+Math.sin(rad)*h;
+    const grad = cctx.createLinearGradient(x1,y1,x2,y2);
+    grad.addColorStop(0, go.colorA); grad.addColorStop(1, go.colorB);
+    cctx.save(); cctx.globalCompositeOperation='source-atop'; cctx.globalAlpha = go.opacity/100;
+    cctx.fillStyle = grad; cctx.fillRect(0,0,w,h); cctx.restore();
+  }
+  if(effects.innerShadow.enabled) applyInnerShadow(cctx, content, effects.innerShadow);
+  if(effects.innerGlow.enabled) applyInnerGlow(cctx, content, effects.innerGlow);
+  if(effects.stroke.enabled) applyOuterStroke(rctx, content, effects.stroke);
+
+  rctx.drawImage(content, 0, 0);
+  return result;
 }
 function renderMapComposite(mapId){
   const map = State.maps[mapId];
@@ -839,6 +1045,27 @@ function selectTool(id){
   const names = {}; TOOLS.forEach(t=>{ if(!t.sep) names[t.id]=t.name; });
   document.getElementById('status-tool').textContent = names[id] || id;
   renderToolOptions(); renderSelectionOverlay();
+  updateCanvasCursorStyle(); refreshBrushCursor();
+}
+
+function buildBrushPresetPicker(body, cfg){
+  const label = document.createElement('div'); label.className='brush-preset-label'; label.textContent='Texture';
+  body.appendChild(label);
+  const grid = document.createElement('div'); grid.className='brush-preset-grid';
+  for(const p of BRUSH_PRESETS){
+    const btn = document.createElement('button');
+    btn.className = 'brush-preset-btn'+((cfg.preset||'soft')===p.id?' active':'');
+    btn.title = p.name;
+    const img = document.createElement('img'); img.src = getPresetThumb(p.id);
+    btn.appendChild(img);
+    btn.addEventListener('click', ()=>{ cfg.preset = p.id; renderToolOptions(); });
+    grid.appendChild(btn);
+  }
+  const addBtn = document.createElement('button'); addBtn.className = 'brush-preset-btn add-texture-btn';
+  addBtn.title = 'Import a texture image to use as a brush tip'; addBtn.textContent = '+ Import Texture…';
+  addBtn.addEventListener('click', importTextureBrush);
+  grid.appendChild(addBtn);
+  body.appendChild(grid);
 }
 
 function renderToolOptions(){
@@ -848,7 +1075,7 @@ function renderToolOptions(){
     const label = document.createElement('label'); label.textContent = labelText;
     const input = document.createElement('input'); input.type='range'; input.min=min; input.max=max; input.value=val;
     const valSpan = document.createElement('span'); valSpan.className='val'; valSpan.textContent = val+(suffix||'');
-    input.addEventListener('input', ()=>{ valSpan.textContent = input.value+(suffix||''); onInput(Number(input.value)); });
+    input.addEventListener('input', ()=>{ valSpan.textContent = input.value+(suffix||''); onInput(Number(input.value)); refreshBrushCursor(); });
     row.append(label,input,valSpan); body.appendChild(row);
   }
   function hint(text){ const p=document.createElement('div'); p.style.cssText='font-size:11.5px;color:var(--text-muted);line-height:1.5;'; p.textContent=text; body.appendChild(p); }
@@ -857,6 +1084,7 @@ function renderToolOptions(){
     sliderRow('Size', 1, 300, State.brush.size, v=>State.brush.size=v, 'px');
     sliderRow('Opacity', 1, 100, State.brush.opacity, v=>State.brush.opacity=v, '%');
     sliderRow('Hardness', 0, 100, State.brush.hardness, v=>State.brush.hardness=v, '%');
+    buildBrushPresetPicker(body, State.brush);
   } else if(State.tool==='pencil'){
     sliderRow('Size', 1, 60, State.pencil.size, v=>State.pencil.size=v, 'px');
     hint('Solid, hard-edged pixels — no softness or opacity falloff. Good for panel lines and trim.');
@@ -864,6 +1092,7 @@ function renderToolOptions(){
     sliderRow('Size', 1, 300, State.eraser.size, v=>State.eraser.size=v, 'px');
     sliderRow('Opacity', 1, 100, State.eraser.opacity, v=>State.eraser.opacity=v, '%');
     sliderRow('Hardness', 0, 100, State.eraser.hardness, v=>State.eraser.hardness=v, '%');
+    buildBrushPresetPicker(body, State.eraser);
   } else if(State.tool==='mask-select'){
     sliderRow('Size', 2, 400, State.maskSelect.size, v=>State.maskSelect.size=v, 'px');
     sliderRow('Hardness', 0, 100, State.maskSelect.hardness, v=>State.maskSelect.hardness=v, '%');
@@ -923,6 +1152,43 @@ document.getElementById('hex-input').addEventListener('change', (e)=>{
   if(/^#[0-9a-fA-F]{6}$/.test(v)) setColor(v);
 });
 
+/* ============================= Normal Brush (directional palette) ============================= */
+const NORMAL_DIRECTIONS = [
+  {label:'↖', nx:-1, ny:-1}, {label:'↑', nx:0, ny:-1}, {label:'↗', nx:1, ny:-1},
+  {label:'←', nx:-1, ny:0},  {label:'flat', nx:0, ny:0, center:true}, {label:'→', nx:1, ny:0},
+  {label:'↙', nx:-1, ny:1},  {label:'↓', nx:0, ny:1},  {label:'↘', nx:1, ny:1},
+];
+function normalDirColor(nxRaw, nyRaw, strengthPct){
+  const s = strengthPct/100;
+  let nx = nxRaw*s, ny = nyRaw*s;
+  const len = Math.hypot(nx,ny);
+  if(len>1){ nx/=len; ny/=len; }
+  const nz = Math.sqrt(Math.max(0, 1-nx*nx-ny*ny));
+  const r = Math.round((nx*0.5+0.5)*255), g = Math.round((ny*0.5+0.5)*255), b = Math.round((nz*0.5+0.5)*255);
+  return '#'+[r,g,b].map(v=>v.toString(16).padStart(2,'0')).join('');
+}
+function renderNormalDirGrid(){
+  const grid = document.getElementById('normal-dir-grid'); grid.innerHTML = '';
+  const strength = Number(document.getElementById('normal-tilt-strength').value);
+  for(const d of NORMAL_DIRECTIONS){
+    const btn = document.createElement('button'); btn.className = 'normal-dir-btn'+(d.center?' center':'');
+    const color = normalDirColor(d.nx, d.ny, strength);
+    btn.style.background = color; btn.title = color;
+    if(d.center) btn.textContent = '•';
+    btn.addEventListener('click', ()=> setColor(color));
+    grid.appendChild(btn);
+  }
+}
+document.getElementById('normal-tilt-strength').addEventListener('input', (e)=>{
+  document.getElementById('normal-tilt-val').textContent = e.target.value+'%';
+  renderNormalDirGrid();
+});
+function updateNormalBrushPanelVisibility(){
+  const map = CM();
+  document.getElementById('normal-brush-panel').style.display = (map && map.kind==='normal') ? 'block' : 'none';
+  if(map && map.kind==='normal') renderNormalDirGrid();
+}
+
 /* ============================= Map tabs ============================= */
 function renderMapTabs(){
   const bar = document.getElementById('maptabs'); bar.innerHTML = '';
@@ -955,6 +1221,7 @@ function deleteMap(id){
 
 /* ============================= Layers panel ============================= */
 function renderLayerPanel(){
+  updateNormalBrushPanelVisibility();
   const map = CM();
   document.getElementById('active-map-kind-label').innerHTML =
     `<span class="map-dot${map.kind==='orm'?' orm':''}" style="${map.kind==='orm'?'':'background:'+(KINDS[map.kind]||KINDS.custom).dot}"></span>${KIND_HINTS[map.kind]||''}`;
@@ -1143,9 +1410,208 @@ function stampPencil(ctx, x, y, size, color){
   ctx.beginPath(); ctx.arc(Math.round(x), Math.round(y), Math.max(0.5,size/2), 0, Math.PI*2); ctx.fill();
   ctx.restore();
 }
-function drawStampLine(ctx, from, to, size, stampFn){
+
+/* ============================= Brush texture presets ============================= */
+const BRUSH_PRESETS = [
+  {id:'soft',     name:'Soft Round',      step:0.18},
+  {id:'hard',     name:'Hard Round',      step:0.18},
+  {id:'grunge',   name:'Grunge Texture',  step:0.12},
+  {id:'scatter',  name:'Scatter Dots',    step:0.22},
+  {id:'spray',    name:'Airbrush Spray',  step:0.15},
+  {id:'chalk',    name:'Chalk / Charcoal',step:0.12},
+  {id:'splatter', name:'Splatter',        step:0.32},
+  {id:'foliage',  name:'Foliage Stamp',   step:0.28},
+];
+function presetStepMultiplier(id){ const p = BRUSH_PRESETS.find(p=>p.id===id); return p ? p.step : 0.18; }
+
+function stampHard(ctx, x, y, size, opacity, color, erase){
+  ctx.save();
+  ctx.globalCompositeOperation = erase ? 'destination-out' : 'source-over';
+  ctx.globalAlpha = opacity/100;
+  ctx.fillStyle = erase ? '#000000' : color;
+  ctx.beginPath(); ctx.arc(x,y,size/2,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+function stampGrunge(ctx, x, y, size, opacity, color, erase){
+  const r = size/2;
+  ctx.save(); ctx.globalCompositeOperation = erase ? 'destination-out' : 'source-over';
+  const dabs = Math.max(6, Math.floor(size/3));
+  for(let i=0;i<dabs;i++){
+    const ang = Math.random()*Math.PI*2, rad = Math.random()*r;
+    const dx = Math.cos(ang)*rad, dy = Math.sin(ang)*rad;
+    const dotR = Math.max(0.5, r*(0.08+Math.random()*0.18));
+    ctx.globalAlpha = Math.max(0, Math.min(1, (opacity/100)*(0.15+Math.random()*0.35)*(1-rad/r*0.5)));
+    ctx.fillStyle = erase ? '#000000' : color;
+    ctx.beginPath(); ctx.arc(x+dx,y+dy,dotR,0,Math.PI*2); ctx.fill();
+  }
+  ctx.restore();
+}
+function stampScatter(ctx, x, y, size, opacity, color, erase){
+  const r = size/2;
+  ctx.save(); ctx.globalCompositeOperation = erase ? 'destination-out' : 'source-over';
+  const dabs = Math.max(3, Math.floor(size/5));
+  for(let i=0;i<dabs;i++){
+    const ang = Math.random()*Math.PI*2, rad = Math.random()*r;
+    const dx = Math.cos(ang)*rad, dy = Math.sin(ang)*rad;
+    const dotR = Math.max(0.6, r*0.14*(0.5+Math.random()));
+    ctx.globalAlpha = opacity/100; ctx.fillStyle = erase ? '#000000' : color;
+    ctx.beginPath(); ctx.arc(x+dx,y+dy,dotR,0,Math.PI*2); ctx.fill();
+  }
+  ctx.restore();
+}
+function stampSpray(ctx, x, y, size, opacity, color, erase){
+  const r = size/2;
+  ctx.save(); ctx.globalCompositeOperation = erase ? 'destination-out' : 'source-over';
+  const dabs = Math.max(10, Math.floor(size*0.9));
+  for(let i=0;i<dabs;i++){
+    const ang = Math.random()*Math.PI*2, rad = Math.sqrt(Math.random())*r;
+    const dx = Math.cos(ang)*rad, dy = Math.sin(ang)*rad;
+    ctx.globalAlpha = (opacity/100)*(0.25+Math.random()*0.35);
+    ctx.fillStyle = erase ? '#000000' : color;
+    ctx.beginPath(); ctx.arc(x+dx,y+dy, Math.max(0.4, r*0.04),0,Math.PI*2); ctx.fill();
+  }
+  ctx.restore();
+}
+function stampChalk(ctx, x, y, size, opacity, color, erase){
+  const r = size/2;
+  ctx.save(); ctx.globalCompositeOperation = erase ? 'destination-out' : 'source-over';
+  const dabs = Math.max(8, Math.floor(size/2.5));
+  for(let i=0;i<dabs;i++){
+    const ang = Math.random()*Math.PI*2, rad = Math.random()*r*0.9;
+    const dx = Math.cos(ang)*rad, dy = Math.sin(ang)*rad;
+    const dotR = Math.max(0.4, r*(0.04+Math.random()*0.10));
+    ctx.globalAlpha = (opacity/100)*(0.3+Math.random()*0.5);
+    ctx.fillStyle = erase ? '#000000' : color;
+    ctx.beginPath(); ctx.arc(x+dx,y+dy,dotR,0,Math.PI*2); ctx.fill();
+  }
+  ctx.restore();
+}
+function stampSplatter(ctx, x, y, size, opacity, color, erase){
+  const r = size/2;
+  ctx.save(); ctx.globalCompositeOperation = erase ? 'destination-out' : 'source-over';
+  const blobs = Math.max(3, Math.floor(size/8));
+  for(let i=0;i<blobs;i++){
+    const ang = Math.random()*Math.PI*2, rad = Math.pow(Math.random(),0.5)*r*1.4;
+    const dx = Math.cos(ang)*rad, dy = Math.sin(ang)*rad;
+    const blobR = Math.max(0.8, r*(0.1+Math.random()*0.28));
+    ctx.globalAlpha = opacity/100; ctx.fillStyle = erase ? '#000000' : color;
+    ctx.beginPath(); ctx.arc(x+dx,y+dy,blobR,0,Math.PI*2); ctx.fill();
+  }
+  ctx.restore();
+}
+function stampFoliage(ctx, x, y, size, opacity, color, erase){
+  const r = size/2;
+  ctx.save(); ctx.globalCompositeOperation = erase ? 'destination-out' : 'source-over';
+  const leaves = Math.max(4, Math.floor(size/4));
+  for(let i=0;i<leaves;i++){
+    const ang = Math.random()*Math.PI*2, rad = Math.random()*r;
+    const dx = Math.cos(ang)*rad, dy = Math.sin(ang)*rad;
+    const leafW = Math.max(1, r*(0.08+Math.random()*0.14));
+    const leafH = leafW*(1.6+Math.random());
+    ctx.globalAlpha = (opacity/100)*(0.5+Math.random()*0.5);
+    ctx.fillStyle = erase ? '#000000' : color;
+    ctx.save(); ctx.translate(x+dx,y+dy); ctx.rotate(Math.random()*Math.PI*2);
+    ctx.beginPath(); ctx.ellipse(0,0,leafW,leafH,0,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+function stampByPreset(preset, ctx, x, y, size, hardness, opacity, color, erase){
+  const presetDef = BRUSH_PRESETS.find(p=>p.id===preset);
+  if(presetDef && presetDef.isCustom){ stampTexture(ctx,x,y,size,opacity,color,erase,presetDef.textureCanvas,presetDef.id); return; }
+  switch(preset){
+    case 'hard': stampHard(ctx,x,y,size,opacity,color,erase); break;
+    case 'grunge': stampGrunge(ctx,x,y,size,opacity,color,erase); break;
+    case 'scatter': stampScatter(ctx,x,y,size,opacity,color,erase); break;
+    case 'spray': stampSpray(ctx,x,y,size,opacity,color,erase); break;
+    case 'chalk': stampChalk(ctx,x,y,size,opacity,color,erase); break;
+    case 'splatter': stampSplatter(ctx,x,y,size,opacity,color,erase); break;
+    case 'foliage': stampFoliage(ctx,x,y,size,opacity,color,erase); break;
+    default: stampBrush(ctx,x,y,size,hardness,opacity,color,erase);
+  }
+}
+
+/* ---- Custom texture brushes (built from a user-provided image) ---- */
+const textureStampCache = new Map();
+function getTintedTextureStamp(textureCanvas, textureId, size, color){
+  const key = textureId+'|'+size+'|'+color;
+  if(textureStampCache.has(key)) return textureStampCache.get(key);
+  const s = Math.max(2, Math.round(size));
+  const tmp = document.createElement('canvas'); tmp.width = s; tmp.height = s;
+  const tctx = tmp.getContext('2d', {willReadFrequently:true});
+  tctx.drawImage(textureCanvas, 0, 0, s, s);
+  const img = tctx.getImageData(0,0,s,s); const d = img.data;
+  const rgb = hexToRgb(color);
+  for(let i=0;i<d.length;i+=4){
+    const lum = d[i]*0.299+d[i+1]*0.587+d[i+2]*0.114;
+    const a = (lum/255) * (d[i+3]/255) * 255;
+    d[i]=rgb.r; d[i+1]=rgb.g; d[i+2]=rgb.b; d[i+3]=a;
+  }
+  tctx.putImageData(img,0,0);
+  if(textureStampCache.size>40) textureStampCache.delete(textureStampCache.keys().next().value);
+  textureStampCache.set(key, tmp);
+  return tmp;
+}
+function stampTexture(ctx, x, y, size, opacity, color, erase, textureCanvas, textureId){
+  const stamp = getTintedTextureStamp(textureCanvas, textureId, size, erase ? '#000000' : color);
+  ctx.save();
+  ctx.globalCompositeOperation = erase ? 'destination-out' : 'source-over';
+  ctx.globalAlpha = opacity/100;
+  ctx.drawImage(stamp, x-size/2, y-size/2, size, size);
+  ctx.restore();
+}
+let customBrushCounter = 1;
+function addCustomBrushFromDataUrl(dataUrl, name){
+  const img = new Image();
+  img.onload = ()=>{
+    const size = 128;
+    const c = document.createElement('canvas'); c.width=size; c.height=size;
+    const ctx = c.getContext('2d');
+    const scale = Math.min(size/img.width, size/img.height);
+    const dw = img.width*scale, dh = img.height*scale;
+    ctx.drawImage(img, (size-dw)/2, (size-dh)/2, dw, dh);
+    const id = 'custom_'+(customBrushCounter++);
+    BRUSH_PRESETS.push({ id, name: (name||'Texture').replace(/\.[^.]+$/,''), step:0.15, isCustom:true, textureCanvas:c });
+    const cfg = (State.tool==='eraser') ? State.eraser : State.brush;
+    cfg.preset = id;
+    renderToolOptions();
+    toast('Added brush texture "'+(name||'texture')+'"');
+  };
+  img.src = dataUrl;
+}
+async function importTextureBrush(){
+  if(isElectron){
+    const filePath = await window.vellumAPI.openFileDialog();
+    if(!filePath) return;
+    const dataUrl = await window.vellumAPI.readImageFile(filePath);
+    addCustomBrushFromDataUrl(dataUrl, filePath.split(/[\\/]/).pop());
+  } else {
+    document.getElementById('hidden-brush-file-input').click();
+  }
+}
+document.getElementById('hidden-brush-file-input').addEventListener('change', (e)=>{
+  const file = e.target.files[0]; if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ()=> addCustomBrushFromDataUrl(reader.result, file.name);
+  reader.readAsDataURL(file);
+  e.target.value = '';
+});
+const presetThumbCache = {};
+function getPresetThumb(id){
+  if(presetThumbCache[id]) return presetThumbCache[id];
+  const c = document.createElement('canvas'); c.width = 160; c.height = 26;
+  const ctx = c.getContext('2d');
+  const size = 15, hardness = 70, opacity = 95, color = '#e8e3d8';
+  const from = {x:8, y:13}, to = {x:152, y:13};
+  stampByPreset(id, ctx, from.x, from.y, size, hardness, opacity, color, false);
+  drawStampLine(ctx, from, to, size*(presetStepMultiplier(id)<0.2?1:0.6), (px,py)=>stampByPreset(id, ctx, px, py, size, hardness, opacity, color, false));
+  const url = c.toDataURL();
+  presetThumbCache[id] = url;
+  return url;
+}
+function drawStampLine(ctx, from, to, size, stampFn, stepMul){
   const dist = Math.hypot(to.x-from.x, to.y-from.y);
-  const step = Math.max(1, size*0.18);
+  const step = Math.max(1, size*(stepMul||0.18));
   const steps = Math.max(1, Math.floor(dist/step));
   for(let i=0;i<=steps;i++){ const t=i/steps; stampFn(from.x+(to.x-from.x)*t, from.y+(to.y-from.y)*t); }
 }
@@ -1225,7 +1691,7 @@ mainCanvas.addEventListener('pointerdown', (e)=>{
     drawing = true; beginStroke();
     const ctx = targetCtx(); ctx.save(); clipToSelection(ctx);
     if(State.tool==='pencil') stampPencil(ctx, pt.x, pt.y, State.pencil.size, State.color);
-    else { const cfg = State.tool==='brush'?State.brush:State.eraser; stampBrush(ctx, pt.x, pt.y, cfg.size, cfg.hardness, cfg.opacity, State.color, State.tool==='eraser'); }
+    else { const cfg = State.tool==='brush'?State.brush:State.eraser; stampByPreset(cfg.preset||'soft', ctx, pt.x, pt.y, cfg.size, cfg.hardness, cfg.opacity, State.color, State.tool==='eraser'); }
     ctx.restore(); composite();
   } else if(State.tool==='fill'){
     beginStroke(); const ctx = targetCtx(); ctx.save(); clipToSelection(ctx);
@@ -1281,7 +1747,7 @@ mainCanvas.addEventListener('pointermove', (e)=>{
   if(State.tool==='brush' || State.tool==='eraser' || State.tool==='pencil'){
     const ctx = targetCtx(); ctx.save(); clipToSelection(ctx);
     if(State.tool==='pencil') drawStampLine(ctx, lastPt, pt, State.pencil.size, (x,y)=>stampPencil(ctx,x,y,State.pencil.size,State.color));
-    else { const cfg = State.tool==='brush'?State.brush:State.eraser; drawStampLine(ctx, lastPt, pt, cfg.size, (x,y)=>stampBrush(ctx,x,y,cfg.size,cfg.hardness,cfg.opacity,State.color,State.tool==='eraser')); }
+    else { const cfg = State.tool==='brush'?State.brush:State.eraser; drawStampLine(ctx, lastPt, pt, cfg.size, (x,y)=>stampByPreset(cfg.preset||'soft',ctx,x,y,cfg.size,cfg.hardness,cfg.opacity,State.color,State.tool==='eraser'), presetStepMultiplier(cfg.preset)); }
     ctx.restore(); lastPt = pt; composite();
   } else if(State.tool==='marquee-rect' || State.tool==='marquee-ellipse'){
     map.selection.w = pt.x - map.selection.x; map.selection.h = pt.y - map.selection.y; renderSelectionOverlay();
@@ -1347,6 +1813,36 @@ window.addEventListener('pointerup', (e)=>{
 });
 wrap.addEventListener('wheel', (e)=>{ if(e.ctrlKey || e.metaKey){ e.preventDefault(); setZoom(State.zoom * (e.deltaY<0 ? 1.1 : 0.9)); } }, {passive:false});
 
+/* ============================= Brush-size cursor (Clip Studio style) ============================= */
+const brushCursorEl = document.getElementById('brush-cursor');
+let lastClientPt = null;
+function currentBrushCursorSize(){
+  if(State.tool==='brush') return State.brush.size;
+  if(State.tool==='pencil') return State.pencil.size;
+  if(State.tool==='eraser') return State.eraser.size;
+  if(State.tool==='mask-select') return State.maskSelect.size;
+  return null;
+}
+function refreshBrushCursor(){
+  const size = currentBrushCursorSize();
+  if(size==null || !lastClientPt){ brushCursorEl.style.display='none'; return; }
+  const diameter = Math.max(2, size * State.zoom);
+  brushCursorEl.style.width = diameter+'px';
+  brushCursorEl.style.height = diameter+'px';
+  brushCursorEl.style.left = lastClientPt.x+'px';
+  brushCursorEl.style.top = lastClientPt.y+'px';
+  brushCursorEl.style.display = 'block';
+}
+function updateCanvasCursorStyle(){
+  const hide = currentBrushCursorSize()!=null;
+  mainCanvas.classList.toggle('cursor-none', hide);
+  overlayCanvas.classList.toggle('cursor-none', hide);
+  if(!hide) brushCursorEl.style.display = 'none';
+}
+wrap.addEventListener('pointermove', (e)=>{ lastClientPt = {x:e.clientX, y:e.clientY}; refreshBrushCursor(); });
+wrap.addEventListener('pointerenter', (e)=>{ lastClientPt = {x:e.clientX, y:e.clientY}; updateCanvasCursorStyle(); refreshBrushCursor(); });
+wrap.addEventListener('pointerleave', ()=>{ lastClientPt = null; brushCursorEl.style.display='none'; });
+
 /* ============================= Pen tool: finish / rasterize ============================= */
 function finishPenPath(closed){
   CM().vectorPath = { points: penDraft.points.slice(), closed };
@@ -1393,7 +1889,7 @@ function openTextInput(pt){
 }
 
 /* ============================= Zoom ============================= */
-function setZoom(z){ State.zoom = Math.max(0.05, Math.min(16, z)); resizeStage(); document.getElementById('zoom-val').textContent = Math.round(State.zoom*100)+'%'; }
+function setZoom(z){ State.zoom = Math.max(0.05, Math.min(16, z)); resizeStage(); document.getElementById('zoom-val').textContent = Math.round(State.zoom*100)+'%'; refreshBrushCursor(); }
 function zoomFit(){ const availW = wrap.clientWidth - 40, availH = wrap.clientHeight - 40; setZoom(Math.min(availW/State.width, availH/State.height, 4)); }
 
 /* ============================= Filters ============================= */
@@ -1566,6 +2062,9 @@ document.body.addEventListener('click', (e)=>{
   const action = actionEl.dataset.action;
   document.querySelectorAll('.menu.open').forEach(m=>m.classList.remove('open'));
   switch(action){
+    case 'open-project': openProject(); break;
+    case 'save-project': saveProject(false); break;
+    case 'save-project-as': saveProject(true); break;
     case 'new-canvas': showModal('modal-new'); break;
     case 'create-canvas': createNewCanvas(); break;
     case 'import': doImport(); break;
@@ -1734,6 +2233,117 @@ document.getElementById('hidden-file-input').addEventListener('change', (e)=>{
 /* ============================= Export (browser + Electron) ============================= */
 function canvasToBlob(canvas, mime, quality){ return new Promise(res => canvas.toBlob(res, mime, quality)); }
 
+/* ============================= Project file (.vellum) — Save / Save As / Open ============================= */
+function serializeProject(){
+  const mapsOut = {};
+  for(const id of State.mapOrder){
+    const m = State.maps[id];
+    mapsOut[id] = {
+      id: m.id, name: m.name, kind: m.kind, activeLayerIndex: m.activeLayerIndex,
+      layers: m.layers.map(l=>({
+        id: l.id, name: l.name, visible: l.visible, opacity: l.opacity, blend: l.blend,
+        bgMode: l.bgMode, bgColor: l.bgColor,
+        dataURL: l.canvas.toDataURL('image/png'),
+        maskDataURL: l.mask ? l.mask.canvas.toDataURL('image/png') : null,
+      })),
+    };
+  }
+  const customBrushes = BRUSH_PRESETS.filter(p=>p.isCustom).map(p=>({ id:p.id, name:p.name, step:p.step, dataURL:p.textureCanvas.toDataURL('image/png') }));
+  return JSON.stringify({
+    vellumProject: true, version: 1, width: State.width, height: State.height,
+    mapOrder: State.mapOrder.slice(), activeMapId: State.activeMapId,
+    mapCounter: State.mapCounter, nextLayerId: State.nextLayerId,
+    maps: mapsOut, customBrushes,
+  });
+}
+function loadImageAsync(dataUrl){ return new Promise((resolve,reject)=>{ const img=new Image(); img.onload=()=>resolve(img); img.onerror=reject; img.src=dataUrl; }); }
+
+async function loadProjectFromJSON(jsonText){
+  let data;
+  try{ data = JSON.parse(jsonText); } catch(err){ toast('Could not read that project file.'); return; }
+  if(!data || !data.vellumProject){ toast('Not a valid Vellum project file.'); return; }
+
+  State.width = data.width; State.height = data.height;
+  State.maps = {}; State.mapOrder = data.mapOrder.slice(); State.activeMapId = data.activeMapId;
+  State.mapCounter = data.mapCounter || 1; State.nextLayerId = data.nextLayerId || 1;
+
+  for(const id of State.mapOrder){
+    const md = data.maps[id];
+    const layers = [];
+    for(const ld of md.layers){
+      const c = document.createElement('canvas'); c.width = State.width; c.height = State.height;
+      const ctx = c.getContext('2d', {willReadFrequently:true});
+      const img = await loadImageAsync(ld.dataURL); ctx.drawImage(img,0,0);
+      let mask = null;
+      if(ld.maskDataURL){
+        const mc = document.createElement('canvas'); mc.width = State.width; mc.height = State.height;
+        const mctx = mc.getContext('2d', {willReadFrequently:true});
+        const mimg = await loadImageAsync(ld.maskDataURL); mctx.drawImage(mimg,0,0);
+        mask = { canvas: mc, ctx: mctx };
+      }
+      layers.push({ id: ld.id, name: ld.name, canvas: c, ctx, visible: ld.visible, opacity: ld.opacity, blend: ld.blend,
+        mask, activeTarget: 'content', bgMode: ld.bgMode, bgColor: ld.bgColor });
+    }
+    State.maps[id] = { id: md.id, name: md.name, kind: md.kind, layers, activeLayerIndex: md.activeLayerIndex,
+      selection: null, vectorPath: null, undoStack: [], redoStack: [] };
+  }
+
+  if(Array.isArray(data.customBrushes)){
+    for(const cb of data.customBrushes){
+      if(BRUSH_PRESETS.some(p=>p.id===cb.id)) continue;
+      const img = await loadImageAsync(cb.dataURL);
+      const c = document.createElement('canvas'); c.width=128; c.height=128;
+      c.getContext('2d').drawImage(img,0,0,128,128);
+      BRUSH_PRESETS.push({ id: cb.id, name: cb.name, step: cb.step||0.15, isCustom:true, textureCanvas:c });
+      const num = parseInt(String(cb.id).replace('custom_',''),10);
+      if(!isNaN(num) && num>=customBrushCounter) customBrushCounter = num+1;
+    }
+  }
+
+  resizeStage(); composite(); renderLayerPanel(); renderMapTabs(); updateMenuStates(); renderToolOptions();
+  requestAnimationFrame(zoomFit);
+}
+async function saveProject(forcePrompt){
+  const json = serializeProject();
+  if(isElectron){
+    let filePath = State.projectFilePath;
+    if(forcePrompt || !filePath){
+      filePath = await window.vellumAPI.saveProjectDialog(State.projectName || 'untitled');
+      if(!filePath) return;
+    }
+    await window.vellumAPI.saveTextFile(filePath, json);
+    State.projectFilePath = filePath;
+    State.projectName = filePath.split(/[\\/]/).pop().replace(/\.vellum$/i,'');
+    toast('Saved '+filePath.split(/[\\/]/).pop());
+  } else {
+    const filename = (State.projectName || 'untitled')+'.vellum';
+    const blob = new Blob([json], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href=url; a.download=filename;
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    toast('Downloaded '+filename+' — use Open Project to reload it.');
+  }
+}
+async function openProject(){
+  if(isElectron){
+    const filePath = await window.vellumAPI.openProjectDialog();
+    if(!filePath) return;
+    const text = await window.vellumAPI.readTextFile(filePath);
+    await loadProjectFromJSON(text);
+    State.projectFilePath = filePath;
+    State.projectName = filePath.split(/[\\/]/).pop().replace(/\.vellum$/i,'');
+  } else {
+    document.getElementById('hidden-project-file-input').click();
+  }
+}
+document.getElementById('hidden-project-file-input').addEventListener('change', (e)=>{
+  const file = e.target.files[0]; if(!file) return;
+  const reader = new FileReader();
+  reader.onload = async ()=>{ await loadProjectFromJSON(reader.result); State.projectName = file.name.replace(/\.vellum$/i,''); };
+  reader.readAsText(file);
+  e.target.value = '';
+});
+
 async function doExport(){
   const title = document.getElementById('export-title').textContent;
   const isAll = title.includes('All Maps'); const isJpg = title.includes('JPEG');
@@ -1847,6 +2457,7 @@ window.addEventListener('keydown', (e)=>{
     g:'fill', i:'eyedropper', t:'text', u:'rect', l:'line', p:'pen', h:'pan', z:'zoom' };
   if(mod && key==='z' && !e.shiftKey){ e.preventDefault(); undo(); return; }
   if(mod && ((key==='z' && e.shiftKey) || key==='y')){ e.preventDefault(); redo(); return; }
+  if(mod && key==='s'){ e.preventDefault(); saveProject(e.shiftKey); return; }
   if(mod && key==='a'){ e.preventDefault(); CM().selection = {type:'rect', x:0,y:0,w:State.width,h:State.height}; renderSelectionOverlay(); return; }
   if(mod && key==='d'){ e.preventDefault(); CM().selection=null; renderSelectionOverlay(); return; }
   if(mod && key==='n'){ e.preventDefault(); e.shiftKey ? addLayer() : showModal('modal-new'); return; }
@@ -1863,6 +2474,7 @@ function init(){
   map.layers[0] = makeLayer('Background', '#ffffff');
   State.activeMapId = map.id;
   resizeStage(); composite(); renderLayerPanel(); renderMapTabs(); selectTool('brush'); updateMenuStates();
+  updateCanvasCursorStyle();
   if(isElectron) toast('Connected to desktop file system');
   requestAnimationFrame(zoomFit);
 }
