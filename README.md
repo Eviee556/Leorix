@@ -1,5 +1,3 @@
-# Vellum
-
 # Vellum — PBR Texture Editor 
 
 **Vellum** is a professional‑grade texture editing application built for game developers and 3D artists. It combines the layer‑based workflow of Photoshop with the channel‑packing and normal‑map generation power of xNormal — all in a lightweight, cross‑platform desktop app.
