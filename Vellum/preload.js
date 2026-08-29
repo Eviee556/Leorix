@@ -5,6 +5,8 @@ contextBridge.exposeInMainWorld('vellumAPI', {
   openFileDialog: () => ipcRenderer.invoke('open-file-dialog'),
   saveFileDialog: (filename, format) => ipcRenderer.invoke('save-file-dialog', filename, format),
   selectFolderDialog: () => ipcRenderer.invoke('select-folder-dialog'),
+  saveProjectDialog: (filename) => ipcRenderer.invoke('save-project-dialog', filename),
+  openProjectDialog: () => ipcRenderer.invoke('open-project-dialog'),
   joinPath: (...parts) => path.join(...parts),
   readImageFile: async (filePath) => {
     const fs = require('fs');
@@ -15,5 +17,13 @@ contextBridge.exposeInMainWorld('vellumAPI', {
   saveImageFile: (filePath, buffer) => {
     const fs = require('fs');
     fs.writeFileSync(filePath, Buffer.from(buffer));
+  },
+  readTextFile: (filePath) => {
+    const fs = require('fs');
+    return fs.readFileSync(filePath, 'utf8');
+  },
+  saveTextFile: (filePath, text) => {
+    const fs = require('fs');
+    fs.writeFileSync(filePath, text, 'utf8');
   }
 });
