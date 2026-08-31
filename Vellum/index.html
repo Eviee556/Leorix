@@ -239,6 +239,55 @@
     display:flex; align-items:center; justify-content:center; font-size:13px; color:rgba(0,0,0,.55);}
   .normal-dir-btn:hover{border-color:var(--brass);}
   .normal-dir-btn.center{color:rgba(0,0,0,.35); font-size:10px;}
+  /* ---- Custom window controls (frameless) ---- */
+  #win-controls{margin-left:auto; display:flex; gap:2px; -webkit-app-region:no-drag;}
+  #win-controls button{width:34px; height:26px; background:none; border:none; color:var(--text-muted);
+    cursor:pointer; border-radius:3px; display:flex; align-items:center; justify-content:center;}
+  #win-controls button svg{width:11px; height:11px; stroke:currentColor; fill:none; stroke-width:1.4;}
+  #win-controls button:hover{background:var(--panel-alt); color:var(--text);}
+  #win-controls button.close:hover{background:var(--danger); color:#fff;}
+  /* ---- UV / stats rows ---- */
+  .uv-row{display:flex; align-items:center; gap:8px; margin-bottom:8px;}
+  .uv-row input[type=checkbox]{accent-color:var(--brass); width:14px; height:14px;}
+  .uv-row label{flex:1; font-size:12px; color:var(--text-muted); width:auto;}
+  /* ---- Rigging, weights, timeline ---- */
+  .rig-marker-list{display:flex; flex-direction:column; gap:3px; max-height:190px; overflow-y:auto; margin-bottom:8px;}
+  .rig-marker-row{display:flex; align-items:center; gap:6px; padding:4px 6px; border-radius:4px;
+    background:var(--panel-alt); border:1px solid transparent; cursor:pointer; font-size:11.5px;}
+  .rig-marker-row:hover{border-color:var(--brass-dim);}
+  .rig-marker-row.active{border-color:var(--brass); background:rgba(201,138,75,.14);}
+  .rig-marker-row.placed .rig-dot{background:var(--verdigris);}
+  .rig-dot{width:8px; height:8px; border-radius:50%; background:var(--border); flex-shrink:0;}
+  .rig-marker-row .rig-name{flex:1;}
+  .rig-marker-row .rig-coord{font-family:ui-monospace,monospace; font-size:9.5px; color:var(--text-muted);}
+  .bone-list{display:flex; flex-direction:column; gap:3px; max-height:170px; overflow-y:auto; margin-bottom:8px;}
+  .bone-row{display:flex; align-items:center; gap:6px; padding:4px 6px; border-radius:4px; background:var(--panel-alt);
+    border:1px solid transparent; cursor:pointer; font-size:11.5px;}
+  .bone-row:hover{border-color:var(--brass-dim);}
+  .bone-row.active{border-color:var(--brass); background:rgba(201,138,75,.14);}
+  #timeline{height:74px; background:var(--panel); border-top:1px solid var(--border); flex-shrink:0;
+    display:none; flex-direction:column; padding:6px 10px;}
+  #timeline.show{display:flex;}
+  #timeline-bar{display:flex; align-items:center; gap:7px; margin-bottom:5px;}
+  #timeline-bar button{background:var(--panel-alt); border:1px solid var(--border); color:var(--text-muted);
+    border-radius:3px; padding:3px 9px; font-size:11px; cursor:pointer; font-family:ui-monospace,monospace;}
+  #timeline-bar button:hover{color:var(--text); border-color:var(--brass-dim);}
+  #timeline-bar button.active{background:var(--brass-dim); color:#fff; border-color:var(--brass-dim);}
+  #timeline-bar .spacer{flex:1;}
+  #timeline-bar span{font-size:11px; color:var(--text-muted); font-family:ui-monospace,monospace;}
+  #timeline-track{position:relative; height:26px; background:var(--panel-alt); border:1px solid var(--border);
+    border-radius:4px; cursor:pointer; overflow:hidden;}
+  #timeline-playhead{position:absolute; top:0; bottom:0; width:2px; background:var(--brass); pointer-events:none;}
+  .timeline-key{position:absolute; top:6px; width:9px; height:9px; background:var(--verdigris);
+    border:1px solid #1b1f27; transform:translateX(-50%) rotate(45deg); pointer-events:none;}
+  /* ---- 2.5D ---- */
+  .depth-strip{display:flex; gap:4px; margin:6px 0 10px;}
+  .depth-swatch{flex:1; height:24px; border-radius:4px; border:1px solid var(--border); cursor:pointer;}
+  .depth-swatch:hover{border-color:var(--brass);}
+  #parallax-pad{width:100%; height:96px; background:var(--panel-alt); border:1px solid var(--border);
+    border-radius:6px; position:relative; cursor:crosshair; margin-bottom:8px;}
+  #parallax-dot{position:absolute; width:11px; height:11px; border-radius:50%; background:var(--brass);
+    transform:translate(-50%,-50%); pointer-events:none; box-shadow:0 0 0 3px rgba(201,138,75,.22);}
   #toast{position:fixed; bottom:36px; left:50%; transform:translateX(-50%); background:var(--panel-alt); border:1px solid var(--brass-dim);
     color:var(--text); padding:9px 16px; border-radius:6px; font-size:12.5px; box-shadow:0 8px 24px rgba(0,0,0,.5); z-index:200; opacity:0; pointer-events:none; transition:opacity .2s;}
   #toast.show{opacity:1;}
@@ -341,6 +390,11 @@
         <button data-action="zoom-100">Actual Size (100%)</button>
         <button data-action="canvas-size">Canvas Size…</button>
       </div>
+    </div>
+    <div id="win-controls">
+      <button id="win-min" title="Minimize"><svg viewBox="0 0 12 12"><path d="M2 6h8"/></svg></button>
+      <button id="win-max" title="Maximize"><svg viewBox="0 0 12 12"><rect x="2.5" y="2.5" width="7" height="7"/></svg></button>
+      <button id="win-close" class="close" title="Close"><svg viewBox="0 0 12 12"><path d="M3 3l6 6M9 3l-6 6"/></svg></button>
     </div>
   </div>
 
@@ -453,11 +507,146 @@
         <div class="row"><label>Tail</label><input type="range" id="comic-balloon-tail" min="0" max="100" value="45"><span class="val" id="comic-balloon-tail-val">45</span></div>
       </div>
 
+      <div class="panel" id="uv-panel" style="display:none;">
+        <h3>UV Map</h3>
+        <div class="uv-row"><input type="checkbox" id="uv-show"><label for="uv-show">Show UV wireframe on canvas</label></div>
+        <div class="row"><label>Opacity</label><input type="range" id="uv-opacity" min="10" max="100" value="55"><span class="val" id="uv-opacity-val">55%</span></div>
+        <div class="row"><label>Color</label><input type="color" id="uv-color" value="#6f9a8d" style="width:100%; height:24px; border:1px solid var(--border); border-radius:4px; background:none; padding:0; cursor:pointer;"></div>
+        <div class="uv-row"><input type="checkbox" id="uv-seams"><label for="uv-seams">Show UV seams &amp; open borders</label></div>
+        <div class="row"><label>Seam color</label><input type="color" id="uv-seam-color" value="#c9584e" style="width:100%; height:24px; border:1px solid var(--border); border-radius:4px; background:none; padding:0; cursor:pointer;"></div>
+        <button class="btn" id="uv-bake" style="width:100%; margin-top:4px;">Bake UV Layout to New Layer</button>
+        <button class="btn" id="uv-bake-seams" style="width:100%; margin-top:5px;">Bake Seams to New Layer</button>
+        <p style="font-size:11px; color:var(--text-muted); margin:8px 0 0; line-height:1.5;" id="uv-stats">No model loaded.</p>
+      </div>
+
+      <div class="panel" id="create3d-panel" style="display:none;">
+        <h3>Primitives</h3>
+        <div class="comic-preset-grid" id="prim-grid"></div>
+        <div class="row"><label>Detail</label><input type="range" id="prim-detail" min="1" max="6" value="3"><span class="val" id="prim-detail-val">3</span></div>
+        <div class="uv-row"><input type="checkbox" id="prim-replace" checked><label for="prim-replace">Replace current model</label></div>
+      </div>
+
+      <div class="panel" id="sculpt-panel" style="display:none;">
+        <h3>Sculpt</h3>
+        <div class="uv-row"><input type="checkbox" id="sc-enable"><label for="sc-enable">Sculpt mode</label></div>
+        <div class="comic-preset-grid" id="sc-brush-grid"></div>
+        <div class="row"><label>Size</label><input type="range" id="sc-size" min="2" max="60" value="18"><span class="val" id="sc-size-val">18</span></div>
+        <div class="row"><label>Strength</label><input type="range" id="sc-strength" min="1" max="100" value="35"><span class="val" id="sc-strength-val">35%</span></div>
+        <div class="uv-row"><input type="checkbox" id="sc-symmetry" checked><label for="sc-symmetry">X symmetry</label></div>
+        <p style="font-size:11.5px; color:var(--text-muted); margin:0 0 8px; line-height:1.5;">Drag on the mesh to sculpt. Hold Alt to invert.</p>
+        <div class="subhead">Resolution</div>
+        <button class="btn" id="sc-subdivide" style="width:100%; margin-bottom:5px;">Subdivide (×4 faces)</button>
+        <button class="btn" id="sc-recalc" style="width:100%; margin-bottom:5px;">Recompute Normals</button>
+        <button class="btn" id="sc-reset" style="width:100%;">Revert Sculpt</button>
+      </div>
+
+      <div class="panel" id="stats-panel" style="display:none;">
+        <h3>Mesh Statistics</h3>
+        <div id="mesh-stats" style="font-size:11.5px; color:var(--text-muted); line-height:1.7; font-family:ui-monospace,monospace;"></div>
+        <button class="btn" id="stats-refresh" style="width:100%; margin-top:8px;">Refresh</button>
+      </div>
+
+      <div class="panel" id="hdri-panel" style="display:none;">
+        <h3>Environment</h3>
+        <div class="comic-preset-grid" id="hdri-grid"></div>
+        <div class="row"><label>Intensity</label><input type="range" id="hdri-intensity" min="0" max="200" value="100"><span class="val" id="hdri-intensity-val">100%</span></div>
+        <div class="uv-row"><input type="checkbox" id="hdri-showbg" checked><label for="hdri-showbg">Show as background</label></div>
+        <button class="btn" id="hdri-load" style="width:100%; margin-top:4px;">Load HDRI / Equirect Image…</button>
+      </div>
+
+      <div class="panel" id="rig-panel" style="display:none;">
+        <h3>Rig &amp; Animation</h3>
+        <div class="row"><label>Naming</label>
+          <select id="rig-naming" class="num-input">
+            <option value="ue5">Unreal Engine 5</option>
+            <option value="unity">Unity Humanoid</option>
+            <option value="mixamo">Mixamo</option>
+            <option value="godot">Godot / glTF</option>
+            <option value="plain">Plain</option>
+          </select>
+        </div>
+        <p style="font-size:11.5px; color:var(--text-muted); margin:2px 0 8px; line-height:1.5;">
+          Pick a marker, then <b>Shift-click</b> that spot on the model. Place all of them, then build.
+        </p>
+        <div class="rig-marker-list" id="rig-marker-list"></div>
+        <button class="btn" id="rig-build" style="width:100%; margin-bottom:5px;">Build Skeleton &amp; Skin</button>
+        <button class="btn" id="rig-clear" style="width:100%; margin-bottom:8px;">Clear Markers</button>
+        <div class="subhead">Pose</div>
+        <div class="row"><label>Mode</label>
+          <select id="rig-posemode" class="num-input">
+            <option value="off">Off</option>
+            <option value="ik">IK — drag limb goals</option>
+          </select>
+        </div>
+        <button class="btn" id="rig-reset-pose" style="width:100%; margin-bottom:5px;">Reset to Rest Pose</button>
+        <button class="btn" id="rig-fbx-tex" style="width:100%; margin-bottom:5px;">Import Embedded FBX Textures</button>
+        <button class="btn" id="rig-export-usd" style="width:100%;">Export Mesh + Skeleton as USDA</button>
+      </div>
+
+      <div class="panel" id="weight-panel" style="display:none;">
+        <h3>Weight Paint</h3>
+        <div class="uv-row"><input type="checkbox" id="wp-enable"><label for="wp-enable">Weight paint mode</label></div>
+        <p style="font-size:11.5px; color:var(--text-muted); margin:0 0 8px; line-height:1.5;">Pick a bone, then paint on the mesh. Alt-drag subtracts. Blue is 0, red is full.</p>
+        <div class="bone-list" id="wp-bone-list"></div>
+        <div class="row"><label>Radius</label><input type="range" id="wp-radius" min="2" max="60" value="18"><span class="val" id="wp-radius-val">18</span></div>
+        <div class="row"><label>Strength</label><input type="range" id="wp-strength" min="1" max="100" value="60"><span class="val" id="wp-strength-val">60%</span></div>
+        <button class="btn" id="wp-normalize" style="width:100%; margin-top:4px;">Normalize All Weights</button>
+      </div>
+
+      <div class="panel" id="cloth-panel" style="display:none;">
+        <h3>Cloth Simulation</h3>
+        <div class="row"><label>Resolution</label><input type="range" id="cl-res" min="8" max="44" value="22"><span class="val" id="cl-res-val">22</span></div>
+        <div class="row"><label>Stiffness</label><input type="range" id="cl-stiff" min="1" max="10" value="6"><span class="val" id="cl-stiff-val">6</span></div>
+        <div class="row"><label>Gravity</label><input type="range" id="cl-grav" min="0" max="40" value="16"><span class="val" id="cl-grav-val">16</span></div>
+        <div class="row"><label>Damping</label><input type="range" id="cl-damp" min="0" max="60" value="14"><span class="val" id="cl-damp-val">14%</span></div>
+        <div class="row"><label>Wind</label><input type="range" id="cl-wind" min="0" max="40" value="0"><span class="val" id="cl-wind-val">0</span></div>
+        <button class="btn" id="cl-add" style="width:100%; margin-top:4px;">Add Cloth Plane</button>
+        <button class="btn" id="cl-toggle" style="width:100%; margin-top:5px;">Start / Pause Simulation</button>
+        <button class="btn" id="cl-reset" style="width:100%; margin-top:5px;">Reset Cloth</button>
+      </div>
+
+      <div class="panel" id="rig2d-panel" style="display:none;">
+        <h3>2D Body Rig</h3>
+        <p style="font-size:11.5px; color:var(--text-muted); margin:0 0 8px; line-height:1.5;">Place joints with the Bone tool, bind the layer, then drag joints to pose. Key poses on the timeline.</p>
+        <div class="bone-list" id="rig2d-list"></div>
+        <div class="row"><label>Falloff</label><input type="range" id="rig2d-falloff" min="20" max="400" value="140"><span class="val" id="rig2d-falloff-val">140</span></div>
+        <button class="btn" id="rig2d-bind" style="width:100%; margin-bottom:5px;">Bind Layer to Skeleton</button>
+        <button class="btn" id="rig2d-clear" style="width:100%;">Clear 2D Rig</button>
+      </div>
+
+      <div class="panel" id="scene25d-panel" style="display:none;">
+        <h3>2.5D Scene</h3>
+        <div class="row"><label>Layer depth</label><input type="range" id="d25-depth" min="-100" max="100" value="0"><span class="val" id="d25-depth-val">0</span></div>
+        <div class="depth-strip" id="d25-depth-strip"></div>
+        <div class="subhead">Camera Parallax</div>
+        <div id="parallax-pad"><div id="parallax-dot" style="left:50%; top:50%;"></div></div>
+        <div class="row"><label>Strength</label><input type="range" id="d25-strength" min="0" max="100" value="40"><span class="val" id="d25-strength-val">40</span></div>
+        <div class="subhead">Relight</div>
+        <div class="uv-row"><input type="checkbox" id="d25-light"><label for="d25-light">Light from Normal map</label></div>
+        <div class="row"><label>Angle</label><input type="range" id="d25-lightang" min="0" max="360" value="135"><span class="val" id="d25-lightang-val">135°</span></div>
+        <div class="row"><label>Intensity</label><input type="range" id="d25-lightint" min="0" max="150" value="70"><span class="val" id="d25-lightint-val">70%</span></div>
+        <button class="btn" id="d25-reset" style="width:100%; margin-top:4px;">Reset Camera</button>
+      </div>
+
       <div class="panel">
         <h3>Layer Effects</h3>
         <div id="effects-list"></div>
       </div>
     </div>
+  </div>
+
+  <div id="timeline">
+    <div id="timeline-bar">
+      <button id="tl-play">▶ Play</button>
+      <button id="tl-key" title="Key the current pose at the playhead">◆ Key Pose</button>
+      <button id="tl-delkey">Delete Key</button>
+      <span id="tl-frame">Frame 0 / 60</span>
+      <div class="spacer"></div>
+      <span>Length</span>
+      <input type="range" id="tl-length" min="10" max="240" value="60" style="width:110px; accent-color:var(--brass);">
+      <span id="tl-length-val">60f</span>
+    </div>
+    <div id="timeline-track"><div id="timeline-playhead" style="left:0;"></div></div>
   </div>
 
   <div id="statusbar">
@@ -498,13 +687,28 @@
         <div class="mode-name">Webcomic</div>
         <div class="mode-desc">Page presets, panel grids and balloons.</div>
       </div>
+      <div class="mode-card" data-mode="25d">
+        <svg viewBox="0 0 24 24"><path d="M3 8l9-5 9 5-9 5z"/><path d="M3 13l9 5 9-5"/><path d="M3 18l9 3 9-3"/></svg>
+        <div class="mode-name">2.5D Scene</div>
+        <div class="mode-desc">Depth layers, parallax and relightable 2D art.</div>
+      </div>
     </div>
 
     <div class="mode-section show" id="mode-section-2d">
       <p class="hint">Creates a Base Color map. Add Normal, Roughness, Metallic, AO, Height, Emissive or ORM maps afterward from the Maps menu — they'll all share this resolution.</p>
     </div>
     <div class="mode-section" id="mode-section-3d">
-      <p class="hint">Creates a full PBR texture set sized below, opens the 3D viewport, and prompts you for a model. Painting on the mesh writes straight into the active map. Your model needs UV coordinates.</p>
+      <div class="row"><label>Workspace</label>
+        <select id="mode-3d-sub" class="num-input">
+          <option value="design">3D Design — paint textures on a model</option>
+          <option value="creation">3D Creation — primitives &amp; sculpting</option>
+          <option value="animation">3D Animation — rigging, weights, keyframes</option>
+        </select>
+      </div>
+      <p class="hint">Design loads a model and paints straight onto it. Creation gives you primitives, sculpt brushes, mesh stats and HDRI lighting. Animation adds marker-based rigging, weight painting, cloth and a keyframe timeline.</p>
+    </div>
+    <div class="mode-section" id="mode-section-25d">
+      <p class="hint">Each layer gets a depth value, so you can push a flat illustration in space — move the camera for parallax, and relight the art from a Normal map.</p>
     </div>
     <div class="mode-section" id="mode-section-comic">
       <p class="hint">Sets up a comic page at the size below with bleed and safe-area guides, plus the panel and balloon tools in the sidebar.</p>
@@ -655,6 +859,7 @@
 <input type="file" id="hidden-project-file-input" accept=".vellum,application/json">
 <input type="file" id="hidden-brush-file-input" accept="image/*">
 <input type="file" id="hidden-model-file-input" accept=".obj,.fbx">
+<input type="file" id="hidden-hdri-file-input" accept="image/*">
 <div id="toast"></div>
 <div id="brush-cursor"></div>
 
@@ -1187,6 +1392,8 @@ function renderSelectionOverlay(){
     }
   }
   drawComicGuides(overlayCtx);
+  UVView.draw(overlayCtx);
+  UVView.drawSeams(overlayCtx);
   drawVectorOverlay();
 }
 function drawVectorOverlay(){
@@ -3161,6 +3368,8 @@ const Viewport3D = {
       `${name} · ${this.meshes.length} mesh${this.meshes.length===1?'':'es'} · ${Math.round(triCount).toLocaleString()} tris`;
     if(missingUV) toast('Model has no UV coordinates — painting on it will not work.');
     else toast('Model loaded. Paint on it directly.');
+    if(this.meshes.length) Sculpt.setTarget(this.meshes[0]);
+    UVView.invalidate(); refreshUVPanel(); refreshMeshStats();
   },
 
   resetCamera(){
@@ -3251,6 +3460,22 @@ const Viewport3D = {
     const el = this.renderer.domElement;
     const paintTools = ['brush','pencil','eraser'];
     el.addEventListener('pointerdown', (e)=>{
+      // Sculpting takes priority when enabled.
+      if(Sculpt.enabled && this.meshes.length){
+        const rect = el.getBoundingClientRect();
+        const ndc = new THREE.Vector2(((e.clientX-rect.left)/rect.width)*2-1, -((e.clientY-rect.top)/rect.height)*2+1);
+        this.raycaster.setFromCamera(ndc, this.camera);
+        const hits = this.raycaster.intersectObjects(this.meshes, true);
+        if(hits.length){
+          e.preventDefault(); e.stopPropagation();
+          this.controls.enabled = false; this._sculpting = true;
+          if(Sculpt.target !== hits[0].object) Sculpt.setTarget(hits[0].object);
+          Sculpt._lastPoint = hits[0].point.clone();
+          Sculpt.stroke(hits[0], e.altKey, null);
+          el.setPointerCapture(e.pointerId);
+          return;
+        }
+      }
       if(!this.paintMode || !paintTools.includes(State.tool) || !this.meshes.length) return;
       const uv = this._uvAt(e); if(!uv) return;
       e.preventDefault(); e.stopPropagation();
@@ -3262,11 +3487,33 @@ const Viewport3D = {
       el.setPointerCapture(e.pointerId);
     });
     el.addEventListener('pointermove', (e)=>{
+      if(this._sculpting){
+        const rect = el.getBoundingClientRect();
+        const ndc = new THREE.Vector2(((e.clientX-rect.left)/rect.width)*2-1, -((e.clientY-rect.top)/rect.height)*2+1);
+        this.raycaster.setFromCamera(ndc, this.camera);
+        const hits = this.raycaster.intersectObjects(this.meshes, true);
+        if(hits.length){
+          let delta = null;
+          if(Sculpt.brush === 'grab' && Sculpt._lastPoint){
+            delta = Sculpt.target.worldToLocal(hits[0].point.clone())
+              .sub(Sculpt.target.worldToLocal(Sculpt._lastPoint.clone()));
+          }
+          Sculpt.stroke(hits[0], e.altKey, delta);
+          Sculpt._lastPoint = hits[0].point.clone();
+        }
+        return;
+      }
       if(!this.painting) return;
       const uv = this._uvAt(e); if(!uv) return;
       this._paintAt(uv, true);
     });
     const endPaint = ()=>{
+      if(this._sculpting){
+        this._sculpting = false; this.controls.enabled = true;
+        Sculpt._lastPoint = null; Sculpt.grid = null;
+        UVView.invalidate(); refreshMeshStats(); refreshUVPanel();
+        return;
+      }
       if(!this.painting) return;
       this.painting = false; this.lastUV = null;
       this.controls.enabled = true;
@@ -3520,16 +3767,1597 @@ function applyStartupMode(){
     State.activeMapId = State.mapOrder[0];
     renderMapTabs(); composite(); renderLayerPanel(); updateMenuStates();
     Viewport3D.show(true);
-    setTimeout(()=> loadModelDialog(), 250);
+    const sub = document.getElementById('mode-3d-sub').value;
+    if(sub === 'creation'){
+      setWorkspacePanels({ uv:true, create:true, sculpt:true, stats:true, hdri:true });
+      HDRI.apply('studio');
+      toast('3D Creation — add a primitive, then enable Sculpt mode.');
+    } else {
+      setWorkspacePanels({ uv:true, stats:true, hdri:true });
+      HDRI.apply('studio');
+      setTimeout(()=> loadModelDialog(), 250);
+    }
   } else if(StartupMode === 'comic'){
     Viewport3D.show(false);
     setComicMode(true);
+    setWorkspacePanels({});
     CM().name = 'Page';
     renderMapTabs(); renderLayerPanel();
   } else {
     Viewport3D.show(false);
     setComicMode(false);
+    setWorkspacePanels({});
   }
+}
+
+/* ============================= Geometry utilities ============================= */
+// Sculpting needs welded vertices — three.js primitives duplicate verts at UV seams
+// and poles, which would tear apart the moment you displace them.
+function weldGeometry(geo, tol){
+  const pos = geo.attributes.position;
+  if(!pos) return geo;
+  const Q = 1/(tol||1e-5);
+  const map = new Map();
+  const newPos = [], newUV = [], remap = new Int32Array(pos.count);
+  const uv = geo.attributes.uv;
+  for(let i=0;i<pos.count;i++){
+    const x=pos.getX(i), y=pos.getY(i), z=pos.getZ(i);
+    const key = `${Math.round(x*Q)},${Math.round(y*Q)},${Math.round(z*Q)}`;
+    let ni = map.get(key);
+    if(ni === undefined){
+      ni = newPos.length/3;
+      map.set(key, ni);
+      newPos.push(x,y,z);
+      if(uv) newUV.push(uv.getX(i), uv.getY(i));
+    }
+    remap[i] = ni;
+  }
+  const oldIdx = geo.index ? geo.index.array : null;
+  const idxCount = oldIdx ? oldIdx.length : pos.count;
+  const newIdx = new Uint32Array(idxCount);
+  for(let i=0;i<idxCount;i++) newIdx[i] = remap[oldIdx ? oldIdx[i] : i];
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.Float32BufferAttribute(newPos,3));
+  if(uv) out.setAttribute('uv', new THREE.Float32BufferAttribute(newUV,2));
+  out.setIndex(new THREE.BufferAttribute(newIdx,1));
+  out.computeVertexNormals();
+  return out;
+}
+// Midpoint (1-to-4) subdivision. Edge midpoints are shared between adjacent faces.
+function subdivideGeometry(geo){
+  const pos = geo.attributes.position, uv = geo.attributes.uv;
+  const idx = geo.index ? geo.index.array : null;
+  if(!idx) return geo;
+  const P = [], UV = [];
+  for(let i=0;i<pos.count;i++){ P.push(pos.getX(i),pos.getY(i),pos.getZ(i)); if(uv) UV.push(uv.getX(i),uv.getY(i)); }
+  const midCache = new Map();
+  const midpoint = (a,b)=>{
+    const key = a<b ? a+'_'+b : b+'_'+a;
+    let m = midCache.get(key);
+    if(m !== undefined) return m;
+    m = P.length/3;
+    P.push((P[a*3]+P[b*3])/2, (P[a*3+1]+P[b*3+1])/2, (P[a*3+2]+P[b*3+2])/2);
+    if(uv) UV.push((UV[a*2]+UV[b*2])/2, (UV[a*2+1]+UV[b*2+1])/2);
+    midCache.set(key, m);
+    return m;
+  };
+  const newIdx = [];
+  for(let t=0;t<idx.length;t+=3){
+    const a=idx[t], b=idx[t+1], c=idx[t+2];
+    const ab=midpoint(a,b), bc=midpoint(b,c), ca=midpoint(c,a);
+    newIdx.push(a,ab,ca, ab,b,bc, ca,bc,c, ab,bc,ca);
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.Float32BufferAttribute(P,3));
+  if(uv) out.setAttribute('uv', new THREE.Float32BufferAttribute(UV,2));
+  out.setIndex(newIdx);
+  out.computeVertexNormals();
+  return out;
+}
+function clampNum(v,a,b){ return Math.max(a, Math.min(b, v)); }
+
+/* ============================= UV map reading + seam detection ============================= */
+const UVView = {
+  show:false, opacity:55, color:'#6f9a8d', cache:null,
+  showSeams:false, seamColor:'#c9584e', seamCache:null,
+  edges(){
+    if(this.cache) return this.cache;
+    const out = [];
+    for(const mesh of Viewport3D.meshes){
+      const g = mesh.geometry; if(!g || !g.attributes.uv) continue;
+      const uv = g.attributes.uv;
+      const idx = g.index ? g.index.array : null;
+      const tri = idx ? idx.length/3 : uv.count/3;
+      for(let t=0;t<tri;t++){
+        const a = idx ? idx[t*3] : t*3, b = idx ? idx[t*3+1] : t*3+1, c = idx ? idx[t*3+2] : t*3+2;
+        out.push([uv.getX(a),uv.getY(a),uv.getX(b),uv.getY(b)]);
+        out.push([uv.getX(b),uv.getY(b),uv.getX(c),uv.getY(c)]);
+        out.push([uv.getX(c),uv.getY(c),uv.getX(a),uv.getY(a)]);
+      }
+    }
+    this.cache = out; return out;
+  },
+  invalidate(){ this.cache = null; this.seamCache = null; },
+
+  /* A UV seam is a 3D edge whose two sides land in different places in UV space,
+     or an edge with only one adjoining face. Positions are quantized and compared
+     in world space, so edges shared *between separate meshes* are detected too. */
+  seams(){
+    if(this.seamCache) return this.seamCache;
+    const edges = new Map();
+    const Q = 10000;
+    const q = (v)=> `${Math.round(v.x*Q)},${Math.round(v.y*Q)},${Math.round(v.z*Q)}`;
+    const tmp = new THREE.Vector3();
+    for(const mesh of Viewport3D.meshes){
+      const g = mesh.geometry;
+      if(!g || !g.attributes.position || !g.attributes.uv) continue;
+      const pos = g.attributes.position, uv = g.attributes.uv;
+      const idx = g.index ? g.index.array : null;
+      const triCount = idx ? idx.length/3 : pos.count/3;
+      const keys = new Array(pos.count);
+      const keyOf = (i)=>{
+        if(keys[i] === undefined){
+          tmp.fromBufferAttribute(pos, i); mesh.localToWorld(tmp); keys[i] = q(tmp);
+        }
+        return keys[i];
+      };
+      for(let t=0;t<triCount;t++){
+        const a = idx ? idx[t*3] : t*3, b = idx ? idx[t*3+1] : t*3+1, c = idx ? idx[t*3+2] : t*3+2;
+        for(const [i,j] of [[a,b],[b,c],[c,a]]){
+          const ki = keyOf(i), kj = keyOf(j);
+          const key = ki < kj ? ki+'|'+kj : kj+'|'+ki;
+          const flipped = !(ki < kj);
+          const rec = flipped
+            ? { u1:uv.getX(j), v1:uv.getY(j), u2:uv.getX(i), v2:uv.getY(i) }
+            : { u1:uv.getX(i), v1:uv.getY(i), u2:uv.getX(j), v2:uv.getY(j) };
+          if(!edges.has(key)) edges.set(key, []);
+          edges.get(key).push(rec);
+        }
+      }
+    }
+    const out = [];
+    const eq = (a,b)=> Math.abs(a-b) < 1e-5;
+    for(const recs of edges.values()){
+      if(recs.length === 1){ out.push(recs[0]); continue; }
+      const first = recs[0];
+      let split = false;
+      for(let i=1;i<recs.length;i++){
+        const r = recs[i];
+        if(!(eq(r.u1,first.u1) && eq(r.v1,first.v1) && eq(r.u2,first.u2) && eq(r.v2,first.v2))){ split = true; break; }
+      }
+      if(split) for(const r of recs) out.push(r);
+    }
+    this.seamCache = out;
+    return out;
+  },
+  draw(ctx){
+    if(!this.show || !Viewport3D.meshes.length) return;
+    const edges = this.edges(); if(!edges.length) return;
+    ctx.save();
+    ctx.strokeStyle = this.color;
+    ctx.globalAlpha = this.opacity/100;
+    ctx.lineWidth = Math.max(0.4, 1/State.zoom);
+    ctx.beginPath();
+    const W = State.width, H = State.height;
+    for(const [x1,y1,x2,y2] of edges){
+      ctx.moveTo(x1*W, (1-y1)*H); ctx.lineTo(x2*W, (1-y2)*H);
+    }
+    ctx.stroke();
+    ctx.restore();
+  },
+  drawSeams(ctx){
+    if(!this.showSeams || !Viewport3D.meshes.length) return;
+    const s = this.seams(); if(!s.length) return;
+    ctx.save();
+    ctx.strokeStyle = this.seamColor;
+    ctx.globalAlpha = 1;
+    ctx.lineWidth = Math.max(1, 2.2/State.zoom);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    const W = State.width, H = State.height;
+    for(const e of s){ ctx.moveTo(e.u1*W, (1-e.v1)*H); ctx.lineTo(e.u2*W, (1-e.v2)*H); }
+    ctx.stroke();
+    ctx.restore();
+  },
+  stats(){
+    let verts=0, tris=0, uvSets=0;
+    for(const m of Viewport3D.meshes){
+      const g=m.geometry; if(!g) continue;
+      verts += g.attributes.position ? g.attributes.position.count : 0;
+      tris += (g.index ? g.index.count : (g.attributes.position?g.attributes.position.count:0))/3;
+      if(g.attributes.uv) uvSets++;
+    }
+    return { verts, tris:Math.round(tris), uvSets, meshes:Viewport3D.meshes.length };
+  },
+  bakeEdges(seamsOnly){
+    if(!Viewport3D.meshes.length){ toast('Load a model first.'); return; }
+    const map = CM(); const snapBefore = cloneLayersState();
+    const layer = makeLayer(seamsOnly ? 'UV Seams' : 'UV Layout', 'transparent');
+    const ctx = layer.ctx;
+    ctx.strokeStyle = seamsOnly ? this.seamColor : this.color;
+    ctx.lineWidth = seamsOnly ? 3 : 1.5; ctx.lineCap = 'round';
+    ctx.beginPath();
+    if(seamsOnly){
+      const s = this.seams();
+      if(!s.length){ toast('No seams detected on this model.'); return; }
+      for(const e of s){ ctx.moveTo(e.u1*State.width, (1-e.v1)*State.height); ctx.lineTo(e.u2*State.width, (1-e.v2)*State.height); }
+    } else {
+      for(const [x1,y1,x2,y2] of this.edges()){
+        ctx.moveTo(x1*State.width, (1-y1)*State.height); ctx.lineTo(x2*State.width, (1-y2)*State.height);
+      }
+    }
+    ctx.stroke();
+    map.layers.splice(map.activeLayerIndex+1,0,layer);
+    map.activeLayerIndex = map.layers.indexOf(layer);
+    pushStructuralUndo({type:'layers-snapshot', before:snapBefore, after:cloneLayersState()});
+    composite(); renderLayerPanel();
+    toast(seamsOnly ? 'Seams baked to a new layer.' : 'UV layout baked to a new layer.');
+  }
+};
+function refreshUVPanel(){
+  const el = document.getElementById('uv-stats'); if(!el) return;
+  const s = UVView.stats();
+  if(!s.meshes){ el.textContent = 'No model loaded.'; return; }
+  let txt = `${s.meshes} mesh${s.meshes===1?'':'es'} · ${s.verts.toLocaleString()} verts · ${s.tris.toLocaleString()} tris · ${s.uvSets} UV set${s.uvSets===1?'':'s'}`;
+  if(UVView.showSeams) txt += ` · ${UVView.seams().length.toLocaleString()} seam edges`;
+  el.textContent = txt;
+}
+
+/* ============================= Primitives ============================= */
+const PRIMITIVES = [
+  { id:'box',      name:'Cube',     desc:'6 faces',      make:(d)=> new THREE.BoxGeometry(1.4,1.4,1.4, d,d,d) },
+  { id:'plane',    name:'Square',   desc:'flat quad',    make:(d)=> new THREE.PlaneGeometry(1.6,1.6, d*2,d*2) },
+  { id:'circle',   name:'Circle',   desc:'flat disc',    make:(d)=> new THREE.CircleGeometry(0.9, 8*d) },
+  { id:'triangle', name:'Triangle', desc:'3-sided prism',make:(d)=> new THREE.CylinderGeometry(0.9,0.9,0.35,3,d) },
+  { id:'sphere',   name:'Sphere',   desc:'UV sphere',    make:(d)=> new THREE.SphereGeometry(0.9, 8*d, 6*d) },
+  { id:'tube',     name:'Tube',     desc:'open cylinder',make:(d)=> new THREE.CylinderGeometry(0.6,0.6,1.6, 8*d, d, true) },
+  { id:'cylinder', name:'Cylinder', desc:'capped',       make:(d)=> new THREE.CylinderGeometry(0.6,0.6,1.6, 8*d, d) },
+  { id:'cone',     name:'Cone',     desc:'tapered',      make:(d)=> new THREE.ConeGeometry(0.8,1.6, 8*d, d) },
+  { id:'torus',    name:'Torus',    desc:'ring',         make:(d)=> new THREE.TorusGeometry(0.7,0.28, 6*d, 12*d) },
+  { id:'icosphere',name:'Icosphere',desc:'even topology',make:(d)=> new THREE.IcosahedronGeometry(0.9, Math.min(4,d)) },
+];
+function addPrimitive(id){
+  if(!Viewport3D.init()) return;
+  const def = PRIMITIVES.find(p=>p.id===id); if(!def) return;
+  const detail = Number(document.getElementById('prim-detail').value);
+  let geo = weldGeometry(def.make(detail));
+  const replace = document.getElementById('prim-replace').checked;
+  if(replace){
+    if(Viewport3D.modelRoot) Viewport3D.scene.remove(Viewport3D.modelRoot);
+    Viewport3D.meshes = []; Viewport3D.modelRoot = null;
+  }
+  if(!Viewport3D.modelRoot){
+    Viewport3D.modelRoot = new THREE.Group();
+    Viewport3D.scene.add(Viewport3D.modelRoot);
+  }
+  const mesh = new THREE.Mesh(geo, Viewport3D.material);
+  mesh.name = def.name;
+  Viewport3D.modelRoot.add(mesh);
+  Viewport3D.meshes.push(mesh);
+  Sculpt.setTarget(mesh);
+  if(replace) Viewport3D.resetCamera();
+  document.getElementById('viewport3d-drop').classList.add('hidden');
+  UVView.invalidate(); refreshUVPanel(); refreshMeshStats();
+  toast(`Added ${def.name} — ${geo.attributes.position.count.toLocaleString()} verts.`);
+}
+
+/* ============================= Sculpting ============================= */
+const MAX_SCULPT_VERTS = 300000; // guard rail: past this the browser starts to struggle
+const SCULPT_BRUSHES = [
+  { id:'draw',    name:'Draw',    desc:'push along normal' },
+  { id:'inflate', name:'Inflate', desc:'expand outward' },
+  { id:'smooth',  name:'Smooth',  desc:'relax surface' },
+  { id:'flatten', name:'Flatten', desc:'level to plane' },
+  { id:'pinch',   name:'Pinch',   desc:'pull together' },
+  { id:'grab',    name:'Grab',    desc:'drag vertices' },
+];
+const Sculpt = {
+  enabled:false, brush:'draw', size:18, strength:35, symmetryX:true,
+  target:null, grid:null, cell:0, adjacency:null, original:null, _lastPoint:null,
+
+  setTarget(mesh){
+    this.target = mesh;
+    this.grid = null; this.adjacency = null;
+    if(mesh && mesh.geometry){
+      const p = mesh.geometry.attributes.position;
+      this.original = new Float32Array(p.array);
+    }
+  },
+  // Uniform spatial hash so a stroke only touches nearby vertices instead of
+  // scanning the whole mesh — this is what keeps large meshes responsive.
+  buildGrid(){
+    const geo = this.target.geometry, pos = geo.attributes.position;
+    if(!geo.boundingSphere) geo.computeBoundingSphere();
+    const r = geo.boundingSphere.radius || 1;
+    this.cell = Math.max(r/24, 1e-4);
+    const g = new Map();
+    for(let i=0;i<pos.count;i++){
+      const k = `${Math.floor(pos.getX(i)/this.cell)},${Math.floor(pos.getY(i)/this.cell)},${Math.floor(pos.getZ(i)/this.cell)}`;
+      let arr = g.get(k); if(!arr){ arr=[]; g.set(k,arr); }
+      arr.push(i);
+    }
+    this.grid = g;
+  },
+  queryRadius(center, radius){
+    if(!this.grid) this.buildGrid();
+    const out = [];
+    const c = this.cell, span = Math.ceil(radius/c);
+    const cx = Math.floor(center.x/c), cy = Math.floor(center.y/c), cz = Math.floor(center.z/c);
+    for(let x=cx-span;x<=cx+span;x++)
+      for(let y=cy-span;y<=cy+span;y++)
+        for(let z=cz-span;z<=cz+span;z++){
+          const arr = this.grid.get(`${x},${y},${z}`);
+          if(arr) for(const i of arr) out.push(i);
+        }
+    return out;
+  },
+  buildAdjacency(){
+    const geo = this.target.geometry;
+    const idx = geo.index ? geo.index.array : null;
+    const n = geo.attributes.position.count;
+    const adj = Array.from({length:n}, ()=>new Set());
+    if(idx) for(let t=0;t<idx.length;t+=3){
+      const a=idx[t],b=idx[t+1],c=idx[t+2];
+      adj[a].add(b); adj[a].add(c); adj[b].add(a); adj[b].add(c); adj[c].add(a); adj[c].add(b);
+    }
+    this.adjacency = adj.map(s=>Array.from(s));
+  },
+
+  stroke(hit, invert, dragDelta){
+    if(!this.enabled || !this.target) return;
+    const geo = this.target.geometry;
+    const pos = geo.attributes.position;
+    const nrm = geo.attributes.normal;
+    if(!geo.boundingSphere) geo.computeBoundingSphere();
+    const radius = (this.size/100) * geo.boundingSphere.radius * 2.2;
+    const local = this.target.worldToLocal(hit.point.clone());
+    const hitNormal = hit.face ? hit.face.normal.clone() : new THREE.Vector3(0,1,0);
+    const amt = (this.strength/100) * radius * 0.16 * (invert ? -1 : 1);
+
+    const apply = (center)=>{
+      const cand = this.queryRadius(center, radius);
+      if(this.brush === 'smooth' && !this.adjacency) this.buildAdjacency();
+      const v = new THREE.Vector3();
+      for(const i of cand){
+        v.set(pos.getX(i), pos.getY(i), pos.getZ(i));
+        const d = v.distanceTo(center);
+        if(d > radius) continue;
+        const t = 1 - d/radius;
+        const falloff = t*t*(3-2*t); // smoothstep
+        switch(this.brush){
+          case 'draw':
+            pos.setXYZ(i, v.x + hitNormal.x*amt*falloff, v.y + hitNormal.y*amt*falloff, v.z + hitNormal.z*amt*falloff);
+            break;
+          case 'inflate': {
+            const n = new THREE.Vector3(nrm.getX(i), nrm.getY(i), nrm.getZ(i)).normalize();
+            pos.setXYZ(i, v.x + n.x*amt*falloff, v.y + n.y*amt*falloff, v.z + n.z*amt*falloff);
+            break;
+          }
+          case 'smooth': {
+            const nb = this.adjacency[i]; if(!nb || !nb.length) break;
+            let sx=0, sy=0, sz=0;
+            for(const j of nb){ sx+=pos.getX(j); sy+=pos.getY(j); sz+=pos.getZ(j); }
+            sx/=nb.length; sy/=nb.length; sz/=nb.length;
+            const k = falloff * (this.strength/100) * 0.6;
+            pos.setXYZ(i, v.x+(sx-v.x)*k, v.y+(sy-v.y)*k, v.z+(sz-v.z)*k);
+            break;
+          }
+          case 'flatten': {
+            const dist = v.clone().sub(center).dot(hitNormal);
+            const k = falloff * (this.strength/100) * 0.5;
+            pos.setXYZ(i, v.x - hitNormal.x*dist*k, v.y - hitNormal.y*dist*k, v.z - hitNormal.z*dist*k);
+            break;
+          }
+          case 'pinch': {
+            const dir = center.clone().sub(v);
+            const k = falloff * (this.strength/100) * 0.35;
+            pos.setXYZ(i, v.x + dir.x*k, v.y + dir.y*k, v.z + dir.z*k);
+            break;
+          }
+          case 'grab':
+            if(!dragDelta) break;
+            pos.setXYZ(i, v.x + dragDelta.x*falloff, v.y + dragDelta.y*falloff, v.z + dragDelta.z*falloff);
+            break;
+        }
+      }
+    };
+
+    apply(local);
+    if(this.symmetryX){
+      const mirrored = local.clone(); mirrored.x *= -1;
+      const savedNx = hitNormal.x; hitNormal.x *= -1;
+      apply(mirrored);
+      hitNormal.x = savedNx;
+    }
+    pos.needsUpdate = true;
+    geo.computeVertexNormals();
+    this.grid = null; // positions moved, so the spatial hash is stale
+  },
+
+  subdivide(){
+    if(!this.target){ toast('Add or select a mesh first.'); return; }
+    const geo = this.target.geometry;
+    const projected = geo.attributes.position.count * 4;
+    if(projected > MAX_SCULPT_VERTS){
+      toast(`Would reach ~${projected.toLocaleString()} verts — over the ${MAX_SCULPT_VERTS.toLocaleString()} limit.`);
+      return;
+    }
+    const newGeo = subdivideGeometry(geo);
+    this.target.geometry.dispose();
+    this.target.geometry = newGeo;
+    this.setTarget(this.target);
+    UVView.invalidate(); refreshMeshStats(); refreshUVPanel();
+    toast(`Subdivided — ${newGeo.attributes.position.count.toLocaleString()} verts.`);
+  },
+  revert(){
+    if(!this.target || !this.original) return;
+    const pos = this.target.geometry.attributes.position;
+    if(this.original.length !== pos.array.length){ toast('Mesh resolution changed — cannot revert.'); return; }
+    pos.array.set(this.original);
+    pos.needsUpdate = true;
+    this.target.geometry.computeVertexNormals();
+    this.grid = null;
+    refreshMeshStats(); toast('Sculpt reverted.');
+  }
+};
+
+/* ============================= Mesh statistics ============================= */
+function computeMeshStats(){
+  let verts=0, tris=0, meshCount=0, boundary=0;
+  const edgeUse = new Map();
+  for(const mesh of Viewport3D.meshes){
+    const g = mesh.geometry; if(!g || !g.attributes.position) continue;
+    meshCount++;
+    verts += g.attributes.position.count;
+    const idx = g.index ? g.index.array : null;
+    tris += idx ? idx.length/3 : g.attributes.position.count/3;
+    if(idx && idx.length < 400000){
+      for(let t=0;t<idx.length;t+=3){
+        const a=idx[t],b=idx[t+1],c=idx[t+2];
+        for(const [i,j] of [[a,b],[b,c],[c,a]]){
+          const k = i<j ? i+'|'+j : j+'|'+i;
+          edgeUse.set(k, (edgeUse.get(k)||0)+1);
+        }
+      }
+    }
+  }
+  for(const v of edgeUse.values()) if(v === 1) boundary++;
+  // Triangulated quads share one interior diagonal, so this approximates the
+  // original quad count before triangulation.
+  const quadEstimate = Math.max(0, Math.round((tris - boundary/2)/2));
+  return { meshCount, verts, tris:Math.round(tris), edges:edgeUse.size, boundary, quadEstimate };
+}
+function refreshMeshStats(){
+  const el = document.getElementById('mesh-stats'); if(!el) return;
+  if(!Viewport3D.meshes.length){ el.textContent = 'No mesh loaded.'; return; }
+  const s = computeMeshStats();
+  const warn = s.verts > MAX_SCULPT_VERTS*0.7;
+  el.innerHTML =
+    `Meshes &nbsp;<b>${s.meshCount}</b><br>` +
+    `Vertices <b>${s.verts.toLocaleString()}</b><br>` +
+    `Triangles <b>${s.tris.toLocaleString()}</b><br>` +
+    `Edges &nbsp;&nbsp;<b>${s.edges.toLocaleString()}</b><br>` +
+    `Quads (est) <b>${s.quadEstimate.toLocaleString()}</b><br>` +
+    `Open edges <b>${s.boundary.toLocaleString()}</b>` +
+    (warn ? `<br><span style="color:var(--danger);">Approaching the ${MAX_SCULPT_VERTS.toLocaleString()} vertex limit.</span>` : '');
+}
+
+/* ============================= HDRI environment ============================= */
+const HDRI_PRESETS = [
+  { id:'studio', name:'Studio',  desc:'neutral grey', stops:[[0,'#e8e8ea'],[0.45,'#9aa0a8'],[0.5,'#5c6068'],[1,'#2a2d33']] },
+  { id:'sky',    name:'Daylight',desc:'blue sky',     stops:[[0,'#9dc4f0'],[0.45,'#dce9f7'],[0.52,'#8f8d8a'],[1,'#3f4a54']] },
+  { id:'sunset', name:'Sunset',  desc:'warm rim',     stops:[[0,'#2b3a5c'],[0.4,'#c97a4b'],[0.52,'#e8a35c'],[1,'#2a201c']] },
+  { id:'dusk',   name:'Dusk',    desc:'cool ambient', stops:[[0,'#1b2438'],[0.45,'#4a5b78'],[0.55,'#2f3846'],[1,'#14171c']] },
+  { id:'forest', name:'Forest',  desc:'green bounce', stops:[[0,'#8fae7a'],[0.45,'#cfe0c4'],[0.55,'#4f6147'],[1,'#22281f']] },
+  { id:'none',   name:'None',    desc:'flat dark',    stops:null },
+];
+const HDRI = {
+  current:'studio', intensity:100, showBackground:true, pmrem:null, envTex:null, _bgTex:null,
+  _makeEquirect(preset){
+    const w = 1024, h = 512;
+    const c = document.createElement('canvas'); c.width=w; c.height=h;
+    const ctx = c.getContext('2d');
+    const grad = ctx.createLinearGradient(0,0,0,h);
+    for(const [stop, color] of preset.stops) grad.addColorStop(stop, color);
+    ctx.fillStyle = grad; ctx.fillRect(0,0,w,h);
+    // A soft sun blob gives specular highlights something to catch.
+    const sunX = w*0.3, sunY = h*0.3;
+    const sun = ctx.createRadialGradient(sunX,sunY,0,sunX,sunY,h*0.32);
+    sun.addColorStop(0,'rgba(255,255,255,0.95)');
+    sun.addColorStop(0.25,'rgba(255,248,235,0.42)');
+    sun.addColorStop(1,'rgba(255,255,255,0)');
+    ctx.fillStyle = sun; ctx.fillRect(0,0,w,h);
+    return c;
+  },
+  applyCanvas(canvas){
+    if(!Viewport3D.ready) return;
+    if(!this.pmrem){
+      this.pmrem = new THREE.PMREMGenerator(Viewport3D.renderer);
+      this.pmrem.compileEquirectangularShader();
+    }
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.mapping = THREE.EquirectangularReflectionMapping;
+    tex.needsUpdate = true;
+    const rt = this.pmrem.fromEquirectangular(tex);
+    this.envTex = rt.texture;
+    Viewport3D.scene.environment = this.envTex;
+    this._bgTex = tex;
+    Viewport3D.scene.background = this.showBackground ? tex : new THREE.Color(0x0f1216);
+    if(Viewport3D.material){
+      Viewport3D.material.envMap = this.envTex;
+      Viewport3D.material.envMapIntensity = this.intensity/100;
+      Viewport3D.material.needsUpdate = true;
+    }
+  },
+  apply(id){
+    if(!Viewport3D.init()) return;
+    this.current = id;
+    const preset = HDRI_PRESETS.find(p=>p.id===id);
+    if(!preset || !preset.stops){
+      Viewport3D.scene.environment = null;
+      Viewport3D.scene.background = new THREE.Color(0x0f1216);
+      if(Viewport3D.material){ Viewport3D.material.envMap = null; Viewport3D.material.needsUpdate = true; }
+      return;
+    }
+    this.applyCanvas(this._makeEquirect(preset));
+  },
+  loadFromImage(img){
+    const c = document.createElement('canvas');
+    c.width = img.width; c.height = img.height;
+    c.getContext('2d').drawImage(img,0,0);
+    this.applyCanvas(c);
+    toast('Environment loaded.');
+  },
+  setIntensity(v){
+    this.intensity = v;
+    if(Viewport3D.material){ Viewport3D.material.envMapIntensity = v/100; Viewport3D.material.needsUpdate = true; }
+  },
+  setBackground(on){
+    this.showBackground = on;
+    if(!Viewport3D.ready) return;
+    Viewport3D.scene.background = (on && this._bgTex) ? this._bgTex : new THREE.Color(0x0f1216);
+  }
+};
+
+/* ============================= Creation-mode control wiring ============================= */
+function setWorkspacePanels(opts){
+  const show = (id,on)=>{ const el=document.getElementById(id); if(el) el.style.display = on?'block':'none'; };
+  show('uv-panel', !!opts.uv); show('create3d-panel', !!opts.create);
+  show('sculpt-panel', !!opts.sculpt); show('stats-panel', !!opts.stats); show('hdri-panel', !!opts.hdri);
+  if(opts.uv) refreshUVPanel();
+  if(opts.stats) refreshMeshStats();
+}
+function bindCreationControls(){
+  /* --- window controls (frameless) --- */
+  if(isElectron && window.vellumAPI.winMinimize){
+    document.getElementById('win-min').addEventListener('click', ()=> window.vellumAPI.winMinimize());
+    document.getElementById('win-max').addEventListener('click', ()=> window.vellumAPI.winMaximize());
+    document.getElementById('win-close').addEventListener('click', ()=> window.vellumAPI.winClose());
+  } else {
+    document.getElementById('win-controls').style.display = 'none';
+  }
+
+  /* --- UV + seams --- */
+  document.getElementById('uv-show').addEventListener('change', e=>{
+    UVView.show = e.target.checked; UVView.invalidate(); renderSelectionOverlay();
+  });
+  document.getElementById('uv-opacity').addEventListener('input', e=>{
+    UVView.opacity = Number(e.target.value);
+    document.getElementById('uv-opacity-val').textContent = e.target.value+'%'; renderSelectionOverlay();
+  });
+  document.getElementById('uv-color').addEventListener('input', e=>{ UVView.color = e.target.value; renderSelectionOverlay(); });
+  document.getElementById('uv-seams').addEventListener('change', e=>{
+    UVView.showSeams = e.target.checked;
+    if(e.target.checked){ UVView.seamCache = null; refreshUVPanel(); }
+    renderSelectionOverlay();
+  });
+  document.getElementById('uv-seam-color').addEventListener('input', e=>{ UVView.seamColor = e.target.value; renderSelectionOverlay(); });
+  document.getElementById('uv-bake').addEventListener('click', ()=> UVView.bakeEdges(false));
+  document.getElementById('uv-bake-seams').addEventListener('click', ()=> UVView.bakeEdges(true));
+
+  /* --- primitives --- */
+  const pg = document.getElementById('prim-grid');
+  for(const p of PRIMITIVES){
+    const b = document.createElement('button'); b.className='comic-preset-btn';
+    b.innerHTML = `<b>${p.name}</b>${p.desc}`;
+    b.addEventListener('click', ()=> addPrimitive(p.id));
+    pg.appendChild(b);
+  }
+  document.getElementById('prim-detail').addEventListener('input', e=>{
+    document.getElementById('prim-detail-val').textContent = e.target.value;
+  });
+
+  /* --- sculpt --- */
+  const sg = document.getElementById('sc-brush-grid');
+  for(const b of SCULPT_BRUSHES){
+    const btn = document.createElement('button');
+    btn.className = 'comic-preset-btn'+(Sculpt.brush===b.id?' active':'');
+    btn.dataset.brush = b.id;
+    btn.innerHTML = `<b>${b.name}</b>${b.desc}`;
+    btn.addEventListener('click', ()=>{
+      Sculpt.brush = b.id;
+      sg.querySelectorAll('.comic-preset-btn').forEach(x=> x.classList.toggle('active', x.dataset.brush===b.id));
+    });
+    sg.appendChild(btn);
+  }
+  document.getElementById('sc-enable').addEventListener('change', e=>{
+    Sculpt.enabled = e.target.checked;
+    if(Sculpt.enabled){
+      Viewport3D.paintMode = false;
+      document.getElementById('v3d-paint').classList.remove('active');
+      if(!Sculpt.target && Viewport3D.meshes.length) Sculpt.setTarget(Viewport3D.meshes[0]);
+    }
+  });
+  document.getElementById('sc-size').addEventListener('input', e=>{
+    Sculpt.size = Number(e.target.value); document.getElementById('sc-size-val').textContent = e.target.value;
+  });
+  document.getElementById('sc-strength').addEventListener('input', e=>{
+    Sculpt.strength = Number(e.target.value); document.getElementById('sc-strength-val').textContent = e.target.value+'%';
+  });
+  document.getElementById('sc-symmetry').addEventListener('change', e=> Sculpt.symmetryX = e.target.checked);
+  document.getElementById('sc-subdivide').addEventListener('click', ()=> Sculpt.subdivide());
+  document.getElementById('sc-reset').addEventListener('click', ()=> Sculpt.revert());
+  document.getElementById('sc-recalc').addEventListener('click', ()=>{
+    if(Sculpt.target){ Sculpt.target.geometry.computeVertexNormals(); toast('Normals recomputed.'); }
+  });
+
+  /* --- stats --- */
+  document.getElementById('stats-refresh').addEventListener('click', refreshMeshStats);
+
+  /* --- HDRI --- */
+  const hg = document.getElementById('hdri-grid');
+  for(const p of HDRI_PRESETS){
+    const b = document.createElement('button');
+    b.className = 'comic-preset-btn'+(HDRI.current===p.id?' active':'');
+    b.dataset.hdri = p.id;
+    b.innerHTML = `<b>${p.name}</b>${p.desc}`;
+    b.addEventListener('click', ()=>{
+      HDRI.apply(p.id);
+      hg.querySelectorAll('.comic-preset-btn').forEach(x=> x.classList.toggle('active', x.dataset.hdri===p.id));
+    });
+    hg.appendChild(b);
+  }
+  document.getElementById('hdri-intensity').addEventListener('input', e=>{
+    HDRI.setIntensity(Number(e.target.value));
+    document.getElementById('hdri-intensity-val').textContent = e.target.value+'%';
+  });
+  document.getElementById('hdri-showbg').addEventListener('change', e=> HDRI.setBackground(e.target.checked));
+  document.getElementById('hdri-load').addEventListener('click', ()=> document.getElementById('hidden-hdri-file-input').click());
+  document.getElementById('hidden-hdri-file-input').addEventListener('change', (e)=>{
+    const file = e.target.files[0]; if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ()=>{ const img = new Image(); img.onload = ()=> HDRI.loadFromImage(img); img.src = reader.result; };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  });
+}
+
+/* ============================= Rigging & Animation =============================
+   Marker-driven humanoid skeleton, linear-blend skinning, two-bone IK, keyframes
+   and USDA export. A working basic rig — not a production/film rig. */
+const RIG_MARKERS = [
+  { id:'pelvis',     label:'Pelvis / Hips' }, { id:'chest',   label:'Chest' },
+  { id:'neck',       label:'Neck base' },     { id:'head',    label:'Head top' },
+  { id:'shoulder_l', label:'Shoulder L' },    { id:'elbow_l', label:'Elbow L' },
+  { id:'hand_l',     label:'Wrist L' },       { id:'shoulder_r', label:'Shoulder R' },
+  { id:'elbow_r',    label:'Elbow R' },       { id:'hand_r',  label:'Wrist R' },
+  { id:'thigh_l',    label:'Hip L' },         { id:'knee_l',  label:'Knee L' },
+  { id:'foot_l',     label:'Ankle L' },       { id:'thigh_r', label:'Hip R' },
+  { id:'knee_r',     label:'Knee R' },        { id:'foot_r',  label:'Ankle R' },
+];
+const RIG_NAMING = {
+  ue5: { root:'root', pelvis:'pelvis', spine_01:'spine_01', spine_02:'spine_02', chest:'spine_03',
+    neck:'neck_01', head:'head', clavicle_l:'clavicle_l', upperarm_l:'upperarm_l', lowerarm_l:'lowerarm_l', hand_l:'hand_l',
+    clavicle_r:'clavicle_r', upperarm_r:'upperarm_r', lowerarm_r:'lowerarm_r', hand_r:'hand_r',
+    thigh_l:'thigh_l', calf_l:'calf_l', foot_l:'foot_l', thigh_r:'thigh_r', calf_r:'calf_r', foot_r:'foot_r' },
+  unity: { root:'Root', pelvis:'Hips', spine_01:'Spine', spine_02:'Chest', chest:'UpperChest',
+    neck:'Neck', head:'Head', clavicle_l:'LeftShoulder', upperarm_l:'LeftUpperArm', lowerarm_l:'LeftLowerArm', hand_l:'LeftHand',
+    clavicle_r:'RightShoulder', upperarm_r:'RightUpperArm', lowerarm_r:'RightLowerArm', hand_r:'RightHand',
+    thigh_l:'LeftUpperLeg', calf_l:'LeftLowerLeg', foot_l:'LeftFoot', thigh_r:'RightUpperLeg', calf_r:'RightLowerLeg', foot_r:'RightFoot' },
+  mixamo: { root:'mixamorig:Root', pelvis:'mixamorig:Hips', spine_01:'mixamorig:Spine', spine_02:'mixamorig:Spine1', chest:'mixamorig:Spine2',
+    neck:'mixamorig:Neck', head:'mixamorig:Head', clavicle_l:'mixamorig:LeftShoulder', upperarm_l:'mixamorig:LeftArm', lowerarm_l:'mixamorig:LeftForeArm', hand_l:'mixamorig:LeftHand',
+    clavicle_r:'mixamorig:RightShoulder', upperarm_r:'mixamorig:RightArm', lowerarm_r:'mixamorig:RightForeArm', hand_r:'mixamorig:RightHand',
+    thigh_l:'mixamorig:LeftUpLeg', calf_l:'mixamorig:LeftLeg', foot_l:'mixamorig:LeftFoot', thigh_r:'mixamorig:RightUpLeg', calf_r:'mixamorig:RightLeg', foot_r:'mixamorig:RightFoot' },
+  godot: { root:'Root', pelvis:'Hips', spine_01:'Spine', spine_02:'Chest', chest:'UpperChest',
+    neck:'Neck', head:'Head', clavicle_l:'LeftShoulder', upperarm_l:'LeftUpperArm', lowerarm_l:'LeftLowerArm', hand_l:'LeftHand',
+    clavicle_r:'RightShoulder', upperarm_r:'RightUpperArm', lowerarm_r:'RightLowerArm', hand_r:'RightHand',
+    thigh_l:'LeftUpperLeg', calf_l:'LeftLowerLeg', foot_l:'LeftFoot', thigh_r:'RightUpperLeg', calf_r:'RightLowerLeg', foot_r:'RightFoot' },
+  plain: { root:'root', pelvis:'pelvis', spine_01:'spine1', spine_02:'spine2', chest:'chest',
+    neck:'neck', head:'head', clavicle_l:'clavicle.L', upperarm_l:'upperarm.L', lowerarm_l:'forearm.L', hand_l:'hand.L',
+    clavicle_r:'clavicle.R', upperarm_r:'upperarm.R', lowerarm_r:'forearm.R', hand_r:'hand.R',
+    thigh_l:'thigh.L', calf_l:'shin.L', foot_l:'foot.L', thigh_r:'thigh.R', calf_r:'shin.R', foot_r:'foot.R' },
+};
+const RIG_PARENTS = {
+  root:null, pelvis:'root', spine_01:'pelvis', spine_02:'spine_01', chest:'spine_02',
+  neck:'chest', head:'neck',
+  clavicle_l:'chest', upperarm_l:'clavicle_l', lowerarm_l:'upperarm_l', hand_l:'lowerarm_l',
+  clavicle_r:'chest', upperarm_r:'clavicle_r', lowerarm_r:'upperarm_r', hand_r:'lowerarm_r',
+  thigh_l:'pelvis', calf_l:'thigh_l', foot_l:'calf_l',
+  thigh_r:'pelvis', calf_r:'thigh_r', foot_r:'calf_r',
+};
+function distancePointSegment(p, a, b, out){
+  const ab = b.clone().sub(a), ap = p.clone().sub(a);
+  const abLen2 = ab.lengthSq();
+  const t = abLen2 < 1e-9 ? 0 : clampNum(ap.dot(ab)/abLen2, 0, 1);
+  out.copy(a).addScaledVector(ab, t);
+  return p.distanceTo(out);
+}
+// Applies a world-space rotation to a bone, respecting its parent transform.
+function applyWorldQuaternion(bone, q){
+  const parentQ = new THREE.Quaternion();
+  if(bone.parent) bone.parent.getWorldQuaternion(parentQ);
+  const inv = parentQ.clone().invert();
+  const worldQ = new THREE.Quaternion(); bone.getWorldQuaternion(worldQ);
+  bone.quaternion.copy(inv.multiply(q.clone().multiply(worldQ)));
+  bone.updateMatrixWorld(true);
+}
+
+const Rig = {
+  markers:{}, activeMarker:null, naming:'ue5',
+  bones:null, boneMap:null, skeletonHelper:null, markerHelpers:[],
+  poseMode:'off', restTransforms:null, ikChains:{},
+  frame:0, length:60, playing:false, keys:{}, _playTimer:null,
+
+  placeMarkerFromHit(point){
+    if(!this.activeMarker) return false;
+    this.markers[this.activeMarker] = point.clone();
+    const idx = RIG_MARKERS.findIndex(m=>m.id===this.activeMarker);
+    const next = RIG_MARKERS.slice(idx+1).find(m=>!this.markers[m.id]) || RIG_MARKERS.find(m=>!this.markers[m.id]);
+    this.activeMarker = next ? next.id : null;
+    this.refreshMarkerHelpers(); renderRigPanel();
+    return true;
+  },
+  refreshMarkerHelpers(){
+    if(!Viewport3D.ready) return;
+    for(const h of this.markerHelpers) Viewport3D.scene.remove(h);
+    this.markerHelpers = [];
+    const geo = new THREE.SphereGeometry(0.035, 12, 10);
+    for(const id of Object.keys(this.markers)){
+      const mat = new THREE.MeshBasicMaterial({ color: id===this.activeMarker ? 0xc98a4b : 0x6f9a8d, depthTest:false });
+      const s = new THREE.Mesh(geo, mat);
+      s.position.copy(this.markers[id]); s.renderOrder = 999;
+      Viewport3D.scene.add(s); this.markerHelpers.push(s);
+    }
+  },
+  clearMarkers(){
+    this.markers = {}; this.activeMarker = RIG_MARKERS[0].id;
+    this.refreshMarkerHelpers(); renderRigPanel();
+  },
+
+  buildSkeleton(){
+    const need = RIG_MARKERS.filter(m=>!this.markers[m.id]);
+    if(need.length){ toast(`Place all markers first — ${need.length} remaining.`); return; }
+    if(!Viewport3D.meshes.length){ toast('Load a model first.'); return; }
+    const M = this.markers;
+    const pelvis = M.pelvis.clone(), chest = M.chest.clone();
+    const pos = {
+      root: new THREE.Vector3(pelvis.x, 0, pelvis.z),
+      pelvis, spine_01: pelvis.clone().lerp(chest,0.33), spine_02: pelvis.clone().lerp(chest,0.66), chest,
+      neck:M.neck.clone(), head:M.head.clone(),
+      clavicle_l:M.neck.clone().lerp(M.shoulder_l,0.45), upperarm_l:M.shoulder_l.clone(), lowerarm_l:M.elbow_l.clone(), hand_l:M.hand_l.clone(),
+      clavicle_r:M.neck.clone().lerp(M.shoulder_r,0.45), upperarm_r:M.shoulder_r.clone(), lowerarm_r:M.elbow_r.clone(), hand_r:M.hand_r.clone(),
+      thigh_l:M.thigh_l.clone(), calf_l:M.knee_l.clone(), foot_l:M.foot_l.clone(),
+      thigh_r:M.thigh_r.clone(), calf_r:M.knee_r.clone(), foot_r:M.foot_r.clone(),
+    };
+    const names = RIG_NAMING[this.naming];
+    const bones = {}, order = [];
+    const visit = (id)=>{
+      if(bones[id]) return;
+      if(RIG_PARENTS[id]) visit(RIG_PARENTS[id]);
+      const b = new THREE.Bone();
+      b.name = names[id] || id; b.userData.rigId = id;
+      bones[id] = b; order.push(id);
+    };
+    for(const id of Object.keys(RIG_PARENTS)) visit(id);
+    for(const id of order){
+      const p = RIG_PARENTS[id];
+      if(p){ bones[p].add(bones[id]); bones[id].position.copy(pos[id].clone().sub(pos[p])); }
+      else bones[id].position.copy(pos[id]);
+    }
+    const rootBone = bones.root;
+    rootBone.updateMatrixWorld(true);
+    const boneList = order.map(id=>bones[id]);
+    const skeleton = new THREE.Skeleton(boneList);
+    this.bones = boneList; this.boneMap = bones;
+    this.skinMeshes(skeleton, rootBone, pos, order);
+    this.restTransforms = boneList.map(b=>({ pos:b.position.clone(), quat:b.quaternion.clone() }));
+    if(this.skeletonHelper) Viewport3D.scene.remove(this.skeletonHelper);
+    this.skeletonHelper = new THREE.SkeletonHelper(rootBone);
+    Viewport3D.scene.add(this.skeletonHelper);
+    this.ikChains = {
+      arm_l:['upperarm_l','lowerarm_l','hand_l'], arm_r:['upperarm_r','lowerarm_r','hand_r'],
+      leg_l:['thigh_l','calf_l','foot_l'],        leg_r:['thigh_r','calf_r','foot_r'],
+    };
+    toast(`Skeleton built — ${boneList.length} bones, ${this.naming.toUpperCase()} naming.`);
+    renderRigPanel(); renderBoneList(); refreshMeshStats();
+  },
+
+  skinMeshes(skeleton, rootBone, pos, order){
+    const deformIds = order.filter(id=>id!=='root');
+    const segs = deformIds.map(id=>{
+      const p = RIG_PARENTS[id];
+      return { a: pos[id], b: (p && p!=='root') ? pos[p] : pos[id], index: order.indexOf(id) };
+    });
+    for(const mesh of Viewport3D.meshes.slice()){
+      const geo = mesh.geometry;
+      if(!geo || !geo.attributes.position) continue;
+      const posAttr = geo.attributes.position, count = posAttr.count;
+      const skinIndex = new Uint16Array(count*4), skinWeight = new Float32Array(count*4);
+      const v = new THREE.Vector3(), closest = new THREE.Vector3();
+      for(let i=0;i<count;i++){
+        v.fromBufferAttribute(posAttr, i); mesh.localToWorld(v);
+        const scored = segs.map(s=>({ idx:s.index, w: 1/Math.pow(Math.max(distancePointSegment(v,s.a,s.b,closest),1e-4),4) }));
+        scored.sort((x,y)=>y.w-x.w);
+        const top = scored.slice(0,4);
+        const total = top.reduce((a,b)=>a+b.w,0) || 1;
+        for(let k=0;k<4;k++){
+          skinIndex[i*4+k] = top[k] ? top[k].idx : 0;
+          skinWeight[i*4+k] = top[k] ? top[k].w/total : 0;
+        }
+      }
+      geo.setAttribute('skinIndex', new THREE.BufferAttribute(skinIndex,4));
+      geo.setAttribute('skinWeight', new THREE.BufferAttribute(skinWeight,4));
+      const skinned = new THREE.SkinnedMesh(geo, Viewport3D.material);
+      skinned.name = mesh.name;
+      skinned.position.copy(mesh.position); skinned.quaternion.copy(mesh.quaternion); skinned.scale.copy(mesh.scale);
+      if(mesh.parent){ mesh.parent.add(skinned); mesh.parent.remove(mesh); }
+      if(!rootBone.parent) skinned.add(rootBone);
+      skinned.bind(skeleton);
+      const mi = Viewport3D.meshes.indexOf(mesh);
+      if(mi >= 0) Viewport3D.meshes[mi] = skinned;
+    }
+  },
+
+  resetPose(){
+    if(!this.bones || !this.restTransforms) return;
+    this.bones.forEach((b,i)=>{ b.position.copy(this.restTransforms[i].pos); b.quaternion.copy(this.restTransforms[i].quat); });
+    this.bones[0].updateMatrixWorld(true);
+  },
+
+  solveIK(chainId, targetWorld){
+    const ids = this.ikChains[chainId]; if(!ids) return;
+    const A = this.boneMap[ids[0]], B = this.boneMap[ids[1]], C = this.boneMap[ids[2]];
+    if(!A||!B||!C) return;
+    A.updateMatrixWorld(true);
+    const aPos = new THREE.Vector3().setFromMatrixPosition(A.matrixWorld);
+    const bPos = new THREE.Vector3().setFromMatrixPosition(B.matrixWorld);
+    const cPos = new THREE.Vector3().setFromMatrixPosition(C.matrixWorld);
+    const lenAB = aPos.distanceTo(bPos), lenBC = bPos.distanceTo(cPos);
+    const toTarget = targetWorld.clone().sub(aPos);
+    let dist = Math.min(toTarget.length(), lenAB+lenBC-1e-4);
+    dist = Math.max(dist, Math.abs(lenAB-lenBC)+1e-4);
+    const angA = Math.acos(clampNum((lenAB*lenAB + dist*dist - lenBC*lenBC)/(2*lenAB*dist), -1, 1));
+    const angB = Math.acos(clampNum((lenAB*lenAB + lenBC*lenBC - dist*dist)/(2*lenAB*lenBC), -1, 1));
+    const curDir = bPos.clone().sub(aPos).normalize();
+    const tgtDir = toTarget.clone().normalize();
+    let axis = new THREE.Vector3().crossVectors(curDir, tgtDir);
+    if(axis.lengthSq() < 1e-8) axis.set(0,0,1); else axis.normalize();
+    applyWorldQuaternion(A, new THREE.Quaternion().setFromUnitVectors(curDir, tgtDir));
+    applyWorldQuaternion(A, new THREE.Quaternion().setFromAxisAngle(axis, -angA));
+    applyWorldQuaternion(B, new THREE.Quaternion().setFromAxisAngle(axis, Math.PI - angB));
+    this.bones[0].updateMatrixWorld(true);
+  },
+
+  captureKey(){
+    if(!this.bones){ return false; }
+    this.keys[this.frame] = this.bones.map(b=>({
+      p:[b.position.x,b.position.y,b.position.z],
+      q:[b.quaternion.x,b.quaternion.y,b.quaternion.z,b.quaternion.w]
+    }));
+    renderTimeline(); toast('Keyed 3D pose at frame '+this.frame);
+    return true;
+  },
+  deleteKey(){ delete this.keys[this.frame]; renderTimeline(); },
+  applyFrame(f){
+    if(!this.bones) return;
+    const frames = Object.keys(this.keys).map(Number).sort((a,b)=>a-b);
+    if(!frames.length) return;
+    let prev = frames[0], next = frames[frames.length-1];
+    for(const k of frames) if(k<=f) prev=k;
+    for(let i=frames.length-1;i>=0;i--) if(frames[i]>=f) next=frames[i];
+    const kp = this.keys[prev], kn = this.keys[next];
+    const t = (next===prev) ? 0 : (f-prev)/(next-prev);
+    this.bones.forEach((b,i)=>{
+      if(!kp[i] || !kn[i]) return;
+      b.position.set(kp[i].p[0]+(kn[i].p[0]-kp[i].p[0])*t, kp[i].p[1]+(kn[i].p[1]-kp[i].p[1])*t, kp[i].p[2]+(kn[i].p[2]-kp[i].p[2])*t);
+      b.quaternion.copy(new THREE.Quaternion(...kp[i].q).slerp(new THREE.Quaternion(...kn[i].q), t));
+    });
+    this.bones[0].updateMatrixWorld(true);
+  },
+  setFrame(f){
+    this.frame = Math.max(0, Math.min(this.length, Math.round(f)));
+    this.applyFrame(this.frame);
+    if(Rig2D.joints.length) Rig2D.applyFrame(this.frame);
+    document.getElementById('tl-frame').textContent = `Frame ${this.frame} / ${this.length}`;
+    document.getElementById('timeline-playhead').style.left = (this.frame/this.length*100)+'%';
+  },
+  play(on){
+    this.playing = on;
+    const btn = document.getElementById('tl-play');
+    btn.textContent = on ? '❚❚ Pause' : '▶ Play';
+    btn.classList.toggle('active', on);
+    clearInterval(this._playTimer);
+    if(on) this._playTimer = setInterval(()=>{ this.setFrame(this.frame >= this.length ? 0 : this.frame+1); }, 1000/24);
+  },
+};
+
+/* --- FBX embedded texture extraction --- */
+function importFBXEmbeddedTextures(){
+  if(!Viewport3D.meshes.length){ toast('Load a model first.'); return; }
+  const found = {};
+  const slotToKind = { map:'albedo', normalMap:'normal', roughnessMap:'roughness',
+    metalnessMap:'metallic', aoMap:'ao', emissiveMap:'emissive', alphaMap:'opacity' };
+  for(const mesh of Viewport3D.meshes){
+    const om = mesh.userData.originalMaterial;
+    const mats = Array.isArray(om) ? om : (om ? [om] : []);
+    for(const mat of mats){
+      for(const slot of Object.keys(slotToKind)){
+        const tex = mat && mat[slot];
+        if(tex && tex.image && !found[slotToKind[slot]]) found[slotToKind[slot]] = tex.image;
+      }
+    }
+  }
+  const kinds = Object.keys(found);
+  if(!kinds.length){ toast('No embedded textures found on this model.'); return; }
+  for(const kind of kinds){
+    let mapId = State.mapOrder.find(id=>State.maps[id].kind===kind);
+    if(!mapId) mapId = createMap(kind, KINDS[kind].label).id;
+    const layer = State.maps[mapId].layers[0];
+    layer.ctx.clearRect(0,0,State.width,State.height);
+    try{ layer.ctx.drawImage(found[kind], 0, 0, State.width, State.height); }catch(err){ console.warn(err); }
+    invalidateLayerEffects(layer);
+  }
+  renderMapTabs(); composite(); renderLayerPanel(); Viewport3D.refreshTextures();
+  toast(`Imported ${kinds.length} embedded texture${kinds.length===1?'':'s'}: ${kinds.join(', ')}`);
+}
+
+/* --- USDA export (ASCII USD: mesh, UVs, skeleton, bindings) --- */
+function exportUSDA(){
+  if(!Viewport3D.meshes.length){ toast('Load a model first.'); return; }
+  const lines = ['#usda 1.0','(','    defaultPrim = "Vellum"','    metersPerUnit = 1','    upAxis = "Y"',')',''];
+  const hasSkel = !!(Rig.bones && Rig.bones.length);
+  lines.push(hasSkel ? 'def SkelRoot "Vellum"' : 'def Xform "Vellum"', '{');
+  if(hasSkel){
+    const pathOf = (id)=>{ const chain=[]; let cur=id; while(cur){ chain.unshift(Rig.boneMap[cur].name); cur = RIG_PARENTS[cur]; } return chain.join('/'); };
+    const jointPaths = Rig.bones.map(b=>pathOf(b.userData.rigId));
+    const restXforms = Rig.bones.map(b=>{
+      const m = b.matrix.elements;
+      return `( (${m[0]}, ${m[1]}, ${m[2]}, ${m[3]}), (${m[4]}, ${m[5]}, ${m[6]}, ${m[7]}), (${m[8]}, ${m[9]}, ${m[10]}, ${m[11]}), (${m[12]}, ${m[13]}, ${m[14]}, ${m[15]}) )`;
+    });
+    lines.push('    def Skeleton "Skel"','    {',
+      '        uniform token[] joints = [' + jointPaths.map(p=>`"${p}"`).join(', ') + ']',
+      '        uniform matrix4d[] restTransforms = [' + restXforms.join(', ') + ']',
+      '        uniform matrix4d[] bindTransforms = [' + restXforms.join(', ') + ']','    }');
+  }
+  Viewport3D.meshes.forEach((mesh, mi)=>{
+    const g = mesh.geometry; if(!g || !g.attributes.position) return;
+    const posA = g.attributes.position, uvA = g.attributes.uv;
+    const idx = g.index ? Array.from(g.index.array) : Array.from({length:posA.count},(_,i)=>i);
+    const pts = []; const v = new THREE.Vector3();
+    for(let i=0;i<posA.count;i++){
+      v.fromBufferAttribute(posA,i); mesh.localToWorld(v);
+      pts.push(`(${v.x.toFixed(6)}, ${v.y.toFixed(6)}, ${v.z.toFixed(6)})`);
+    }
+    lines.push(`    def Mesh "Mesh_${mi}"`,'    {','        uniform bool doubleSided = 1',
+      '        int[] faceVertexCounts = [' + new Array(idx.length/3).fill(3).join(', ') + ']',
+      '        int[] faceVertexIndices = [' + idx.join(', ') + ']',
+      '        point3f[] points = [' + pts.join(', ') + ']');
+    if(uvA){
+      const uvs = [];
+      for(let i=0;i<uvA.count;i++) uvs.push(`(${uvA.getX(i).toFixed(6)}, ${uvA.getY(i).toFixed(6)})`);
+      lines.push('        texCoord2f[] primvars:st = [' + uvs.join(', ') + '] (interpolation = "vertex")');
+    }
+    if(hasSkel && g.attributes.skinIndex){
+      const si = g.attributes.skinIndex, sw = g.attributes.skinWeight;
+      const jIdx = [], jW = [];
+      for(let i=0;i<si.count;i++){
+        jIdx.push(si.getX(i), si.getY(i), si.getZ(i), si.getW(i));
+        jW.push(sw.getX(i).toFixed(5), sw.getY(i).toFixed(5), sw.getZ(i).toFixed(5), sw.getW(i).toFixed(5));
+      }
+      lines.push('        int[] primvars:skel:jointIndices = [' + jIdx.join(', ') + '] (elementSize = 4, interpolation = "vertex")',
+        '        float[] primvars:skel:jointWeights = [' + jW.join(', ') + '] (elementSize = 4, interpolation = "vertex")',
+        '        rel skel:skeleton = </Vellum/Skel>');
+    }
+    lines.push('    }');
+  });
+  lines.push('}','');
+  const text = lines.join('\n');
+  const base = sanitizeName(State.projectName || 'vellum');
+  if(isElectron){
+    window.vellumAPI.saveFileDialog(base, 'usda').then(fp=>{
+      if(!fp) return;
+      const path = fp.endsWith('.usda') ? fp : fp.replace(/\.[^.]*$/,'') + '.usda';
+      window.vellumAPI.saveTextFile(path, text);
+      toast('Saved '+path.split(/[\\/]/).pop());
+    });
+  } else {
+    const blob = new Blob([text], {type:'text/plain'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href=url; a.download=base+'.usda';
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    toast('Exported '+base+'.usda');
+  }
+}
+
+/* ============================= Weight painting ============================= */
+const WeightPaint = {
+  enabled:false, bone:null, radius:18, strength:60, _wpMaterial:null,
+  setEnabled(on){
+    this.enabled = on;
+    if(on){ Viewport3D.paintMode = false; document.getElementById('v3d-paint').classList.remove('active'); }
+    this.updateDisplay();
+  },
+  updateDisplay(){
+    if(!Rig.bones || !Viewport3D.meshes.length) return;
+    for(const mesh of Viewport3D.meshes){
+      const g = mesh.geometry;
+      if(!g || !g.attributes.skinIndex) continue;
+      if(!this.enabled || this.bone===null){
+        if(mesh.material !== Viewport3D.material) mesh.material = Viewport3D.material;
+        continue;
+      }
+      const si = g.attributes.skinIndex, sw = g.attributes.skinWeight, n = si.count;
+      let colors = g.attributes.color;
+      if(!colors || colors.count !== n){
+        colors = new THREE.BufferAttribute(new Float32Array(n*3), 3);
+        g.setAttribute('color', colors);
+      }
+      for(let i=0;i<n;i++){
+        let w = 0;
+        for(const comp of ['getX','getY','getZ','getW']){
+          if(si[comp](i) === this.bone){ w = sw[comp](i); break; }
+        }
+        colors.setXYZ(i, clampNum(w*2,0,1), clampNum(1-Math.abs(w-0.5)*2,0,1)*0.7, clampNum(1-w*2,0,1));
+      }
+      colors.needsUpdate = true;
+      if(!this._wpMaterial) this._wpMaterial = new THREE.MeshBasicMaterial({ vertexColors:true, side:THREE.DoubleSide });
+      mesh.material = this._wpMaterial;
+    }
+  },
+  paintAt(hit, subtract){
+    if(!this.enabled || this.bone===null || !Rig.bones) return;
+    const mesh = hit.object, g = mesh.geometry;
+    if(!g || !g.attributes.skinIndex) return;
+    const si = g.attributes.skinIndex, sw = g.attributes.skinWeight, pos = g.attributes.position;
+    if(!g.boundingSphere) g.computeBoundingSphere();
+    const radius = (this.radius/100) * g.boundingSphere.radius * 2;
+    const local = mesh.worldToLocal(hit.point.clone());
+    const amt = (this.strength/100) * (subtract ? -1 : 1);
+    const comps = ['X','Y','Z','W'];
+    const v = new THREE.Vector3();
+    for(let i=0;i<pos.count;i++){
+      v.fromBufferAttribute(pos,i);
+      const d = v.distanceTo(local);
+      if(d > radius) continue;
+      const falloff = 1 - d/radius;
+      let slot = -1, weakest = 0, weakestW = Infinity;
+      for(let k=0;k<4;k++){
+        if(si['get'+comps[k]](i) === this.bone){ slot = k; break; }
+        const w = sw['get'+comps[k]](i);
+        if(w < weakestW){ weakestW = w; weakest = k; }
+      }
+      if(slot < 0){
+        if(subtract) continue;
+        slot = weakest; si['set'+comps[slot]](i, this.bone); sw['set'+comps[slot]](i, 0);
+      }
+      sw['set'+comps[slot]](i, clampNum(sw['get'+comps[slot]](i) + amt*falloff*0.15, 0, 1));
+      let total = 0;
+      for(let k=0;k<4;k++) total += sw['get'+comps[k]](i);
+      if(total > 0) for(let k=0;k<4;k++) sw['set'+comps[k]](i, sw['get'+comps[k]](i)/total);
+    }
+    sw.needsUpdate = true; si.needsUpdate = true;
+    this.updateDisplay();
+  },
+  normalizeAll(){
+    const comps = ['X','Y','Z','W'];
+    for(const mesh of Viewport3D.meshes){
+      const g = mesh.geometry; if(!g || !g.attributes.skinWeight) continue;
+      const sw = g.attributes.skinWeight;
+      for(let i=0;i<sw.count;i++){
+        let t=0; for(const c of comps) t += sw['get'+c](i);
+        if(t>0) for(const c of comps) sw['set'+c](i, sw['get'+c](i)/t);
+      }
+      sw.needsUpdate = true;
+    }
+    this.updateDisplay(); toast('Weights normalized.');
+  }
+};
+
+/* ============================= Cloth simulation (position-based dynamics) ============================= */
+const Cloth = {
+  running:false, mesh:null, res:22, stiffness:6, gravity:16, damping:14, wind:0,
+  points:[], constraints:[], pinned:new Set(),
+  create(){
+    if(!Viewport3D.init()) return;
+    this.destroy();
+    const N = this.res, size = 2.0, step = size/(N-1);
+    this.points = []; this.constraints = []; this.pinned.clear();
+    for(let y=0;y<N;y++) for(let x=0;x<N;x++){
+      const p = new THREE.Vector3(-size/2 + x*step, 1.2, -size/2 + y*step);
+      this.points.push({ pos:p, prev:p.clone() });
+    }
+    const idx = (x,y)=> y*N+x;
+    const add = (a,b)=> this.constraints.push({a,b,rest:this.points[a].pos.distanceTo(this.points[b].pos)});
+    for(let y=0;y<N;y++) for(let x=0;x<N;x++){
+      if(x<N-1) add(idx(x,y), idx(x+1,y));             // structural
+      if(y<N-1) add(idx(x,y), idx(x,y+1));
+      if(x<N-1 && y<N-1) add(idx(x,y), idx(x+1,y+1));  // shear
+      if(x>0 && y<N-1) add(idx(x,y), idx(x-1,y+1));
+      if(x<N-2) add(idx(x,y), idx(x+2,y));             // bend
+      if(y<N-2) add(idx(x,y), idx(x,y+2));
+    }
+    this.pinned.add(idx(0,0)); this.pinned.add(idx(N-1,0));
+    const geo = new THREE.BufferGeometry();
+    const uvs = new Float32Array(this.points.length*2);
+    for(let y=0;y<N;y++) for(let x=0;x<N;x++){
+      uvs[idx(x,y)*2] = x/(N-1); uvs[idx(x,y)*2+1] = 1 - y/(N-1);
+    }
+    const tris = [];
+    for(let y=0;y<N-1;y++) for(let x=0;x<N-1;x++){
+      tris.push(idx(x,y), idx(x+1,y), idx(x,y+1));
+      tris.push(idx(x+1,y), idx(x+1,y+1), idx(x,y+1));
+    }
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(this.points.length*3),3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(uvs,2));
+    geo.setIndex(tris);
+    this.mesh = new THREE.Mesh(geo, Viewport3D.material);
+    Viewport3D.scene.add(this.mesh);
+    Viewport3D.meshes.push(this.mesh);
+    this.syncGeometry();
+    UVView.invalidate(); refreshUVPanel(); refreshMeshStats();
+    toast(`Cloth added — ${this.points.length} particles, ${this.constraints.length} constraints.`);
+  },
+  destroy(){
+    if(this.mesh){
+      Viewport3D.scene.remove(this.mesh);
+      const i = Viewport3D.meshes.indexOf(this.mesh);
+      if(i>=0) Viewport3D.meshes.splice(i,1);
+      this.mesh = null;
+    }
+    this.points = []; this.constraints = []; this.running = false;
+  },
+  colliders(){
+    const out = [];
+    if(Viewport3D.modelRoot){
+      const box = new THREE.Box3().setFromObject(Viewport3D.modelRoot);
+      out.push({ center: box.getCenter(new THREE.Vector3()), radius: box.getSize(new THREE.Vector3()).length()/2 * 0.55 });
+    }
+    return out;
+  },
+  step(dt){
+    if(!this.points.length) return;
+    const g = -this.gravity * 0.01;
+    const damp = 1 - this.damping/100 * 0.5;
+    const windV = new THREE.Vector3(this.wind*0.004, 0, Math.sin(Date.now()*0.001)*this.wind*0.002);
+    for(let i=0;i<this.points.length;i++){
+      if(this.pinned.has(i)) continue;
+      const p = this.points[i];
+      const vel = p.pos.clone().sub(p.prev).multiplyScalar(damp);
+      p.prev.copy(p.pos);
+      p.pos.add(vel);
+      p.pos.y += g*dt*dt*60;
+      p.pos.add(windV);
+    }
+    const iters = Math.max(1, Math.round(this.stiffness));
+    const cols = this.colliders();
+    for(let k=0;k<iters;k++){
+      for(const c of this.constraints){
+        const pa = this.points[c.a], pb = this.points[c.b];
+        const delta = pb.pos.clone().sub(pa.pos);
+        const d = delta.length(); if(d < 1e-8) continue;
+        const corr = delta.multiplyScalar((d - c.rest)/d * 0.5);
+        if(!this.pinned.has(c.a)) pa.pos.add(corr);
+        if(!this.pinned.has(c.b)) pb.pos.sub(corr);
+      }
+      for(const col of cols){
+        for(const p of this.points){
+          const d = p.pos.clone().sub(col.center);
+          const len = d.length();
+          if(len < col.radius && len > 1e-6) p.pos.copy(col.center).add(d.multiplyScalar(col.radius/len));
+        }
+      }
+      for(const p of this.points) if(p.pos.y < -1) p.pos.y = -1;
+    }
+    this.syncGeometry();
+  },
+  syncGeometry(){
+    if(!this.mesh) return;
+    const pos = this.mesh.geometry.attributes.position;
+    for(let i=0;i<this.points.length;i++){
+      const p = this.points[i].pos;
+      pos.setXYZ(i, p.x, p.y, p.z);
+    }
+    pos.needsUpdate = true;
+    this.mesh.geometry.computeVertexNormals();
+    this.mesh.geometry.computeBoundingSphere();
+  }
+};
+
+/* ============================= 2D body rig (triangulated mesh warp) ============================= */
+const Rig2D = {
+  joints:[], bound:false, falloff:140, sourceCanvas:null, dragging:-1, restJoints:[],
+  gridSize:26, verts:[], restVerts:[], tris:[], weights:[], keys:{},
+  addJoint(pt){
+    this.joints.push({ x:pt.x, y:pt.y, parent: this.joints.length ? this.joints.length-1 : null });
+    this.restJoints = this.joints.map(j=>({x:j.x, y:j.y}));
+    if(this.bound) this.computeWeights();
+    renderRig2DList(); renderSelectionOverlay();
+  },
+  clear(){
+    this.joints=[]; this.restJoints=[]; this.bound=false; this.sourceCanvas=null;
+    this.verts=[]; this.restVerts=[]; this.tris=[]; this.weights=[]; this.keys={};
+    renderRig2DList(); renderSelectionOverlay(); renderTimeline();
+  },
+  hitJoint(pt){
+    const r = 14/State.zoom;
+    for(let i=this.joints.length-1;i>=0;i--)
+      if(Math.hypot(this.joints[i].x-pt.x, this.joints[i].y-pt.y) < r) return i;
+    return -1;
+  },
+  _opaqueBounds(ctx){
+    const d = ctx.getImageData(0,0,State.width,State.height).data;
+    let minX=State.width, minY=State.height, maxX=-1, maxY=-1;
+    for(let y=0;y<State.height;y+=2) for(let x=0;x<State.width;x+=2){
+      if(d[(y*State.width+x)*4+3] > 4){
+        if(x<minX)minX=x; if(x>maxX)maxX=x;
+        if(y<minY)minY=y; if(y>maxY)maxY=y;
+      }
+    }
+    if(maxX < 0) return null;
+    const pad = 8;
+    return { x:Math.max(0,minX-pad), y:Math.max(0,minY-pad),
+      w:Math.min(State.width, maxX+pad)-Math.max(0,minX-pad),
+      h:Math.min(State.height, maxY+pad)-Math.max(0,minY-pad) };
+  },
+  bind(){
+    if(this.joints.length < 2){ toast('Place at least two joints first.'); return; }
+    const layer = activeLayer();
+    const bounds = this._opaqueBounds(layer.ctx);
+    if(!bounds){ toast('This layer is empty — nothing to bind.'); return; }
+    const src = document.createElement('canvas');
+    src.width = State.width; src.height = State.height;
+    src.getContext('2d').drawImage(layer.canvas, 0, 0);
+    this.sourceCanvas = src;
+    const N = this.gridSize, cw = bounds.w/N, ch = bounds.h/N;
+    this.restVerts = [];
+    for(let y=0;y<=N;y++) for(let x=0;x<=N;x++)
+      this.restVerts.push({ x: bounds.x + x*cw, y: bounds.y + y*ch });
+    this.verts = this.restVerts.map(v=>({x:v.x, y:v.y}));
+    const probe = layer.ctx.getImageData(0,0,State.width,State.height).data;
+    const cellHasInk = (cx, cy)=>{
+      const x0 = Math.floor(bounds.x + cx*cw), y0 = Math.floor(bounds.y + cy*ch);
+      const x1 = Math.min(State.width-1, Math.floor(x0+cw)), y1 = Math.min(State.height-1, Math.floor(y0+ch));
+      const sx = Math.max(1, Math.floor((x1-x0)/6)), sy = Math.max(1, Math.floor((y1-y0)/6));
+      for(let y=y0;y<=y1;y+=sy) for(let x=x0;x<=x1;x+=sx){
+        if(x<0||y<0||x>=State.width||y>=State.height) continue;
+        if(probe[(y*State.width+x)*4+3] > 4) return true;
+      }
+      return false;
+    };
+    const idx = (x,y)=> y*(N+1)+x;
+    this.tris = [];
+    for(let y=0;y<N;y++) for(let x=0;x<N;x++){
+      if(!cellHasInk(x,y)) continue;
+      this.tris.push([idx(x,y), idx(x+1,y), idx(x,y+1)]);
+      this.tris.push([idx(x+1,y), idx(x+1,y+1), idx(x,y+1)]);
+    }
+    this.restJoints = this.joints.map(j=>({x:j.x, y:j.y}));
+    this.computeWeights();
+    this.bound = true;
+    toast(`Bound — ${this.restVerts.length} verts, ${this.tris.length} triangles.`);
+  },
+  computeWeights(){
+    const twoSig2 = 2*this.falloff*this.falloff;
+    this.weights = this.restVerts.map(v=>{
+      const w = []; let sum = 0;
+      for(const rj of this.restJoints){
+        const dx = v.x-rj.x, dy = v.y-rj.y;
+        const val = Math.exp(-(dx*dx+dy*dy)/twoSig2);
+        w.push(val); sum += val;
+      }
+      return sum > 1e-9 ? w.map(x=>x/sum) : w.map(()=>0);
+    });
+  },
+  updateVerts(){
+    const deltas = this.joints.map((j,i)=>({ dx: j.x-this.restJoints[i].x, dy: j.y-this.restJoints[i].y }));
+    for(let i=0;i<this.restVerts.length;i++){
+      const w = this.weights[i]; let dx=0, dy=0;
+      for(let k=0;k<deltas.length;k++){ dx += deltas[k].dx*w[k]; dy += deltas[k].dy*w[k]; }
+      this.verts[i].x = this.restVerts[i].x + dx;
+      this.verts[i].y = this.restVerts[i].y + dy;
+    }
+  },
+  deform(){
+    if(!this.bound || !this.sourceCanvas) return;
+    this.updateVerts();
+    const ctx = activeLayer().ctx;
+    ctx.clearRect(0,0,State.width,State.height);
+    for(const t of this.tris){
+      drawWarpedTriangle(ctx, this.sourceCanvas,
+        this.restVerts[t[0]], this.restVerts[t[1]], this.restVerts[t[2]],
+        this.verts[t[0]], this.verts[t[1]], this.verts[t[2]]);
+    }
+    invalidateLayerEffects(activeLayer());
+    composite();
+  },
+  captureKey(frame){
+    if(!this.joints.length) return false;
+    this.keys[frame] = this.joints.map(j=>({x:j.x, y:j.y}));
+    return true;
+  },
+  applyFrame(f){
+    const frames = Object.keys(this.keys).map(Number).sort((a,b)=>a-b);
+    if(!frames.length) return;
+    let prev = frames[0], next = frames[frames.length-1];
+    for(const k of frames) if(k<=f) prev=k;
+    for(let i=frames.length-1;i>=0;i--) if(frames[i]>=f) next=frames[i];
+    const kp = this.keys[prev], kn = this.keys[next];
+    const t = (next===prev) ? 0 : (f-prev)/(next-prev);
+    for(let i=0;i<this.joints.length;i++){
+      if(!kp[i] || !kn[i]) continue;
+      this.joints[i].x = kp[i].x + (kn[i].x-kp[i].x)*t;
+      this.joints[i].y = kp[i].y + (kn[i].y-kp[i].y)*t;
+    }
+    if(this.bound) this.deform();
+    renderSelectionOverlay();
+  },
+  draw(ctx){
+    if(!this.joints.length) return;
+    ctx.save();
+    ctx.strokeStyle = '#c98a4b'; ctx.lineWidth = 2/State.zoom;
+    ctx.beginPath();
+    for(const j of this.joints) if(j.parent!==null){
+      const p = this.joints[j.parent];
+      ctx.moveTo(p.x,p.y); ctx.lineTo(j.x,j.y);
+    }
+    ctx.stroke();
+    for(const j of this.joints){
+      ctx.fillStyle = '#6f9a8d';
+      ctx.beginPath(); ctx.arc(j.x, j.y, 6/State.zoom, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = '#14171c'; ctx.lineWidth = 1.5/State.zoom; ctx.stroke();
+    }
+    ctx.restore();
+  }
+};
+/* Maps a source triangle onto a destination triangle with an affine transform.
+   The destination is grown slightly so adjacent triangles overlap by a hair,
+   otherwise antialiasing leaves visible cracks along shared edges. */
+function drawWarpedTriangle(ctx, img, s0, s1, s2, d0, d1, d2){
+  const cx = (d0.x+d1.x+d2.x)/3, cy = (d0.y+d1.y+d2.y)/3;
+  const grow = (p)=>{
+    const dx = p.x-cx, dy = p.y-cy;
+    const len = Math.hypot(dx,dy) || 1;
+    return { x: p.x + dx/len*0.6, y: p.y + dy/len*0.6 };
+  };
+  const e0 = grow(d0), e1 = grow(d1), e2 = grow(d2);
+  const denom = s0.x*(s2.y-s1.y) - s1.x*s2.y + s2.x*s1.y + (s1.x-s2.x)*s0.y;
+  if(Math.abs(denom) < 1e-9) return;
+  const m11 = -(s0.y*(e2.x-e1.x) - s1.y*e2.x + s2.y*e1.x + (s1.y-s2.y)*e0.x)/denom;
+  const m12 =  (s1.y*e2.y + s0.y*(e1.y-e2.y) - s2.y*e1.y + (s2.y-s1.y)*e0.y)/denom;
+  const m21 =  (s0.x*(e2.x-e1.x) - s1.x*e2.x + s2.x*e1.x + (s1.x-s2.x)*e0.x)/denom;
+  const m22 = -(s1.x*e2.y + s0.x*(e1.y-e2.y) - s2.x*e1.y + (s2.x-s1.x)*e0.y)/denom;
+  const dx  =  (s0.x*(s2.y*e1.x - s1.y*e2.x) + s0.y*(s1.x*e2.x - s2.x*e1.x) + (s2.x*s1.y - s1.x*s2.y)*e0.x)/denom;
+  const dy  =  (s0.x*(s2.y*e1.y - s1.y*e2.y) + s0.y*(s1.x*e2.y - s2.x*e1.y) + (s2.x*s1.y - s1.x*s2.y)*e0.y)/denom;
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(e0.x, e0.y); ctx.lineTo(e1.x, e1.y); ctx.lineTo(e2.x, e2.y); ctx.closePath();
+  ctx.clip();
+  ctx.transform(m11, m12, m21, m22, dx, dy);
+  ctx.drawImage(img, 0, 0);
+  ctx.restore();
+}
+
+/* ============================= 2.5D scene ============================= */
+const Scene25D = {
+  enabled:false, camX:0, camY:0, strength:40,
+  relight:false, lightAngle:135, lightIntensity:70, depths:new Map(),
+  depthOf(layer){ return this.depths.get(layer.id) || 0; },
+  setDepth(layer, v){ this.depths.set(layer.id, v); },
+  render(ctx){
+    ctx.clearRect(0,0,State.width,State.height);
+    for(const layer of CM().layers){
+      if(!layer.visible) continue;
+      const d = this.depthOf(layer)/100;
+      ctx.save();
+      ctx.globalAlpha = layer.opacity/100;
+      ctx.globalCompositeOperation = layer.blend;
+      ctx.drawImage(getLayerRenderCanvas(layer), -this.camX*d*this.strength, -this.camY*d*this.strength);
+      ctx.restore();
+    }
+    if(this.relight) this.applyRelight(ctx);
+  },
+  applyRelight(ctx){
+    const normalMapId = State.mapOrder.find(id=>State.maps[id].kind==='normal');
+    if(!normalMapId) return;
+    const nrm = renderMapCompositeFull(normalMapId).getContext('2d').getImageData(0,0,State.width,State.height).data;
+    const img = ctx.getImageData(0,0,State.width,State.height);
+    const d = img.data;
+    const a = this.lightAngle*Math.PI/180;
+    const lx = Math.cos(a), ly = -Math.sin(a), lz = 0.65;
+    const k = this.lightIntensity/100;
+    for(let i=0;i<d.length;i+=4){
+      const nx = (nrm[i]/255)*2-1, ny = (nrm[i+1]/255)*2-1, nz = (nrm[i+2]/255)*2-1;
+      const shade = 1 + (nx*lx + ny*ly + nz*lz)*k;
+      d[i]   = clampNum(d[i]*shade, 0, 255);
+      d[i+1] = clampNum(d[i+1]*shade, 0, 255);
+      d[i+2] = clampNum(d[i+2]*shade, 0, 255);
+    }
+    ctx.putImageData(img,0,0);
+  }
+};
+
+/* ============================= Rig/2.5D panel rendering ============================= */
+function renderRigPanel(){
+  const list = document.getElementById('rig-marker-list'); if(!list) return;
+  list.innerHTML = '';
+  for(const m of RIG_MARKERS){
+    const placed = !!Rig.markers[m.id];
+    const row = document.createElement('div');
+    row.className = 'rig-marker-row'+(placed?' placed':'')+(Rig.activeMarker===m.id?' active':'');
+    const dot = document.createElement('span'); dot.className='rig-dot';
+    const name = document.createElement('span'); name.className='rig-name'; name.textContent = m.label;
+    const coord = document.createElement('span'); coord.className='rig-coord';
+    coord.textContent = placed ? `${Rig.markers[m.id].x.toFixed(2)}, ${Rig.markers[m.id].y.toFixed(2)}` : '—';
+    row.append(dot, name, coord);
+    row.addEventListener('click', ()=>{ Rig.activeMarker = m.id; Rig.refreshMarkerHelpers(); renderRigPanel(); });
+    list.appendChild(row);
+  }
+}
+function renderBoneList(){
+  const list = document.getElementById('wp-bone-list'); if(!list) return;
+  list.innerHTML = '';
+  if(!Rig.bones){ list.innerHTML = '<div style="font-size:11.5px;color:var(--text-muted);">Build a skeleton first.</div>'; return; }
+  Rig.bones.forEach((b,i)=>{
+    const row = document.createElement('div');
+    row.className = 'bone-row'+(WeightPaint.bone===i?' active':'');
+    row.textContent = b.name;
+    row.addEventListener('click', ()=>{ WeightPaint.bone = i; WeightPaint.updateDisplay(); renderBoneList(); });
+    list.appendChild(row);
+  });
+}
+function renderRig2DList(){
+  const list = document.getElementById('rig2d-list'); if(!list) return;
+  list.innerHTML = '';
+  if(!Rig2D.joints.length){ list.innerHTML = '<div style="font-size:11.5px;color:var(--text-muted);">No joints yet — pick the Bone tool and click the canvas.</div>'; return; }
+  Rig2D.joints.forEach((j,i)=>{
+    const row = document.createElement('div'); row.className='bone-row';
+    row.textContent = `Joint ${i+1} · ${Math.round(j.x)}, ${Math.round(j.y)}`;
+    list.appendChild(row);
+  });
+}
+function renderTimeline(){
+  const track = document.getElementById('timeline-track'); if(!track) return;
+  track.querySelectorAll('.timeline-key').forEach(k=>k.remove());
+  const frames = new Set([...Object.keys(Rig.keys), ...Object.keys(Rig2D.keys)]);
+  for(const f of frames){
+    const d = document.createElement('div'); d.className='timeline-key';
+    d.style.left = (Number(f)/Rig.length*100)+'%';
+    track.appendChild(d);
+  }
+}
+function build25DDepthStrip(){
+  const strip = document.getElementById('d25-depth-strip'); if(!strip) return;
+  strip.innerHTML = '';
+  for(const [name,v] of [['Far BG',-80],['BG',-40],['Mid',0],['FG',40],['Near',80]]){
+    const b = document.createElement('div'); b.className='depth-swatch'; b.title = name+' ('+v+')';
+    const t = (v+100)/200;
+    b.style.background = `rgb(${Math.round(30+t*180)},${Math.round(40+t*140)},${Math.round(60+t*120)})`;
+    b.addEventListener('click', ()=>{
+      Scene25D.setDepth(activeLayer(), v);
+      document.getElementById('d25-depth').value = v;
+      document.getElementById('d25-depth-val').textContent = v;
+      composite();
+    });
+    strip.appendChild(b);
+  }
+}
+
+function bindRigControls(){
+  document.getElementById('rig-naming').addEventListener('change', e=> Rig.naming = e.target.value);
+  document.getElementById('rig-build').addEventListener('click', ()=> Rig.buildSkeleton());
+  document.getElementById('rig-clear').addEventListener('click', ()=> Rig.clearMarkers());
+  document.getElementById('rig-reset-pose').addEventListener('click', ()=> Rig.resetPose());
+  document.getElementById('rig-export-usd').addEventListener('click', exportUSDA);
+  document.getElementById('rig-fbx-tex').addEventListener('click', importFBXEmbeddedTextures);
+  document.getElementById('rig-posemode').addEventListener('change', e=>{
+    Rig.poseMode = e.target.value;
+    if(Rig.poseMode !== 'off'){
+      Viewport3D.paintMode = false;
+      document.getElementById('v3d-paint').classList.remove('active');
+    }
+  });
+  /* weight paint */
+  document.getElementById('wp-enable').addEventListener('change', e=>{ WeightPaint.setEnabled(e.target.checked); renderBoneList(); });
+  document.getElementById('wp-radius').addEventListener('input', e=>{
+    WeightPaint.radius = Number(e.target.value); document.getElementById('wp-radius-val').textContent = e.target.value;
+  });
+  document.getElementById('wp-strength').addEventListener('input', e=>{
+    WeightPaint.strength = Number(e.target.value); document.getElementById('wp-strength-val').textContent = e.target.value+'%';
+  });
+  document.getElementById('wp-normalize').addEventListener('click', ()=> WeightPaint.normalizeAll());
+  /* cloth */
+  const clBind = (id, valId, key, suffix)=>{
+    document.getElementById(id).addEventListener('input', e=>{
+      Cloth[key] = Number(e.target.value);
+      document.getElementById(valId).textContent = e.target.value + (suffix||'');
+    });
+  };
+  clBind('cl-res','cl-res-val','res'); clBind('cl-stiff','cl-stiff-val','stiffness');
+  clBind('cl-grav','cl-grav-val','gravity'); clBind('cl-damp','cl-damp-val','damping','%');
+  clBind('cl-wind','cl-wind-val','wind');
+  document.getElementById('cl-add').addEventListener('click', ()=>{ Viewport3D.show(true); Cloth.create(); });
+  document.getElementById('cl-toggle').addEventListener('click', ()=>{
+    if(!Cloth.mesh){ toast('Add a cloth plane first.'); return; }
+    Cloth.running = !Cloth.running; toast(Cloth.running ? 'Simulating…' : 'Simulation paused.');
+  });
+  document.getElementById('cl-reset').addEventListener('click', ()=> Cloth.create());
+  /* 2D rig */
+  document.getElementById('rig2d-bind').addEventListener('click', ()=> Rig2D.bind());
+  document.getElementById('rig2d-clear').addEventListener('click', ()=> Rig2D.clear());
+  document.getElementById('rig2d-falloff').addEventListener('input', e=>{
+    Rig2D.falloff = Number(e.target.value);
+    document.getElementById('rig2d-falloff-val').textContent = e.target.value;
+    if(Rig2D.bound){ Rig2D.computeWeights(); Rig2D.deform(); }
+  });
+  /* timeline */
+  document.getElementById('tl-play').addEventListener('click', ()=> Rig.play(!Rig.playing));
+  document.getElementById('tl-key').addEventListener('click', ()=>{
+    // 2D rig keys take priority when one exists; otherwise key the 3D skeleton.
+    if(Rig2D.joints.length){
+      if(Rig2D.captureKey(Rig.frame)){ renderTimeline(); toast('Keyed 2D pose at frame '+Rig.frame); }
+    } else if(!Rig.captureKey()) toast('Build a skeleton or place 2D joints first.');
+  });
+  document.getElementById('tl-delkey').addEventListener('click', ()=>{
+    if(Rig2D.joints.length){ delete Rig2D.keys[Rig.frame]; renderTimeline(); }
+    else Rig.deleteKey();
+  });
+  document.getElementById('tl-length').addEventListener('input', e=>{
+    Rig.length = Number(e.target.value);
+    document.getElementById('tl-length-val').textContent = Rig.length+'f';
+    Rig.setFrame(Math.min(Rig.frame, Rig.length)); renderTimeline();
+  });
+  document.getElementById('timeline-track').addEventListener('pointerdown', (e)=>{
+    const r = e.currentTarget.getBoundingClientRect();
+    Rig.setFrame((e.clientX-r.left)/r.width*Rig.length);
+  });
+  /* 2.5D */
+  document.getElementById('d25-depth').addEventListener('input', e=>{
+    Scene25D.setDepth(activeLayer(), Number(e.target.value));
+    document.getElementById('d25-depth-val').textContent = e.target.value; composite();
+  });
+  document.getElementById('d25-strength').addEventListener('input', e=>{
+    Scene25D.strength = Number(e.target.value);
+    document.getElementById('d25-strength-val').textContent = e.target.value; composite();
+  });
+  document.getElementById('d25-light').addEventListener('change', e=>{ Scene25D.relight = e.target.checked; composite(); });
+  document.getElementById('d25-lightang').addEventListener('input', e=>{
+    Scene25D.lightAngle = Number(e.target.value);
+    document.getElementById('d25-lightang-val').textContent = e.target.value+'°'; composite();
+  });
+  document.getElementById('d25-lightint').addEventListener('input', e=>{
+    Scene25D.lightIntensity = Number(e.target.value);
+    document.getElementById('d25-lightint-val').textContent = e.target.value+'%'; composite();
+  });
+  document.getElementById('d25-reset').addEventListener('click', ()=>{
+    Scene25D.camX = 0; Scene25D.camY = 0;
+    document.getElementById('parallax-dot').style.left = '50%';
+    document.getElementById('parallax-dot').style.top = '50%';
+    composite();
+  });
+  const pad = document.getElementById('parallax-pad');
+  let padDrag = false;
+  const movePad = (e)=>{
+    const r = pad.getBoundingClientRect();
+    const nx = clampNum((e.clientX-r.left)/r.width,0,1), ny = clampNum((e.clientY-r.top)/r.height,0,1);
+    Scene25D.camX = (nx-0.5)*2; Scene25D.camY = (ny-0.5)*2;
+    document.getElementById('parallax-dot').style.left = (nx*100)+'%';
+    document.getElementById('parallax-dot').style.top = (ny*100)+'%';
+    composite();
+  };
+  pad.addEventListener('pointerdown', e=>{ padDrag=true; pad.setPointerCapture(e.pointerId); movePad(e); });
+  pad.addEventListener('pointermove', e=>{ if(padDrag) movePad(e); });
+  pad.addEventListener('pointerup', ()=>{ padDrag=false; });
+  build25DDepthStrip();
 }
 
 /* ============================= Init ============================= */
@@ -3540,8 +5368,8 @@ function init(){
   State.activeMapId = map.id;
   resizeStage(); composite(); renderLayerPanel(); renderMapTabs(); selectTool('brush'); updateMenuStates();
   updateCanvasCursorStyle();
-  bindModePicker(); buildComicPresetGrid(); bindComicControls();
-  setComicMode(false);
+  bindModePicker(); buildComicPresetGrid(); bindComicControls(); bindCreationControls();
+  setComicMode(false); setWorkspacePanels({});
   if(isElectron) toast('Connected to desktop file system');
   requestAnimationFrame(zoomFit);
   // Offer the resolution templates up front, the way most texture tools open.

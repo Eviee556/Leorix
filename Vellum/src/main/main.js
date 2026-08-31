@@ -7,7 +7,13 @@ function createWindow() {
   win = new BrowserWindow({
     width: 1500,
     height: 950,
+    minWidth: 900,
+    minHeight: 600,
     title: 'Vellum — PBR Image Editor',
+    // Frameless: Vellum draws its own title bar so the window can be dragged
+    // anywhere on screen from the menu strip.
+    frame: false,
+    backgroundColor: '#14171c',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -16,6 +22,9 @@ function createWindow() {
   });
 
   win.loadFile(path.join(__dirname, '../ui/index.html'));
+
+  win.on('maximize', () => win.webContents.send('window-state', true));
+  win.on('unmaximize', () => win.webContents.send('window-state', false));
 }
 
 app.whenReady().then(createWindow);
@@ -28,6 +37,16 @@ app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow();
 });
 
+/* ---- Window controls for the custom title bar ---- */
+ipcMain.handle('win-minimize', () => { if (win) win.minimize(); });
+ipcMain.handle('win-maximize', () => {
+  if (!win) return false;
+  if (win.isMaximized()) { win.unmaximize(); return false; }
+  win.maximize(); return true;
+});
+ipcMain.handle('win-close', () => { if (win) win.close(); });
+ipcMain.handle('win-is-maximized', () => (win ? win.isMaximized() : false));
+
 ipcMain.handle('open-file-dialog', async () => {
   const result = await dialog.showOpenDialog(win, {
     filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'] }]
@@ -36,7 +55,8 @@ ipcMain.handle('open-file-dialog', async () => {
 });
 
 ipcMain.handle('save-file-dialog', async (event, filename, format) => {
-  const ext = format === 'jpg' ? 'jpg' : format === 'zip' ? 'zip' : 'png';
+  const known = ['jpg', 'zip', 'exr', 'usda', 'png'];
+  const ext = known.includes(format) ? format : 'png';
   const result = await dialog.showSaveDialog(win, {
     defaultPath: filename + '.' + ext,
     filters: [{ name: ext.toUpperCase(), extensions: [ext] }]
@@ -44,7 +64,6 @@ ipcMain.handle('save-file-dialog', async (event, filename, format) => {
   return result.filePath || null;
 });
 
-// Used when exporting an entire PBR texture set (one file per map) to a folder.
 ipcMain.handle('select-folder-dialog', async () => {
   const result = await dialog.showOpenDialog(win, {
     properties: ['openDirectory', 'createDirectory']
@@ -52,7 +71,6 @@ ipcMain.handle('select-folder-dialog', async () => {
   return result.filePaths[0] || null;
 });
 
-// Project file (.vellum) save/open — the whole texture set, layers, masks, and custom brushes.
 ipcMain.handle('save-project-dialog', async (event, filename) => {
   const result = await dialog.showSaveDialog(win, {
     defaultPath: (filename || 'untitled') + '.vellum',

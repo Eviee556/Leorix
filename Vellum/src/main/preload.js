@@ -8,6 +8,14 @@ contextBridge.exposeInMainWorld('vellumAPI', {
   saveProjectDialog: (filename) => ipcRenderer.invoke('save-project-dialog', filename),
   openProjectDialog: () => ipcRenderer.invoke('open-project-dialog'),
   joinPath: (...parts) => path.join(...parts),
+
+  // Custom title bar controls (window is frameless).
+  winMinimize: () => ipcRenderer.invoke('win-minimize'),
+  winMaximize: () => ipcRenderer.invoke('win-maximize'),
+  winClose: () => ipcRenderer.invoke('win-close'),
+  winIsMaximized: () => ipcRenderer.invoke('win-is-maximized'),
+  onWindowState: (cb) => ipcRenderer.on('window-state', (_e, isMax) => cb(isMax)),
+
   readImageFile: async (filePath) => {
     const fs = require('fs');
     const data = fs.readFileSync(filePath);
