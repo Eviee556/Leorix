@@ -1,6 +1,6 @@
 ## Leorix Engine Specification (v1.0)
 
-1. File Format .leorix
+# 1. File Format .leorix
 The .leorix format is a ZIP-compressed container optimized for non-destructive editing and high-speed asset retrieval.
 
 Structure
@@ -30,7 +30,7 @@ brushes/: JSON-encoded brush definitions (spacing, jitter, falloff).
 
 cache/: (Optional) Mipmaps and thumbnails for rapid UI loading.
 
-2. Multi-Map Layer Stack
+# 2. Multi-Map Layer Stack
 Each layer is a container for a full PBR texture set.
 
 Blending Logic
@@ -40,13 +40,8 @@ Vector Maps (Normal, Displacement): Reoriented Normal Mapping (RNM).
 
 Normal maps must be blended as vectors to prevent the "flattening" effect common in standard alpha blending.
 
-3. Command Pattern (Undo/Redo)
-To maintain 
-O
-
-AffectedArea
-
-O(AffectedArea) memory complexity:
+# # 3. Command Pattern (Undo/Redo)
+To maintain Affected Area memory complexity:
 
 Dirty Tiles: Only areas modified by a command are processed.
 
@@ -58,7 +53,7 @@ LZ4 Compressed Delta: The bitwise difference of the changed tiles.
 
 Application: Undo/Redo is performed by applying/reversing the compressed delta to the specific tiles in the SharedArrayBuffer.
 
-4. Process Architecture
+# 4. Process Architecture
 Main Process (Electron): File I/O, Window management, OS Dialogs.
 
 Renderer Process (UI): React/HTML/CSS for the interface.
