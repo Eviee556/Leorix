@@ -1,105 +1,78 @@
-# Proprietary Software License Agreement
-
-**Vellum-PBR Editor**  
+Proprietary Software License Agreement
+Leorix — PBR Texture Editor
 © 2026 EvieeGameArts. All Rights Reserved.
 
----
+1. Grant of Evaluation License
+Subject to the terms and conditions of this Agreement, EvieeGameArts ("Licensor") grants you ("Licensee") a non-exclusive, non-transferable, revocable, limited license to use the Leorix software ("Software") solely for testing and evaluation purposes.
 
-## 1. Grant of Evaluation License
+This license is granted free of charge for evaluation purposes only.
 
-Subject to the terms and conditions of this Agreement, EvieeGameArts ("Licensor") grants you ("Licensee") a non-exclusive, non-transferable, revocable, limited license to use the Vellum-PBR Editor software ("Software") solely for **testing and evaluation purposes**.
-
-This license is granted **free of charge** for evaluation purposes only.
-
----
-
-## 2. Permitted Uses
-
+2. Permitted Uses
 Licensee may:
 
-- Download, install, and run the Software for personal testing and evaluation
-- Use the Software to evaluate its features and compatibility with Licensee's workflows
-- Report bugs, issues, and suggestions to Licensor
+Download, install, and run the Software for personal testing and evaluation
 
----
+Use the Software to evaluate its features and compatibility with Licensee's workflows
 
-## 3. Prohibited Uses
+Report bugs, issues, and suggestions to Licensor
 
-Licensee **may NOT** under any circumstances:
+3. Prohibited Uses
+Licensee may NOT under any circumstances:
 
-- Use the Software for any commercial, professional, or production purposes
-- Redistribute, sublicense, sell, rent, lease, or share the Software with any third party
-- Modify, adapt, translate, reverse engineer, decompile, or create derivative works based on the Software
-- Remove, alter, or obscure any copyright, trademark, or other proprietary notices
-- Use the Software in any manner that could damage, disable, overburden, or impair the Software or any related services
-- Use the Software to develop any competing product or service
+Use the Software for any commercial, professional, or production purposes
 
----
+Redistribute, sublicense, sell, rent, lease, or share the Software with any third party
 
-## 4. Commercial License
+Modify, adapt, translate, reverse engineer, decompile, or create derivative works based on the Software
 
+Remove, alter, or obscure any copyright, trademark, or other proprietary notices
+
+Use the Software in any manner that could damage, disable, overburden, or impair the Software or any related services
+
+Use the Software to develop any competing product or service
+
+4. Commercial License
 Any use of the Software beyond evaluation — including but not limited to:
 
-- Production use in any business, organization, or professional context
-- Internal company tooling or workflows
-- Redistribution or integration into other products
-- Any use that generates revenue directly or indirectly
+Production use in any business, organization, or professional context
 
-**requires a separate commercial license.**
+Internal company tooling or workflows
+
+Redistribution or integration into other products
+
+Any use that generates revenue directly or indirectly
+
+requires a separate commercial license.
 
 To inquire about commercial licensing, pricing, and terms, please contact:
 
-📧 **evieegamearts@gmail.com**
+📧 evieegamearts@gmail.com
 
----
-
-## 5. Ownership
-
+5. Ownership
 The Software is licensed, not sold. Licensor retains all right, title, and interest in and to the Software, including all intellectual property rights. Nothing in this Agreement transfers any ownership rights to Licensee.
 
----
-
-## 6. No Warranty
-
+6. No Warranty
 THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. LICENSOR DOES NOT WARRANT THAT THE SOFTWARE WILL BE ERROR-FREE, UNINTERRUPTED, OR MEET LICENSEE'S REQUIREMENTS.
 
----
+7. Limitation of Liability
+IN NO EVENT SHALL LICENSOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING BUT NOT LIMITED TO PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE AND TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE BRAZILIAN LAW (LEI Nº 10.406/2002 - CÓDIGO CIVIL).
 
-## 7. Limitation of Liability
-
-IN NO EVENT SHALL LICENSOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING BUT NOT LIMITED TO PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
----
-
-## 8. Termination
-
+8. Termination
 This Agreement is effective until terminated. Licensor may terminate this Agreement immediately if Licensee fails to comply with any term or condition. Upon termination, Licensee must cease all use of the Software and delete all copies in Licensee's possession.
 
----
+9. Governing Law and Jurisdiction
+This Agreement shall be governed by and construed in accordance with the laws of the Federative Republic of Brazil, without regard to its conflict of law provisions.
 
-## 9. Governing Law
+The parties hereby elect the jurisdiction of the courts of the Comarca da Capital do Estado do Rio de Janeiro, Brazil, to resolve any disputes or claims arising out of or relating to this Agreement, expressly waiving any other jurisdiction, however privileged it may be.
 
-This Agreement shall be governed by and construed in accordance with the laws of [Your Country/State], without regard to its conflict of law provisions.
-
----
-
-## 10. Entire Agreement
-
+10. Entire Agreement
 This Agreement constitutes the entire agreement between the parties concerning its subject matter and supersedes all prior or contemporaneous agreements, representations, or understandings.
 
----
-
-## 11. Contact
-
+11. Contact
 For questions about this license, to request a commercial license, or for any other inquiries:
-
 
 📧 evieegamearts@gmail.com
 
----
-
-**By downloading, installing, or using the Software, Licensee agrees to be bound by the terms of this Agreement.**
-
----
+By downloading, installing, or using the Software, Licensee agrees to be bound by the terms of this Agreement.
 
 © 2026 EvieeGameArts. All Rights Reserved.
