@@ -9,8 +9,8 @@ function createWindow() {
     height: 950,
     minWidth: 900,
     minHeight: 600,
-    title: 'Vellum — PBR Image Editor',
-    // Frameless: Vellum draws its own title bar so the window can be dragged
+    title: 'Leorix — PBR Image Editor',
+    // Frameless: Leorix draws its own title bar so the window can be dragged
     // anywhere on screen from the menu strip.
     frame: false,
     backgroundColor: '#14171c',
@@ -21,7 +21,7 @@ function createWindow() {
     }
   });
 
-  win.loadFile(path.join(__dirname, '../ui/index.html'));
+  win.loadFile(path.join(__dirname, '../../index.html'));
 
   win.on('maximize', () => win.webContents.send('window-state', true));
   win.on('unmaximize', () => win.webContents.send('window-state', false));
@@ -73,15 +73,15 @@ ipcMain.handle('select-folder-dialog', async () => {
 
 ipcMain.handle('save-project-dialog', async (event, filename) => {
   const result = await dialog.showSaveDialog(win, {
-    defaultPath: (filename || 'untitled') + '.vellum',
-    filters: [{ name: 'Vellum Project', extensions: ['vellum'] }]
+    defaultPath: (filename || 'untitled') + '.leorix',
+    filters: [{ name: 'Leorix Project', extensions: ['leorix'] }]
   });
   return result.filePath || null;
 });
 
 ipcMain.handle('open-project-dialog', async () => {
   const result = await dialog.showOpenDialog(win, {
-    filters: [{ name: 'Vellum Project', extensions: ['vellum'] }]
+    filters: [{ name: 'Leorix Project', extensions: ['leorix'] }]
   });
   return result.filePaths[0] || null;
 });

@@ -1,7 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 const path = require('path');
 
-contextBridge.exposeInMainWorld('vellumAPI', {
+contextBridge.exposeInMainWorld('leorixAPI', {
   openFileDialog: () => ipcRenderer.invoke('open-file-dialog'),
   saveFileDialog: (filename, format) => ipcRenderer.invoke('save-file-dialog', filename, format),
   selectFolderDialog: () => ipcRenderer.invoke('select-folder-dialog'),

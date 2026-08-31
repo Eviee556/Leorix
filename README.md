@@ -1,6 +1,6 @@
-# Vellum — PBR Texture Editor 
+# Leorix — PBR Texture Editor
 
-**Vellum** is a professional‑grade texture editing application built for game developers and 3D artists.
+**Leorix** is a professional‑grade texture editing application built for game developers and 3D artists.
 
 > 🚧 **BETA — Work in Progress**  
 > This software is under active development. Features may change, bugs may appear, and APIs are not yet stable. Use with caution and report any issues you find.
@@ -9,7 +9,7 @@
 
 ---
 
-##  Features [WIP]
+## Features [WIP]
 
 ### Core Editing
 - Layers — add, duplicate, merge, delete, reorder, visibility toggle, opacity control
@@ -46,7 +46,7 @@
 
 ---
 
-##  Tech Stack
+## Tech Stack
 
 - **Electron** — cross‑platform desktop wrapper
 - **Vanilla JavaScript** — no frameworks, direct Canvas 2D API
@@ -60,7 +60,7 @@
 
 ## 📦 Licensing
 
-**Vellum is proprietary software.** All rights reserved.
+**Leorix is proprietary software.** All rights reserved.
 
 - **Evaluation** — Free to clone, build, and test for personal evaluation.
 - **Commercial Use** — Requires a license. Includes production use, internal tooling, and redistribution.
@@ -80,11 +80,11 @@ Open an issue on GitHub — feedback is especially valuable during this BETA pha
 
 ## 📬 Contact
 
-<!-- Discord
-Linkedin -->
+**Discord:** [WIP]
+**Linkedin:** www.linkedin.com/in/charlize-pauli-84b49a312
 **Developer:** Charlize Pauli [Eviee]
 **Email:** evieegamearts@gmail.com 
-<!--**Website:** your-website.com-->
+**Website:** [WIP]
 
 ---
 
