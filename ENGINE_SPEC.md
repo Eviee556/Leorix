@@ -12,7 +12,7 @@ Canvas metadata (Width, Height, Color Space, Bit Depth).
 
 Project settings.
 
-layers/: Directory of assets. Each layer is split by map type:
+layers: Directory of assets. Each layer is split by map type:
 
 L{ID}_Albedo.webp (or .png)
 
