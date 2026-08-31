@@ -1,4 +1,4 @@
-# Vellum — PBR Texture Editor 
+# [Leorix - PBR Editor]
 
 **Vellum** is a professional‑grade texture editing application built for game developers and 3D artists.
 
