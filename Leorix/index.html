@@ -288,6 +288,20 @@
     border-radius:6px; position:relative; cursor:crosshair; margin-bottom:8px;}
   #parallax-dot{position:absolute; width:11px; height:11px; border-radius:50%; background:var(--brass);
     transform:translate(-50%,-50%); pointer-events:none; box-shadow:0 0 0 3px rgba(201,138,75,.22);}
+  /* ---- Poly Spec (edit) mode ---- */
+  #polyspec-bar{display:none; align-items:center; gap:6px; height:28px; background:#231a12; border-bottom:1px solid var(--brass-dim);
+    padding:0 8px; font-size:11px; color:var(--text-muted); font-family:ui-monospace,monospace; flex-shrink:0;}
+  #polyspec-bar.show{display:flex;}
+  #polyspec-bar .ps-label{color:var(--brass); font-weight:600; letter-spacing:.5px; margin-right:4px;}
+  #polyspec-bar button{background:var(--panel-alt); border:1px solid var(--border); color:var(--text-muted);
+    border-radius:3px; padding:2px 8px; font-size:11px; cursor:pointer;}
+  #polyspec-bar button:hover{color:var(--text); border-color:var(--brass-dim);}
+  #polyspec-bar .ps-mode-btn.active{background:var(--brass-dim); color:#fff; border-color:var(--brass-dim);}
+  #polyspec-bar .ps-sep{width:1px; height:16px; background:var(--border); margin:0 2px;}
+  #polyspec-bar .spacer{flex:1;}
+  #polyspec-bar #ps-hint{color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  #ps-boxselect{position:absolute; border:1px dashed var(--brass); background:rgba(201,138,75,.15);
+    display:none; pointer-events:none; z-index:20;}
   #toast{position:fixed; bottom:36px; left:50%; transform:translateX(-50%); background:var(--panel-alt); border:1px solid var(--brass-dim);
     color:var(--text); padding:9px 16px; border-radius:6px; font-size:12.5px; box-shadow:0 8px 24px rgba(0,0,0,.5); z-index:200; opacity:0; pointer-events:none; transition:opacity .2s;}
   #toast.show{opacity:1;}
@@ -419,11 +433,24 @@
         <button id="v3d-wire" title="Toggle wireframe">Wire</button>
         <span id="viewport3d-status">No model loaded</span>
       </div>
+      <div id="polyspec-bar">
+        <span class="ps-label">Poly Spec Mode</span>
+        <button id="ps-vert" class="ps-mode-btn active" title="Vertex select (1)">Vert</button>
+        <button id="ps-edge" class="ps-mode-btn" title="Edge select (2)">Edge</button>
+        <button id="ps-face" class="ps-mode-btn" title="Face select (3)">Face</button>
+        <div class="ps-sep"></div>
+        <button id="ps-extrude" title="Extrude selected faces (E)">Extrude</button>
+        <button id="ps-delete" title="Delete selection (X)">Delete</button>
+        <button id="ps-merge" title="Merge selected verts to center (M)">Merge</button>
+        <div class="spacer"></div>
+        <span id="ps-hint">Click select · Shift+click extend · B box-select · G/R/S transform · Tab to exit</span>
+      </div>
       <div id="viewport3d-canvas-wrap">
         <div id="viewport3d-drop">
           <svg viewBox="0 0 24 24"><path d="M12 2l9 5v10l-9 5-9-5V7z"/><path d="M12 12l9-5M12 12v10M12 12L3 7"/></svg>
           <div>Drop an <b>.obj</b> or <b>.fbx</b> here,<br>or use Load Model…</div>
         </div>
+        <div id="ps-boxselect"></div>
       </div>
     </div>
 
@@ -3230,6 +3257,36 @@ window.addEventListener('keydown', (e)=>{
   if(document.activeElement && (document.activeElement.tagName==='INPUT' || document.activeElement.isContentEditable)) return;
   const mod = e.ctrlKey || e.metaKey; const key = e.key.toLowerCase();
 
+  // Tab toggles Poly Spec Mode any time the 3D viewport is visible, regardless of what else is going on.
+  if(key==='tab' && Viewport3D.active){ e.preventDefault(); PolySpec.toggle(); return; }
+
+  if(PolySpec.active){
+    if(PolySpec.transform){
+      if(key==='escape'){ e.preventDefault(); PolySpec._cancelTransform(); return; }
+      if(key==='enter'){ e.preventDefault(); PolySpec.confirmTransform(); return; }
+      if(key==='x'||key==='y'||key==='z'){ e.preventDefault(); PolySpec.setTransformAxis(key); return; }
+      e.preventDefault(); return; // swallow other keys mid-transform
+    }
+    if(key==='1'){ e.preventDefault(); PolySpec.setSelectMode('vertex'); return; }
+    if(key==='2'){ e.preventDefault(); PolySpec.setSelectMode('edge'); return; }
+    if(key==='3'){ e.preventDefault(); PolySpec.setSelectMode('face'); return; }
+    if(key==='g'){ e.preventDefault(); PolySpec.beginTransform('grab'); return; }
+    if(key==='r'){ e.preventDefault(); PolySpec.beginTransform('rotate'); return; }
+    if(key==='s'){ e.preventDefault(); PolySpec.beginTransform('scale'); return; }
+    if(key==='e'){ e.preventDefault(); PolySpec.extrude(); return; }
+    if(key==='x' || key==='delete' || key==='backspace'){ e.preventDefault(); PolySpec.deleteSelection(); return; }
+    if(key==='m'){ e.preventDefault(); PolySpec.mergeAtCenter(); return; }
+    if(key==='a'){ e.preventDefault(); e.altKey ? PolySpec.deselectAll() : PolySpec.selectAll(); return; }
+    if(key==='b'){ e.preventDefault(); PolySpec.boxSelectArmed = true; toast('Box select — drag a rectangle.'); return; }
+    if(key==='escape'){
+      e.preventDefault();
+      if(PolySpec.boxSelectArmed){ PolySpec.boxSelectArmed=false; document.getElementById('ps-boxselect').style.display='none'; }
+      else PolySpec.deselectAll();
+      return;
+    }
+    return; // everything else is inert while in edit mode
+  }
+
   if(State.tool==='pen'){
     if(key==='enter'){ e.preventDefault(); if(penDraft && penDraft.points.length>=2) finishPenPath(false); return; }
     if(key==='escape'){ e.preventDefault(); if(penDraft){ penDraft=null; renderSelectionOverlay(); } return; }
@@ -3339,7 +3396,6 @@ const Viewport3D = {
     this._rafId = requestAnimationFrame(()=> this._loop());
     if(!this.active) return;
     if(this.controls) this.controls.update();
-    if(this._selectOutline) this._selectOutline.update();
     if(this._gridFine){
       // Fine 1-unit lines fade out as the camera pulls back, the way Blender's
       // grid backs off its detail level at a distance instead of aliasing into noise.
@@ -3350,16 +3406,36 @@ const Viewport3D = {
     this.renderer.render(this.scene, this.camera);
   },
 
-  /* --- Mesh selection --- */
+  /* --- Mesh selection: inverted-hull silhouette outline ---
+     A slightly-enlarged, back-face-only duplicate of the mesh, sharing its geometry
+     directly. Front faces of the real mesh hide the enlarged duplicate everywhere
+     except right at the silhouette edge, where the duplicate pokes out — that rim is
+     the outline. It's added as a child of the mesh, so it auto-follows every move,
+     sculpt edit, and Poly Spec edit with zero per-frame syncing needed. */
   selectMesh(mesh){
-    if(this._selectOutline){ this.scene.remove(this._selectOutline); this._selectOutline.dispose(); this._selectOutline = null; }
-    this.selectedMesh = mesh;
-    if(mesh){
-      this._selectOutline = new THREE.BoxHelper(mesh, 0xc98a4b);
-      this._selectOutline.material.depthTest = false;
-      this._selectOutline.renderOrder = 998;
-      this.scene.add(this._selectOutline);
+    this._removeSelectOutline();
+    this.selectedMesh = mesh || null;
+    if(!mesh) return;
+    const mat = new THREE.MeshBasicMaterial({ color:0xc98a4b, side:THREE.BackSide, depthWrite:true });
+    let outline;
+    if(mesh.isSkinnedMesh){
+      outline = new THREE.SkinnedMesh(mesh.geometry, mat);
+      outline.bind(mesh.skeleton, mesh.bindMatrix);
+    } else {
+      outline = new THREE.Mesh(mesh.geometry, mat);
     }
+    outline.scale.setScalar(1.035);
+    outline.renderOrder = 998;
+    outline.frustumCulled = false;
+    mesh.add(outline);
+    this._selectOutline = outline;
+  },
+  _removeSelectOutline(){
+    if(!this._selectOutline) return;
+    if(this._selectOutline.parent) this._selectOutline.parent.remove(this._selectOutline);
+    // The geometry is shared with the source mesh — dispose only the outline's own material.
+    this._selectOutline.material.dispose();
+    this._selectOutline = null;
   },
   deselectMesh(){ this.selectMesh(null); },
 
@@ -3426,6 +3502,7 @@ const Viewport3D = {
       `${name} · ${this.meshes.length} mesh${this.meshes.length===1?'':'es'} · ${Math.round(triCount).toLocaleString()} tris`;
     if(missingUV) toast('Model has no UV coordinates — painting on it will not work.');
     else toast('Model loaded. Paint on it directly.');
+    if(PolySpec.active) PolySpec.exit();
     if(this.meshes.length) Sculpt.setTarget(this.meshes[0]);
     UVView.invalidate(); refreshUVPanel(); refreshMeshStats();
   },
@@ -3528,7 +3605,30 @@ const Viewport3D = {
       return self.raycaster.intersectObjects(self.meshes, true);
     }
 
+    el.addEventListener('contextmenu', (e)=>{ if(PolySpec.active) e.preventDefault(); });
     el.addEventListener('pointerdown', (e)=>{
+      // Poly Spec (edit mode) takes priority over everything else in the viewport.
+      if(PolySpec.active){
+        if(PolySpec.transform){
+          if(e.button===2){ PolySpec._cancelTransform(); } else { PolySpec.confirmTransform(); }
+          e.preventDefault(); e.stopPropagation();
+          return;
+        }
+        if(PolySpec.boxSelectArmed){
+          const rect = el.getBoundingClientRect();
+          PolySpec.boxDragStart = { x:e.clientX-rect.left, y:e.clientY-rect.top };
+          const box = document.getElementById('ps-boxselect');
+          box.style.left = PolySpec.boxDragStart.x+'px'; box.style.top = PolySpec.boxDragStart.y+'px';
+          box.style.width = '0px'; box.style.height = '0px'; box.style.display = 'block';
+          e.preventDefault(); e.stopPropagation();
+          return;
+        }
+        if(e.button===0){
+          PolySpec.handleClick(e);
+          e.preventDefault(); e.stopPropagation();
+        }
+        return;
+      }
       // Sculpting takes priority when enabled.
       if(Sculpt.enabled && this.meshes.length){
         const hits = hitTest(e);
@@ -3605,6 +3705,19 @@ const Viewport3D = {
     });
 
     el.addEventListener('pointermove', (e)=>{
+      PolySpec._lastClientPt = { x:e.clientX, y:e.clientY };
+      if(PolySpec.active){
+        if(PolySpec.transform){ PolySpec.updateTransform(e.clientX, e.clientY); return; }
+        if(PolySpec.boxSelectArmed && PolySpec.boxDragStart){
+          const rect = el.getBoundingClientRect();
+          const cx = e.clientX-rect.left, cy = e.clientY-rect.top;
+          const x0 = Math.min(PolySpec.boxDragStart.x, cx), y0 = Math.min(PolySpec.boxDragStart.y, cy);
+          const x1 = Math.max(PolySpec.boxDragStart.x, cx), y1 = Math.max(PolySpec.boxDragStart.y, cy);
+          const box = document.getElementById('ps-boxselect');
+          box.style.left = x0+'px'; box.style.top = y0+'px'; box.style.width = (x1-x0)+'px'; box.style.height = (y1-y0)+'px';
+        }
+        return;
+      }
       if(this._sculpting){
         const hits = hitTest(e);
         if(hits.length){
@@ -3655,6 +3768,16 @@ const Viewport3D = {
     });
 
     const endPaint = ()=>{
+      if(PolySpec.active && PolySpec.boxSelectArmed && PolySpec.boxDragStart){
+        const box = document.getElementById('ps-boxselect');
+        const rect = el.getBoundingClientRect();
+        const x0 = parseFloat(box.style.left), y0 = parseFloat(box.style.top);
+        const x1 = x0 + parseFloat(box.style.width), y1 = y0 + parseFloat(box.style.height);
+        box.style.display = 'none';
+        PolySpec.boxDragStart = null; PolySpec.boxSelectArmed = false;
+        if(x1-x0 > 3 || y1-y0 > 3) PolySpec.boxSelectAt({x0,y0,x1,y1});
+        return;
+      }
       if(this._sculpting){
         this._sculpting = false; this.controls.enabled = true;
         Sculpt._lastPoint = null; Sculpt.grid = null;
@@ -3686,6 +3809,506 @@ const Viewport3D = {
       if(file) readModelFile(file);
     });
   }
+};
+
+/* ============================= Poly Spec Mode (Blender-style edit mode) =============================
+   Tab toggles this on the currently selected mesh (via the Select tool). Vertex/Edge/Face select,
+   box select, Grab/Rotate/Scale with axis locking, Extrude, Delete, Merge at Center.
+   Scope note: no loop cuts, bevel, knife, bridge, or numeric transform input — see the summary
+   at the end of this feature for what's intentionally out. */
+function projectToScreen(v3, camera, rect){
+  const p = v3.clone().project(camera);
+  return { x: (p.x*0.5+0.5)*rect.width, y: (-p.y*0.5+0.5)*rect.height };
+}
+function triCentroid(pos, a,b,c){
+  return new THREE.Vector3(
+    (pos.getX(a)+pos.getX(b)+pos.getX(c))/3,
+    (pos.getY(a)+pos.getY(b)+pos.getY(c))/3,
+    (pos.getZ(a)+pos.getZ(b)+pos.getZ(c))/3
+  );
+}
+function edgeKey(a,b){ return a<b ? a+'|'+b : b+'|'+a; }
+
+const PolySpec = {
+  active:false, mesh:null, selectMode:'vertex',
+  selVerts:new Set(), selEdges:new Set(), selFaces:new Set(),
+  edges:[], // [{a,b}] deduped
+  transform:null, boxSelectArmed:false, boxDragStart:null,
+  _overlayVertsAll:null, _overlayVertsSel:null, _overlayEdgesSel:null, _overlayFacesSel:null,
+  _lastClientPt:null,
+
+  enter(){
+    const mesh = Viewport3D.selectedMesh;
+    if(!mesh){ toast('Select a mesh first (Select tool), then press Tab.'); return; }
+    const geo = mesh.geometry;
+    if(!geo.index){
+      // Build a trivial sequential index so every downstream operation can assume indexed triangles.
+      const n = geo.attributes.position.count;
+      const idx = new (n>65535 ? Uint32Array : Uint16Array)(n);
+      for(let i=0;i<n;i++) idx[i]=i;
+      geo.setIndex(new THREE.BufferAttribute(idx,1));
+    }
+    this.mesh = mesh; this.active = true;
+    this.selVerts.clear(); this.selEdges.clear(); this.selFaces.clear();
+    Viewport3D.paintMode = false; document.getElementById('v3d-paint').classList.remove('active');
+    Viewport3D.selectMode = false; document.getElementById('v3d-select').classList.remove('active');
+    Sculpt.enabled = false; document.getElementById('sc-enable').checked = false;
+    WeightPaint.enabled = false; const wpcb = document.getElementById('wp-enable'); if(wpcb) wpcb.checked = false;
+    this._rebuildEdges();
+    this._buildOverlays();
+    document.getElementById('polyspec-bar').classList.add('show');
+    this._setModeButton();
+    toast('Poly Spec Mode — Vertex select. Tab to exit.');
+  },
+  exit(){
+    if(!this.active) return;
+    if(this.transform) this._cancelTransform();
+    this.mesh.geometry.computeVertexNormals();
+    this.mesh.geometry.computeBoundingSphere();
+    this._destroyOverlays();
+    this.active = false; this.mesh = null;
+    document.getElementById('polyspec-bar').classList.remove('show');
+    UVView.invalidate(); refreshMeshStats();
+    toast('Exited Poly Spec Mode.');
+  },
+  toggle(){ this.active ? this.exit() : this.enter(); },
+
+  setSelectMode(mode){
+    this.selectMode = mode;
+    this.selVerts.clear(); this.selEdges.clear(); this.selFaces.clear();
+    this._setModeButton(); this._refreshOverlays();
+  },
+  _setModeButton(){
+    document.getElementById('ps-vert').classList.toggle('active', this.selectMode==='vertex');
+    document.getElementById('ps-edge').classList.toggle('active', this.selectMode==='edge');
+    document.getElementById('ps-face').classList.toggle('active', this.selectMode==='face');
+  },
+
+  /* --- topology helpers --- */
+  _rebuildEdges(){
+    const idx = this.mesh.geometry.index.array;
+    const seen = new Set(); const out = [];
+    for(let t=0;t<idx.length;t+=3){
+      const a=idx[t],b=idx[t+1],c=idx[t+2];
+      for(const [i,j] of [[a,b],[b,c],[c,a]]){
+        const k = edgeKey(i,j);
+        if(!seen.has(k)){ seen.add(k); out.push({a:Math.min(i,j), b:Math.max(i,j)}); }
+      }
+    }
+    this.edges = out;
+  },
+
+  /* --- overlays: all-vertex dots, selected verts/edges/faces highlight --- */
+  _buildOverlays(){
+    const pos = this.mesh.geometry.attributes.position;
+    const allPts = new Float32Array(pos.array.length);
+    allPts.set(pos.array);
+    const allGeo = new THREE.BufferGeometry();
+    allGeo.setAttribute('position', new THREE.BufferAttribute(allPts,3));
+    const allMat = new THREE.PointsMaterial({ color:0x6f8fce, size:0.018, sizeAttenuation:true, depthTest:false });
+    this._overlayVertsAll = new THREE.Points(allGeo, allMat);
+    this._overlayVertsAll.renderOrder = 995;
+    this.mesh.add(this._overlayVertsAll);
+
+    this._overlayVertsSel = new THREE.Points(new THREE.BufferGeometry(), new THREE.PointsMaterial({ color:0xc98a4b, size:0.03, sizeAttenuation:true, depthTest:false }));
+    this._overlayVertsSel.renderOrder = 997;
+    this.mesh.add(this._overlayVertsSel);
+
+    this._overlayEdgesSel = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color:0xc98a4b, depthTest:false, linewidth:2 }));
+    this._overlayEdgesSel.renderOrder = 996;
+    this.mesh.add(this._overlayEdgesSel);
+
+    this._overlayFacesSel = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color:0xc98a4b, transparent:true, opacity:0.35, depthTest:false, side:THREE.DoubleSide }));
+    this._overlayFacesSel.renderOrder = 994;
+    this.mesh.add(this._overlayFacesSel);
+
+    this._refreshOverlays();
+  },
+  _destroyOverlays(){
+    for(const o of [this._overlayVertsAll, this._overlayVertsSel, this._overlayEdgesSel, this._overlayFacesSel]){
+      if(o){ this.mesh.remove(o); o.geometry.dispose(); o.material.dispose(); }
+    }
+    this._overlayVertsAll = this._overlayVertsSel = this._overlayEdgesSel = this._overlayFacesSel = null;
+  },
+  _refreshOverlays(){
+    if(!this.active) return;
+    const pos = this.mesh.geometry.attributes.position;
+    // all-verts dot cloud (positions can change after transforms/extrude)
+    if(this._overlayVertsAll.geometry.attributes.position.array.length !== pos.array.length){
+      this._overlayVertsAll.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos.array.length),3));
+    }
+    this._overlayVertsAll.geometry.attributes.position.array.set(pos.array);
+    this._overlayVertsAll.geometry.attributes.position.needsUpdate = true;
+    this._overlayVertsAll.geometry.computeBoundingSphere();
+
+    const selV = Array.from(this.selVerts);
+    const vArr = new Float32Array(selV.length*3);
+    selV.forEach((vi,i)=>{ vArr[i*3]=pos.getX(vi); vArr[i*3+1]=pos.getY(vi); vArr[i*3+2]=pos.getZ(vi); });
+    this._overlayVertsSel.geometry.setAttribute('position', new THREE.BufferAttribute(vArr,3));
+    this._overlayVertsSel.geometry.computeBoundingSphere();
+
+    const selE = Array.from(this.selEdges).map(k=>k.split('|').map(Number));
+    const eArr = new Float32Array(selE.length*6);
+    selE.forEach(([a,b],i)=>{
+      eArr[i*6]=pos.getX(a); eArr[i*6+1]=pos.getY(a); eArr[i*6+2]=pos.getZ(a);
+      eArr[i*6+3]=pos.getX(b); eArr[i*6+4]=pos.getY(b); eArr[i*6+5]=pos.getZ(b);
+    });
+    this._overlayEdgesSel.geometry.setAttribute('position', new THREE.BufferAttribute(eArr,3));
+    this._overlayEdgesSel.geometry.computeBoundingSphere();
+
+    const idx = this.mesh.geometry.index.array;
+    const selF = Array.from(this.selFaces);
+    const fArr = new Float32Array(selF.length*9);
+    selF.forEach((fi,i)=>{
+      const a=idx[fi*3], b=idx[fi*3+1], c=idx[fi*3+2];
+      fArr[i*9]=pos.getX(a); fArr[i*9+1]=pos.getY(a); fArr[i*9+2]=pos.getZ(a);
+      fArr[i*9+3]=pos.getX(b); fArr[i*9+4]=pos.getY(b); fArr[i*9+5]=pos.getZ(b);
+      fArr[i*9+6]=pos.getX(c); fArr[i*9+7]=pos.getY(c); fArr[i*9+8]=pos.getZ(c);
+    });
+    this._overlayFacesSel.geometry.setAttribute('position', new THREE.BufferAttribute(fArr,3));
+    this._overlayFacesSel.geometry.computeBoundingSphere();
+
+    // Also nudge the base points cloud color/size by mode so it's obvious what you're selecting.
+    this._overlayVertsAll.visible = true;
+    this._overlayEdgesSel.visible = (this.selectMode==='edge');
+    this._overlayFacesSel.visible = (this.selectMode==='face');
+    this._overlayVertsSel.visible = true;
+  },
+
+  /* --- picking --- */
+  _pick(e){
+    const el = Viewport3D.renderer.domElement;
+    const rect = el.getBoundingClientRect();
+    const ndc = new THREE.Vector2(((e.clientX-rect.left)/rect.width)*2-1, -((e.clientY-rect.top)/rect.height)*2+1);
+    Viewport3D.raycaster.setFromCamera(ndc, Viewport3D.camera);
+    const hits = Viewport3D.raycaster.intersectObject(this.mesh, false);
+    if(!hits.length || !hits[0].face) return null;
+    const face = hits[0].face; // {a,b,c} vertex indices
+    const pos = this.mesh.geometry.attributes.position;
+    const clickPt = {x:e.clientX-rect.left, y:e.clientY-rect.top};
+    if(this.selectMode==='vertex'){
+      let best=-1, bestD=Infinity;
+      for(const vi of [face.a, face.b, face.c]){
+        const s = projectToScreen(new THREE.Vector3(pos.getX(vi),pos.getY(vi),pos.getZ(vi)), Viewport3D.camera, rect);
+        const d = Math.hypot(s.x-clickPt.x, s.y-clickPt.y);
+        if(d<bestD){ bestD=d; best=vi; }
+      }
+      return { type:'vertex', index:best };
+    }
+    if(this.selectMode==='edge'){
+      const opts = [[face.a,face.b],[face.b,face.c],[face.c,face.a]];
+      let best=null, bestD=Infinity;
+      for(const [a,b] of opts){
+        const mid = new THREE.Vector3((pos.getX(a)+pos.getX(b))/2,(pos.getY(a)+pos.getY(b))/2,(pos.getZ(a)+pos.getZ(b))/2);
+        const s = projectToScreen(mid, Viewport3D.camera, rect);
+        const d = Math.hypot(s.x-clickPt.x, s.y-clickPt.y);
+        if(d<bestD){ bestD=d; best=edgeKey(a,b); }
+      }
+      return { type:'edge', index:best };
+    }
+    // face mode
+    return { type:'face', index:hits[0].faceIndex };
+  },
+  handleClick(e){
+    const pick = this._pick(e);
+    if(!pick){ if(!e.shiftKey){ this.selVerts.clear(); this.selEdges.clear(); this.selFaces.clear(); this._refreshOverlays(); } return; }
+    const set = this.selectMode==='vertex' ? this.selVerts : this.selectMode==='edge' ? this.selEdges : this.selFaces;
+    if(!e.shiftKey) set.clear();
+    if(set.has(pick.index)) set.delete(pick.index); else set.add(pick.index);
+    this._refreshOverlays();
+  },
+  selectAll(){
+    const pos = this.mesh.geometry.attributes.position;
+    if(this.selectMode==='vertex'){ this.selVerts = new Set(Array.from({length:pos.count},(_,i)=>i)); }
+    else if(this.selectMode==='edge'){ this.selEdges = new Set(this.edges.map(e=>edgeKey(e.a,e.b))); }
+    else { this.selFaces = new Set(Array.from({length:this.mesh.geometry.index.count/3},(_,i)=>i)); }
+    this._refreshOverlays();
+  },
+  deselectAll(){ this.selVerts.clear(); this.selEdges.clear(); this.selFaces.clear(); this._refreshOverlays(); },
+
+  /* --- box select --- */
+  boxSelectAt(screenRect){
+    const pos = this.mesh.geometry.attributes.position;
+    const camRect = Viewport3D.renderer.domElement.getBoundingClientRect();
+    const inside = (sx,sy)=> sx>=screenRect.x0 && sx<=screenRect.x1 && sy>=screenRect.y0 && sy<=screenRect.y1;
+    if(this.selectMode==='vertex'){
+      for(let i=0;i<pos.count;i++){
+        const s = projectToScreen(new THREE.Vector3(pos.getX(i),pos.getY(i),pos.getZ(i)), Viewport3D.camera, camRect);
+        if(inside(s.x,s.y)) this.selVerts.add(i);
+      }
+    } else if(this.selectMode==='edge'){
+      for(const e of this.edges){
+        const sa = projectToScreen(new THREE.Vector3(pos.getX(e.a),pos.getY(e.a),pos.getZ(e.a)), Viewport3D.camera, camRect);
+        const sb = projectToScreen(new THREE.Vector3(pos.getX(e.b),pos.getY(e.b),pos.getZ(e.b)), Viewport3D.camera, camRect);
+        if(inside(sa.x,sa.y) && inside(sb.x,sb.y)) this.selEdges.add(edgeKey(e.a,e.b));
+      }
+    } else {
+      const idx = this.mesh.geometry.index.array;
+      for(let fi=0; fi<idx.length/3; fi++){
+        const a=idx[fi*3], b=idx[fi*3+1], c=idx[fi*3+2];
+        const cen = triCentroid(pos,a,b,c);
+        const s = projectToScreen(cen, Viewport3D.camera, camRect);
+        if(inside(s.x,s.y)) this.selFaces.add(fi);
+      }
+    }
+    this._refreshOverlays();
+  },
+
+  /* --- transform: grab / rotate / scale --- */
+  _selectedVertexIndices(){
+    if(this.selectMode==='vertex') return Array.from(this.selVerts);
+    if(this.selectMode==='edge'){
+      const s = new Set();
+      for(const k of this.selEdges){ const [a,b]=k.split('|').map(Number); s.add(a); s.add(b); }
+      return Array.from(s);
+    }
+    const idx = this.mesh.geometry.index.array; const s = new Set();
+    for(const fi of this.selFaces){ s.add(idx[fi*3]); s.add(idx[fi*3+1]); s.add(idx[fi*3+2]); }
+    return Array.from(s);
+  },
+  beginTransform(mode){
+    const verts = this._selectedVertexIndices();
+    if(!verts.length){ toast('Nothing selected.'); return; }
+    const pos = this.mesh.geometry.attributes.position;
+    const start = new Map();
+    const pivot = new THREE.Vector3();
+    for(const vi of verts){ const p = new THREE.Vector3(pos.getX(vi),pos.getY(vi),pos.getZ(vi)); start.set(vi,p); pivot.add(p); }
+    pivot.divideScalar(verts.length);
+    const rect = Viewport3D.renderer.domElement.getBoundingClientRect();
+    const worldPivot = this.mesh.localToWorld(pivot.clone());
+    const pivotScreen = projectToScreen(worldPivot, Viewport3D.camera, rect);
+    const normal = Viewport3D.camera.getWorldDirection(new THREE.Vector3()).negate();
+    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, worldPivot);
+    this.transform = {
+      mode, axis:null, verts, start, pivot, worldPivot, plane, pivotScreen,
+      startMouse: this._lastClientPt ? {...this._lastClientPt} : {x:rect.width/2, y:rect.height/2},
+      startWorldPoint: null,
+    };
+    // Establish the reference world point under the current cursor for grab's delta baseline.
+    if(this._lastClientPt){
+      const ndc = new THREE.Vector2(((this._lastClientPt.x-rect.left)/rect.width)*2-1, -((this._lastClientPt.y-rect.top)/rect.height)*2+1);
+      Viewport3D.raycaster.setFromCamera(ndc, Viewport3D.camera);
+      const p = new THREE.Vector3();
+      Viewport3D.raycaster.ray.intersectPlane(plane, p);
+      this.transform.startWorldPoint = p || worldPivot.clone();
+    } else this.transform.startWorldPoint = worldPivot.clone();
+    Viewport3D.controls.enabled = false;
+    toast((mode==='grab'?'Grab':mode==='rotate'?'Rotate':'Scale')+' — move mouse, X/Y/Z to constrain, click/Enter to confirm, Esc to cancel.');
+  },
+  setTransformAxis(axis){ if(this.transform) this.transform.axis = (this.transform.axis===axis ? null : axis); },
+  updateTransform(clientX, clientY){
+    const t = this.transform; if(!t) return;
+    const rect = Viewport3D.renderer.domElement.getBoundingClientRect();
+    const pos = this.mesh.geometry.attributes.position;
+
+    if(t.mode==='grab'){
+      const ndc = new THREE.Vector2(((clientX-rect.left)/rect.width)*2-1, -((clientY-rect.top)/rect.height)*2+1);
+      Viewport3D.raycaster.setFromCamera(ndc, Viewport3D.camera);
+      const cur = new THREE.Vector3();
+      if(!Viewport3D.raycaster.ray.intersectPlane(t.plane, cur)) return;
+      // Points-through-parent technique: correctly respects the mesh's scale/rotation.
+      const localCur = this.mesh.worldToLocal(cur.clone());
+      const localStart = this.mesh.worldToLocal(t.startWorldPoint.clone());
+      const delta = localCur.sub(localStart);
+      if(t.axis==='x') { delta.y=0; delta.z=0; }
+      if(t.axis==='y') { delta.x=0; delta.z=0; }
+      if(t.axis==='z') { delta.x=0; delta.y=0; }
+      for(const vi of t.verts){
+        const s = t.start.get(vi);
+        pos.setXYZ(vi, s.x+delta.x, s.y+delta.y, s.z+delta.z);
+      }
+    } else if(t.mode==='rotate'){
+      const sv = {x:t.startMouse.x-t.pivotScreen.x, y:t.startMouse.y-t.pivotScreen.y};
+      const cv = {x:(clientX-rect.left)-t.pivotScreen.x, y:(clientY-rect.top)-t.pivotScreen.y};
+      const angle = Math.atan2(cv.y,cv.x) - Math.atan2(sv.y,sv.x);
+      let axisLocal;
+      if(t.axis==='x') axisLocal = new THREE.Vector3(1,0,0);
+      else if(t.axis==='y') axisLocal = new THREE.Vector3(0,1,0);
+      else if(t.axis==='z') axisLocal = new THREE.Vector3(0,0,1);
+      else {
+        // Default: rotate around the view axis, converted into mesh-local space.
+        const viewDirWorld = Viewport3D.camera.getWorldDirection(new THREE.Vector3());
+        const meshWorldQuat = new THREE.Quaternion(); this.mesh.getWorldQuaternion(meshWorldQuat);
+        axisLocal = viewDirWorld.clone().applyQuaternion(meshWorldQuat.clone().invert()).normalize();
+      }
+      const q = new THREE.Quaternion().setFromAxisAngle(axisLocal, angle);
+      for(const vi of t.verts){
+        const s = t.start.get(vi);
+        const rel = s.clone().sub(t.pivot).applyQuaternion(q).add(t.pivot);
+        pos.setXYZ(vi, rel.x, rel.y, rel.z);
+      }
+    } else if(t.mode==='scale'){
+      const startDist = Math.hypot(t.startMouse.x-t.pivotScreen.x, t.startMouse.y-t.pivotScreen.y) || 1;
+      const curDist = Math.hypot((clientX-rect.left)-t.pivotScreen.x, (clientY-rect.top)-t.pivotScreen.y);
+      const ratio = curDist/startDist;
+      for(const vi of t.verts){
+        const s = t.start.get(vi);
+        const rel = s.clone().sub(t.pivot);
+        if(t.axis==='x') rel.x *= ratio;
+        else if(t.axis==='y') rel.y *= ratio;
+        else if(t.axis==='z') rel.z *= ratio;
+        else rel.multiplyScalar(ratio);
+        const np = rel.add(t.pivot);
+        pos.setXYZ(vi, np.x, np.y, np.z);
+      }
+    }
+    pos.needsUpdate = true;
+    this._refreshOverlays();
+  },
+  confirmTransform(){
+    if(!this.transform) return;
+    this.transform = null;
+    Viewport3D.controls.enabled = true;
+    this.mesh.geometry.computeVertexNormals();
+    this.mesh.geometry.computeBoundingSphere();
+    UVView.invalidate(); refreshMeshStats();
+  },
+  _cancelTransform(){
+    const t = this.transform; if(!t) return;
+    const pos = this.mesh.geometry.attributes.position;
+    for(const vi of t.verts){ const s = t.start.get(vi); pos.setXYZ(vi, s.x, s.y, s.z); }
+    pos.needsUpdate = true;
+    this.transform = null;
+    Viewport3D.controls.enabled = true;
+    this.mesh.geometry.computeVertexNormals();
+    this._refreshOverlays();
+  },
+
+  /* --- extrude (per selected face, independent — no shared-edge bridging between faces) --- */
+  extrude(){
+    if(this.selectMode!=='face' || !this.selFaces.size){ toast('Extrude needs one or more selected faces.'); return; }
+    const geo = this.mesh.geometry;
+    const oldPos = geo.attributes.position;
+    const oldIdx = geo.index.array;
+    const oldCount = oldPos.count;
+
+    const newPositions = Array.from(oldPos.array);
+    const newIndex = Array.from(oldIdx);
+    const newFaceIds = new Set();
+    let nextVert = oldCount;
+
+    for(const fi of this.selFaces){
+      const ia = oldIdx[fi*3], ib = oldIdx[fi*3+1], ic = oldIdx[fi*3+2];
+      const a = new THREE.Vector3(oldPos.getX(ia),oldPos.getY(ia),oldPos.getZ(ia));
+      const b = new THREE.Vector3(oldPos.getX(ib),oldPos.getY(ib),oldPos.getZ(ib));
+      const c = new THREE.Vector3(oldPos.getX(ic),oldPos.getY(ic),oldPos.getZ(ic));
+      const na = nextVert++, nb = nextVert++, nc = nextVert++;
+      newPositions.push(a.x,a.y,a.z, b.x,b.y,b.z, c.x,c.y,c.z);
+      // Side walls, one quad (two triangles) per original edge, connecting the old ring to the new ring.
+      newIndex.push(ia,ib,nb, ia,nb,na);
+      newIndex.push(ib,ic,nc, ib,nc,nb);
+      newIndex.push(ic,ia,na, ic,na,nc);
+      // The cap: the original face now uses the new (duplicated) vertices.
+      newIndex[fi*3]=na; newIndex[fi*3+1]=nb; newIndex[fi*3+2]=nc;
+      newFaceIds.add(fi);
+    }
+
+    const IndexArr = nextVert > 65535 ? Uint32Array : Uint16Array;
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(newPositions),3));
+    geo.setIndex(new THREE.BufferAttribute(new IndexArr(newIndex),1));
+    geo.computeVertexNormals();
+
+    this._rebuildEdges();
+    this._destroyOverlays(); this._buildOverlays();
+    // Keep the cap faces selected (they now reference the new verts, same face index).
+    this.selFaces = newFaceIds;
+    this._refreshOverlays();
+    UVView.invalidate(); refreshMeshStats();
+    toast(`Extruded ${newFaceIds.size} face${newFaceIds.size===1?'':'s'} — drag to place, click to confirm.`);
+    this.beginTransform('grab');
+  },
+
+  /* --- delete --- */
+  deleteSelection(){
+    const geo = this.mesh.geometry;
+    const idx = geo.index.array;
+    const posAttr = geo.attributes.position;
+    let keepTriPred;
+    if(this.selectMode==='face'){
+      keepTriPred = (fi)=> !this.selFaces.has(fi);
+    } else if(this.selectMode==='edge'){
+      const doomed = new Set();
+      for(const k of this.selEdges) doomed.add(k);
+      keepTriPred = (fi)=>{
+        const a=idx[fi*3],b=idx[fi*3+1],c=idx[fi*3+2];
+        return !(doomed.has(edgeKey(a,b))||doomed.has(edgeKey(b,c))||doomed.has(edgeKey(c,a)));
+      };
+    } else {
+      keepTriPred = (fi)=>{
+        const a=idx[fi*3],b=idx[fi*3+1],c=idx[fi*3+2];
+        return !(this.selVerts.has(a)||this.selVerts.has(b)||this.selVerts.has(c));
+      };
+    }
+    const triCount = idx.length/3;
+    const keptIdx = [];
+    for(let fi=0; fi<triCount; fi++) if(keepTriPred(fi)) keptIdx.push(idx[fi*3], idx[fi*3+1], idx[fi*3+2]);
+
+    // Compact vertices: drop any that no triangle references anymore, remap the rest.
+    const used = new Set(keptIdx);
+    const remap = new Map(); const newPos = [];
+    let n=0;
+    for(let i=0;i<posAttr.count;i++){
+      if(!used.has(i)) continue;
+      remap.set(i, n++);
+      newPos.push(posAttr.getX(i), posAttr.getY(i), posAttr.getZ(i));
+    }
+    const remappedIdx = keptIdx.map(i=>remap.get(i));
+    const IndexArr = n > 65535 ? Uint32Array : Uint16Array;
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(newPos),3));
+    geo.setIndex(new THREE.BufferAttribute(new IndexArr(remappedIdx),1));
+    geo.computeVertexNormals();
+
+    this.selVerts.clear(); this.selEdges.clear(); this.selFaces.clear();
+    this._rebuildEdges();
+    this._destroyOverlays(); this._buildOverlays();
+    UVView.invalidate(); refreshMeshStats();
+    toast('Deleted.');
+  },
+
+  /* --- merge selected vertices to their center --- */
+  mergeAtCenter(){
+    if(this.selectMode!=='vertex' || this.selVerts.size<2){ toast('Merge needs 2+ selected vertices (vertex mode).'); return; }
+    const geo = this.mesh.geometry;
+    const idx = geo.index.array;
+    const posAttr = geo.attributes.position;
+    const verts = Array.from(this.selVerts);
+    const target = verts[0];
+    const avg = new THREE.Vector3();
+    for(const vi of verts) avg.add(new THREE.Vector3(posAttr.getX(vi),posAttr.getY(vi),posAttr.getZ(vi)));
+    avg.divideScalar(verts.length);
+    posAttr.setXYZ(target, avg.x, avg.y, avg.z);
+    const mergeSet = new Set(verts.slice(1));
+
+    // Redirect triangle references from merged verts to target, then drop degenerate triangles.
+    const redirected = [];
+    for(let t=0;t<idx.length;t+=3){
+      let a=idx[t], b=idx[t+1], c=idx[t+2];
+      if(mergeSet.has(a)) a=target; if(mergeSet.has(b)) b=target; if(mergeSet.has(c)) c=target;
+      if(a===b || b===c || c===a) continue; // zero-area after merge
+      redirected.push(a,b,c);
+    }
+    // Compact away the now-unused merged vertices.
+    const used = new Set(redirected);
+    const remap = new Map(); const newPos = [];
+    let n=0;
+    for(let i=0;i<posAttr.count;i++){
+      if(!used.has(i)) continue;
+      remap.set(i, n++);
+      newPos.push(posAttr.getX(i), posAttr.getY(i), posAttr.getZ(i));
+    }
+    const remappedIdx = redirected.map(i=>remap.get(i));
+    const IndexArr = n > 65535 ? Uint32Array : Uint16Array;
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(newPos),3));
+    geo.setIndex(new THREE.BufferAttribute(new IndexArr(remappedIdx),1));
+    geo.computeVertexNormals();
+
+    this.selVerts = new Set([remap.get(target)]);
+    this.selEdges.clear(); this.selFaces.clear();
+    this._rebuildEdges();
+    this._destroyOverlays(); this._buildOverlays();
+    UVView.invalidate(); refreshMeshStats();
+    toast(`Merged ${verts.length} vertices to their center.`);
+  },
 };
 
 function readModelFile(file){
@@ -3732,6 +4355,12 @@ document.getElementById('v3d-wire').addEventListener('click', (e)=>{
   Viewport3D.setWireframe(!Viewport3D.wireframe);
   e.target.classList.toggle('active', Viewport3D.wireframe);
 });
+document.getElementById('ps-vert').addEventListener('click', ()=> PolySpec.setSelectMode('vertex'));
+document.getElementById('ps-edge').addEventListener('click', ()=> PolySpec.setSelectMode('edge'));
+document.getElementById('ps-face').addEventListener('click', ()=> PolySpec.setSelectMode('face'));
+document.getElementById('ps-extrude').addEventListener('click', ()=> PolySpec.extrude());
+document.getElementById('ps-delete').addEventListener('click', ()=> PolySpec.deleteSelection());
+document.getElementById('ps-merge').addEventListener('click', ()=> PolySpec.mergeAtCenter());
 
 /* ============================= Webcomic mode ============================= */
 const COMIC_PRESETS = [
