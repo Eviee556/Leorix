@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <title>Vellum — PBR Image Editor</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" defer></script>
+<!-- 3D model painting. For an offline/production build, vendor these into the repo
+     (npm i three) and point these tags at the local copies instead of the CDN. -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/fflate.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/FBXLoader.js"></script>
 <style>
   :root{
     --bg:#14171c; --panel:#1b1f27; --panel-alt:#20242e; --border:#333a47; --border-soft:#282e39;
@@ -180,6 +187,54 @@
     font-size:10.5px; color:var(--text-muted); border-style:dashed;}
   .add-texture-btn:hover{color:var(--brass); border-color:var(--brass-dim);}
   .normal-dir-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:5px;}
+  /* ---- Startup mode picker ---- */
+  .mode-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:6px;}
+  .mode-card{background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:16px 12px;
+    cursor:pointer; text-align:center; color:var(--text); transition:border-color .12s, background .12s;}
+  .mode-card:hover{border-color:var(--brass-dim); background:var(--panel-alt);}
+  .mode-card.active{border-color:var(--brass); background:rgba(201,138,75,.12);}
+  .mode-card svg{width:34px; height:34px; stroke:var(--brass); fill:none; stroke-width:1.3; margin-bottom:9px;}
+  .mode-card .mode-name{font-size:13px; margin-bottom:5px;}
+  .mode-card .mode-desc{font-size:10.5px; color:var(--text-muted); line-height:1.45;}
+  .mode-section{display:none;} .mode-section.show{display:block;}
+  /* ---- 3D viewport ---- */
+  #viewport3d{position:absolute; top:0; right:0; bottom:0; width:46%; background:#0f1216;
+    border-left:1px solid var(--border); display:none; flex-direction:column; z-index:10;}
+  #viewport3d.show{display:flex;}
+  #viewport3d-canvas-wrap{flex:1; position:relative; overflow:hidden;}
+  #viewport3d canvas{display:block; width:100%; height:100%;}
+  #viewport3d-bar{height:30px; background:var(--panel); border-bottom:1px solid var(--border);
+    display:flex; align-items:center; gap:6px; padding:0 8px; font-size:11px; color:var(--text-muted);
+    font-family:ui-monospace,monospace; flex-shrink:0;}
+  #viewport3d-bar button{background:var(--panel-alt); border:1px solid var(--border); color:var(--text-muted);
+    border-radius:3px; padding:2px 8px; font-size:11px; cursor:pointer;}
+  #viewport3d-bar button:hover{color:var(--text); border-color:var(--brass-dim);}
+  #viewport3d-bar button.active{background:var(--brass-dim); color:#fff; border-color:var(--brass-dim);}
+  #viewport3d-status{margin-left:auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  #viewport3d-drop{position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    flex-direction:column; gap:8px; color:var(--text-muted); font-size:12.5px; text-align:center; padding:20px;}
+  #viewport3d-drop.hidden{display:none;}
+  #viewport3d-drop svg{width:44px; height:44px; stroke:var(--border); fill:none; stroke-width:1.2;}
+  /* ---- Webcomic ---- */
+  .comic-preset-grid{display:grid; grid-template-columns:repeat(2,1fr); gap:5px; margin-bottom:9px;}
+  .comic-preset-btn{background:var(--panel-alt); border:1px solid var(--border); color:var(--text-muted);
+    border-radius:4px; padding:7px 5px; font-size:10.5px; cursor:pointer; line-height:1.35;}
+  .comic-preset-btn:hover{border-color:var(--brass-dim); color:var(--text);}
+  .comic-preset-btn.active{background:rgba(201,138,75,.14); border-color:var(--brass); color:var(--text);}
+  .comic-preset-btn b{display:block; font-size:11.5px; font-weight:600; margin-bottom:2px; color:inherit;}
+  .value-swatch-grid{display:flex; flex-wrap:wrap; gap:5px;}
+  .value-swatch{width:29px; height:29px; border-radius:4px; border:1px solid var(--border); cursor:pointer; flex-shrink:0;}
+  .value-swatch:hover{border-color:var(--brass);}
+  .fx-row{border:1px solid var(--border); border-radius:5px; margin-bottom:5px; background:var(--panel-alt); overflow:hidden;}
+  .fx-row-header{display:flex; align-items:center; gap:7px; padding:6px 8px;}
+  .fx-row-header input[type=checkbox]{accent-color:var(--brass); width:14px; height:14px; flex-shrink:0;}
+  .fx-row-name{flex:1; font-size:12px;}
+  .fx-expand-btn{background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:11px; padding:2px 4px;}
+  .fx-expand-btn:hover{color:var(--brass);}
+  .fx-row-body{padding:6px 8px 9px; border-top:1px solid var(--border-soft);}
+  .fx-row-body .row{margin-bottom:6px;}
+  .fx-row-body .row label{width:64px; font-size:11px;}
+  .fx-row-body input[type=color]{width:100%; height:24px; border:1px solid var(--border); border-radius:4px; background:none; padding:0; cursor:pointer;}
   .normal-dir-btn{aspect-ratio:1; border-radius:5px; border:1px solid var(--border); cursor:pointer;
     display:flex; align-items:center; justify-content:center; font-size:13px; color:rgba(0,0,0,.55);}
   .normal-dir-btn:hover{border-color:var(--brass);}
@@ -206,6 +261,7 @@
         <hr>
         <button data-action="export-png">Export Current Map as PNG…</button>
         <button data-action="export-jpg">Export Current Map as JPEG…</button>
+        <button data-action="export-exr">Export Current Map as EXR…</button>
         <button data-action="export-all">Export All Maps…</button>
       </div>
     </div>
@@ -256,6 +312,16 @@
         <button data-action="renormalize">Renormalize Normal Map</button>
       </div>
     </div>
+    <div class="menu" data-menu="model3d">
+      <button>3D</button>
+      <div class="menu-drop">
+        <button data-action="v3d-toggle">Show / Hide 3D Viewport</button>
+        <button data-action="v3d-load">Load Model (OBJ / FBX)…</button>
+        <button data-action="v3d-reset">Reset Camera</button>
+        <hr>
+        <button data-action="v3d-refresh">Refresh Textures on Model</button>
+      </div>
+    </div>
     <div class="menu" data-menu="filter">
       <button>Filter</button>
       <div class="menu-drop">
@@ -290,6 +356,22 @@
       </div>
     </div>
 
+    <div id="viewport3d">
+      <div id="viewport3d-bar">
+        <button id="v3d-load">Load Model…</button>
+        <button id="v3d-paint" class="active" title="Paint directly on the mesh">Paint</button>
+        <button id="v3d-reset" title="Frame the model">Reset View</button>
+        <button id="v3d-wire" title="Toggle wireframe">Wire</button>
+        <span id="viewport3d-status">No model loaded</span>
+      </div>
+      <div id="viewport3d-canvas-wrap">
+        <div id="viewport3d-drop">
+          <svg viewBox="0 0 24 24"><path d="M12 2l9 5v10l-9 5-9-5V7z"/><path d="M12 12l9-5M12 12v10M12 12L3 7"/></svg>
+          <div>Drop an <b>.obj</b> or <b>.fbx</b> here,<br>or use Load Model…</div>
+        </div>
+      </div>
+    </div>
+
     <div id="sidebar">
       <div class="panel" id="tool-options-panel">
         <h3>Tool Options</h3>
@@ -303,15 +385,10 @@
         <div class="swatch-grid" id="swatch-grid"></div>
       </div>
 
-      <div class="panel" id="normal-brush-panel" style="display:none;">
-        <h3>Normal Brush</h3>
-        <p style="font-size:11.5px; color:var(--text-muted); margin:-4px 0 10px; line-height:1.5;">Directional colors for hand-painting tangent-space bumps on this Normal map.</p>
-        <div class="normal-dir-grid" id="normal-dir-grid"></div>
-        <div class="row" style="margin-top:8px;">
-          <label>Tilt</label>
-          <input type="range" id="normal-tilt-strength" min="10" max="100" value="50">
-          <span class="val" id="normal-tilt-val">50%</span>
-        </div>
+      <div class="panel" id="map-brush-panel" style="display:none;">
+        <h3 id="map-brush-title">Map Brush</h3>
+        <p id="map-brush-hint" style="font-size:11.5px; color:var(--text-muted); margin:-4px 0 10px; line-height:1.5;"></p>
+        <div id="map-brush-body"></div>
       </div>
 
       <div class="panel" style="flex:1; display:flex; flex-direction:column;">
@@ -349,6 +426,37 @@
           <input type="color" id="bg-color-input" value="#ffffff" disabled>
         </div>
       </div>
+
+      <div class="panel" id="comic-panel" style="display:none;">
+        <h3>Comic Page</h3>
+        <div class="row"><label>Guides</label>
+          <input type="checkbox" id="comic-guides-cb" checked style="accent-color:var(--brass); width:14px; height:14px;">
+          <span style="font-size:11.5px; color:var(--text-muted); flex:1;">Bleed &amp; safe area</span>
+        </div>
+        <div class="subhead">Panel Grid</div>
+        <div class="row"><label>Rows</label><input type="range" id="comic-rows" min="1" max="8" value="3"><span class="val" id="comic-rows-val">3</span></div>
+        <div class="row"><label>Columns</label><input type="range" id="comic-cols" min="1" max="6" value="2"><span class="val" id="comic-cols-val">2</span></div>
+        <div class="row"><label>Gutter</label><input type="range" id="comic-gutter" min="0" max="120" value="36"><span class="val" id="comic-gutter-val">36</span></div>
+        <div class="row"><label>Border</label><input type="range" id="comic-border" min="0" max="24" value="6"><span class="val" id="comic-border-val">6</span></div>
+        <button class="btn" id="comic-make-panels" style="width:100%; margin-top:4px;">Draw Panel Grid on New Layer</button>
+        <div class="subhead">Balloon Tool</div>
+        <p style="font-size:11.5px; color:var(--text-muted); margin:0 0 8px; line-height:1.5;">Pick the Balloon tool in the toolbar, then drag on the canvas to place a balloon. Shift-drag sets the tail direction.</p>
+        <div class="row"><label>Style</label>
+          <select id="comic-balloon-style" class="num-input">
+            <option value="round">Rounded Speech</option>
+            <option value="oval">Oval Speech</option>
+            <option value="thought">Thought Cloud</option>
+            <option value="burst">Shout Burst</option>
+            <option value="caption">Caption Box</option>
+          </select>
+        </div>
+        <div class="row"><label>Tail</label><input type="range" id="comic-balloon-tail" min="0" max="100" value="45"><span class="val" id="comic-balloon-tail-val">45</span></div>
+      </div>
+
+      <div class="panel">
+        <h3>Layer Effects</h3>
+        <div id="effects-list"></div>
+      </div>
     </div>
   </div>
 
@@ -372,8 +480,47 @@
 
 <div class="modal-backdrop" id="modal-new">
   <div class="modal">
-    <h2>New Texture Set</h2>
-    <p class="hint">Creates a Base Color map. Add Normal, Roughness, Metallic, AO, Height, Emissive or ORM maps afterward from the Maps menu — they'll all share this resolution.</p>
+    <h2>New Project</h2>
+    <p class="hint">Pick how you want to work. You can add maps, layers and effects afterward in any mode.</p>
+    <div class="mode-grid">
+      <div class="mode-card active" data-mode="2d">
+        <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 15l4-4 3 3 4-5 7 7"/></svg>
+        <div class="mode-name">2D Texture Set</div>
+        <div class="mode-desc">Paint PBR maps flat on a square canvas.</div>
+      </div>
+      <div class="mode-card" data-mode="3d">
+        <svg viewBox="0 0 24 24"><path d="M12 2l9 5v10l-9 5-9-5V7z"/><path d="M12 12l9-5M12 12v10M12 12L3 7"/></svg>
+        <div class="mode-name">3D Model Paint</div>
+        <div class="mode-desc">Load an OBJ or FBX and paint on the mesh.</div>
+      </div>
+      <div class="mode-card" data-mode="comic">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 10h18M11 10v11"/></svg>
+        <div class="mode-name">Webcomic</div>
+        <div class="mode-desc">Page presets, panel grids and balloons.</div>
+      </div>
+    </div>
+
+    <div class="mode-section show" id="mode-section-2d">
+      <p class="hint">Creates a Base Color map. Add Normal, Roughness, Metallic, AO, Height, Emissive or ORM maps afterward from the Maps menu — they'll all share this resolution.</p>
+    </div>
+    <div class="mode-section" id="mode-section-3d">
+      <p class="hint">Creates a full PBR texture set sized below, opens the 3D viewport, and prompts you for a model. Painting on the mesh writes straight into the active map. Your model needs UV coordinates.</p>
+    </div>
+    <div class="mode-section" id="mode-section-comic">
+      <p class="hint">Sets up a comic page at the size below with bleed and safe-area guides, plus the panel and balloon tools in the sidebar.</p>
+      <div class="comic-preset-grid" id="comic-preset-grid"></div>
+    </div>
+
+    <div class="row"><label>Template</label>
+      <select id="nc-template" class="num-input">
+        <option value="512">512 × 512</option>
+        <option value="1024">1024 × 1024 (1K)</option>
+        <option value="2048" selected>2048 × 2048 (2K)</option>
+        <option value="4096">4096 × 4096 (4K)</option>
+        <option value="8192">8192 × 8192 (8K)</option>
+        <option value="custom">Custom…</option>
+      </select>
+    </div>
     <div class="row"><label>Width (px)</label><input type="number" id="nc-width" value="2048"></div>
     <div class="row"><label>Height (px)</label><input type="number" id="nc-height" value="2048"></div>
     <div class="row"><label>Background</label>
@@ -400,8 +547,10 @@
         <option value="roughness">Roughness</option>
         <option value="metallic">Metallic</option>
         <option value="ao">Ambient Occlusion</option>
+        <option value="cavity">Cavity</option>
         <option value="height">Height / Displacement</option>
         <option value="emissive">Emissive</option>
+        <option value="opacity">Opacity</option>
         <option value="orm">ORM (packed R=AO G=Rough B=Metal)</option>
         <option value="custom">Custom</option>
       </select>
@@ -417,12 +566,20 @@
 <div class="modal-backdrop" id="modal-export">
   <div class="modal">
     <h2 id="export-title">Export Image</h2>
+    <div class="row" id="export-format-row" style="display:none;"><label>Format</label>
+      <select id="export-all-format" class="num-input">
+        <option value="png">PNG</option>
+        <option value="jpg">JPEG</option>
+        <option value="exr">EXR (32-bit float, half precision)</option>
+      </select>
+    </div>
     <div class="row" id="export-quality-row"><label>Quality</label>
       <input type="range" id="export-quality" min="10" max="100" value="92">
       <span class="val" id="export-quality-val">92%</span>
     </div>
     <div class="row"><label id="export-filename-label">File name</label><input type="text" id="export-filename" value="vellum-artwork"></div>
-    <p class="hint" id="export-all-hint" style="display:none;">Each map exports as &lt;prefix&gt;_&lt;MapName&gt;.png. On desktop you'll pick a folder; in a browser tab they download individually or as a .zip.</p>
+    <p class="hint" id="export-all-hint" style="display:none;">Each map exports as &lt;prefix&gt;_&lt;MapName&gt;.ext. On desktop you'll pick a folder; in a browser tab they download individually or as a .zip.</p>
+    <p class="hint" id="export-exr-hint" style="display:none;">EXR channels are stored as 16-bit half floats, linearly scaled from this map's 8-bit pixel data — useful for pipelines that expect EXR, though it won't add dynamic range beyond what's on the canvas.</p>
     <div class="modal-actions">
       <button class="btn" data-action="close-modal">Cancel</button>
       <button class="btn primary" data-action="do-export">Save</button>
@@ -467,7 +624,9 @@
         <select id="packer-out-kind" class="num-input">
           <option value="orm">ORM (Packed)</option><option value="custom">Custom</option><option value="albedo">Base Color / Albedo</option>
           <option value="normal">Normal</option><option value="roughness">Roughness</option><option value="metallic">Metallic</option>
-          <option value="ao">Ambient Occlusion</option><option value="height">Height / Displacement</option><option value="emissive">Emissive</option>
+          <option value="ao">Ambient Occlusion</option><option value="cavity">Cavity</option>
+          <option value="height">Height / Displacement</option><option value="emissive">Emissive</option>
+          <option value="opacity">Opacity</option>
         </select>
       </div>
     </div>
@@ -495,6 +654,7 @@
 <input type="file" id="hidden-file-input" accept="image/*">
 <input type="file" id="hidden-project-file-input" accept=".vellum,application/json">
 <input type="file" id="hidden-brush-file-input" accept="image/*">
+<input type="file" id="hidden-model-file-input" accept=".obj,.fbx">
 <div id="toast"></div>
 <div id="brush-cursor"></div>
 
@@ -519,15 +679,18 @@ const KINDS = {
   roughness: { label:'Roughness',    dot:'#9aa0ab', fill:'#808080' },
   metallic:  { label:'Metallic',     dot:'#b9c4c9', fill:'#000000' },
   ao:        { label:'Ambient Occlusion', dot:'#8a5f37', fill:'#ffffff' },
+  cavity:    { label:'Cavity',       dot:'#5c7a8a', fill:'#ffffff' },
   height:    { label:'Height',       dot:'#6f9a8d', fill:'#808080' },
   emissive:  { label:'Emissive',     dot:'#c9614b', fill:'#000000' },
+  opacity:   { label:'Opacity',      dot:'#e8e3d8', fill:'#ffffff' },
   orm:       { label:'ORM (Packed)', dot:null,      fill:'#ff8000' },
   custom:    { label:'Custom',       dot:'#555b68', fill:'transparent' },
 };
 const KIND_HINTS = {
   albedo:'Base color · sRGB', normal:'Tangent-space normal · linear', roughness:'Grayscale · linear',
-  metallic:'Grayscale · linear', ao:'Grayscale · linear', height:'Grayscale · linear',
-  emissive:'Emissive color · sRGB', orm:'Packed R=AO G=Rough B=Metal', custom:'Custom map',
+  metallic:'Grayscale · linear', ao:'Grayscale · linear', cavity:'Grayscale · linear (micro-detail)',
+  height:'Grayscale · linear', emissive:'Emissive color · sRGB', opacity:'Grayscale alpha cutout · linear',
+  orm:'Packed R=AO G=Rough B=Metal', custom:'Custom map',
 };
 
 /* ============================= STATE ============================= */
@@ -579,7 +742,41 @@ function createDefaultEffects(){
 function hasAnyEffectEnabled(effects){
   return Object.keys(effects).some(k=>effects[k].enabled);
 }
-function invalidateLayerEffects(layer){ if(layer) layer.effectsCache = null; }
+function invalidateLayerEffects(layer){ if(layer){ layer.effectsCache = null; layer.effectsCacheQuality = null; } }
+
+/* Draft vs full quality. During a live stroke or a slider drag we render effects
+   cheaply; once the interaction settles we re-render once at full quality. */
+const RenderQuality = {
+  current: 'full',
+  _settleTimer: null,
+  beginInteractive(){
+    if(this.current !== 'draft'){
+      this.current = 'draft';
+      invalidateAllEffectCaches();
+    }
+    clearTimeout(this._settleTimer);
+  },
+  endInteractive(){
+    clearTimeout(this._settleTimer);
+    this._settleTimer = setTimeout(()=>{
+      if(this.current === 'draft'){
+        this.current = 'full';
+        invalidateAllEffectCaches();
+        composite();
+        renderLayerPanel();
+      }
+    }, 180);
+  }
+};
+function invalidateAllEffectCaches(){
+  for(const id of State.mapOrder){
+    for(const l of State.maps[id].layers) invalidateLayerEffects(l);
+  }
+}
+function anyEffectsActiveOnMap(){
+  const map = CM(); if(!map) return false;
+  return map.layers.some(l=>l.effects && hasAnyEffectEnabled(l.effects));
+}
 
 /* ============================= Map / Layer helpers ============================= */
 function makeLayer(name, fill){
@@ -633,8 +830,10 @@ function getMaskAlphaCanvas(layer){
   layer.mask.alphaCache = ac;
   return ac;
 }
-function getLayerRenderCanvas(layer){
-  if(layer.effectsCache) return layer.effectsCache;
+function getLayerRenderCanvas(layer, quality){
+  const q = quality || RenderQuality.current;
+  // Cache is keyed by quality so a fast draft frame never gets mistaken for the final render.
+  if(layer.effectsCache && layer.effectsCacheQuality === q) return layer.effectsCache;
   let src = layer.canvas;
   if(layer.bgMode==='color'){
     const tmp = document.createElement('canvas'); tmp.width=State.width; tmp.height=State.height;
@@ -650,8 +849,9 @@ function getLayerRenderCanvas(layer){
     t2ctx.drawImage(getMaskAlphaCanvas(layer),0,0);
     src = tmp2;
   }
-  if(layer.effects && hasAnyEffectEnabled(layer.effects)) src = applyLayerEffects(src, layer.effects);
+  if(layer.effects && hasAnyEffectEnabled(layer.effects)) src = applyLayerEffects(src, layer.effects, q);
   layer.effectsCache = src;
+  layer.effectsCacheQuality = q;
   return src;
 }
 
@@ -665,11 +865,13 @@ function tintSilhouette(ctx, canvas, color){
 function dilateSilhouette(srcCanvas, radius, color){
   const w=srcCanvas.width, h=srcCanvas.height;
   const solid = document.createElement('canvas'); solid.width=w; solid.height=h;
-  const sctx = solid.getContext('2d'); sctx.drawImage(srcCanvas,0,0);
+  const sctx = solid.getContext('2d', {willReadFrequently:true}); sctx.drawImage(srcCanvas,0,0);
   tintSilhouette(sctx, solid, color);
   const out = document.createElement('canvas'); out.width=w; out.height=h;
   const octx = out.getContext('2d');
-  const steps = Math.max(8, Math.round(radius*1.2));
+  // Cap the ring count: past ~24 offsets the outline is already solid, and each
+  // extra step is a full-resolution drawImage.
+  const steps = Math.min(24, Math.max(8, Math.round(radius*1.2)));
   for(let i=0;i<steps;i++){
     const ang = (i/steps)*Math.PI*2;
     octx.drawImage(solid, Math.cos(ang)*radius, Math.sin(ang)*radius);
@@ -711,38 +913,56 @@ function applyInnerGlow(cctx, contentCanvas, cfg){
   cctx.save(); cctx.globalCompositeOperation='source-atop'; cctx.globalAlpha = cfg.opacity/100;
   cctx.drawImage(blurred,0,0); cctx.restore();
 }
-function applyBevelEmboss(cctx, contentCanvas, cfg){
+function applyBevelEmboss(cctx, contentCanvas, cfg, quality){
   const w=contentCanvas.width, h=contentCanvas.height;
-  const heightCanvas = document.createElement('canvas'); heightCanvas.width=w; heightCanvas.height=h;
-  const hctx = heightCanvas.getContext('2d'); hctx.drawImage(contentCanvas,0,0);
-  const himg = hctx.getImageData(0,0,w,h); const hd = himg.data;
-  for(let i=0;i<hd.length;i+=4){ const a=hd[i+3]; hd[i]=a; hd[i+1]=a; hd[i+2]=a; hd[i+3]=255; }
-  hctx.putImageData(himg,0,0);
-  const blurred = document.createElement('canvas'); blurred.width=w; blurred.height=h;
-  const bctx = blurred.getContext('2d'); bctx.filter = `blur(${Math.max(1,cfg.size)}px)`; bctx.drawImage(heightCanvas,0,0);
-  const bd = bctx.getImageData(0,0,w,h).data;
+  // Bevel is a soft lighting pass, so it can be computed on a reduced buffer and
+  // scaled back up with almost no visible difference — this is what keeps it interactive.
+  const maxDim = quality==='draft' ? 256 : 768;
+  const scale = Math.min(1, maxDim/Math.max(w,h));
+  const sw = Math.max(4, Math.round(w*scale)), sh_ = Math.max(4, Math.round(h*scale));
+
+  const heightCanvas = document.createElement('canvas'); heightCanvas.width=sw; heightCanvas.height=sh_;
+  const hctx = heightCanvas.getContext('2d', {willReadFrequently:true});
+  hctx.filter = `blur(${Math.max(1, cfg.size*scale)}px)`;
+  hctx.drawImage(contentCanvas, 0, 0, sw, sh_);
+  const bd = hctx.getImageData(0,0,sw,sh_).data;
+
+  // Precompute the alpha heightfield once as floats (avoids per-sample divides and clamping calls).
+  const hf = new Float32Array(sw*sh_);
+  for(let i=0, p=0; i<bd.length; i+=4, p++) hf[p] = bd[i+3]/255;
+
   const lightRad = cfg.angle*Math.PI/180, altRad = cfg.altitude*Math.PI/180;
   const lx = Math.cos(lightRad)*Math.cos(altRad), ly = -Math.sin(lightRad)*Math.cos(altRad), lz = Math.sin(altRad);
-  const hi = hexToRgb(cfg.highlight), sh = hexToRgb(cfg.shadow);
-  const ovCanvas = document.createElement('canvas'); ovCanvas.width=w; ovCanvas.height=h;
-  const ovCtx = ovCanvas.getContext('2d'); const ovImg = ovCtx.createImageData(w,h); const od = ovImg.data;
-  function H(x,y){ x=Math.max(0,Math.min(w-1,x)); y=Math.max(0,Math.min(h-1,y)); return bd[(y*w+x)*4]/255; }
+  const hi = hexToRgb(cfg.highlight), sh2 = hexToRgb(cfg.shadow);
+  const amp = cfg.strength/100 * 255;
+
+  const ovSmall = document.createElement('canvas'); ovSmall.width=sw; ovSmall.height=sh_;
+  const ovCtx = ovSmall.getContext('2d');
+  const ovImg = ovCtx.createImageData(sw,sh_); const od = ovImg.data;
   const k = 3.0;
-  for(let y=0;y<h;y++){
-    for(let x=0;x<w;x++){
-      const dx=(H(x+1,y)-H(x-1,y))*k, dy=(H(x,y+1)-H(x,y-1))*k;
-      let nx=-dx, ny=-dy, nz=1; const len=Math.sqrt(nx*nx+ny*ny+nz*nz)||1; nx/=len; ny/=len; nz/=len;
-      const lambert = nx*lx+ny*ly+nz*lz;
-      const idx=(y*w+x)*4;
-      if(lambert>0){ od[idx]=hi.r; od[idx+1]=hi.g; od[idx+2]=hi.b; od[idx+3]=Math.min(255, lambert*255*(cfg.strength/100)); }
-      else { od[idx]=sh.r; od[idx+1]=sh.g; od[idx+2]=sh.b; od[idx+3]=Math.min(255, -lambert*255*(cfg.strength/100)); }
+  for(let y=0;y<sh_;y++){
+    const yUp = (y>0 ? y-1 : 0)*sw, yDn = (y<sh_-1 ? y+1 : sh_-1)*sw, yC = y*sw;
+    for(let x=0;x<sw;x++){
+      const xL = x>0 ? x-1 : 0, xR = x<sw-1 ? x+1 : sw-1;
+      const dx=(hf[yC+xR]-hf[yC+xL])*k, dy=(hf[yDn+x]-hf[yUp+x])*k;
+      let nx=-dx, ny=-dy;
+      const len=Math.sqrt(nx*nx+ny*ny+1);
+      const lambert = (nx*lx + ny*ly + lz)/len;
+      const idx=(yC+x)*4;
+      if(lambert>0){ od[idx]=hi.r; od[idx+1]=hi.g; od[idx+2]=hi.b; od[idx+3]=lambert*amp; }
+      else { od[idx]=sh2.r; od[idx+1]=sh2.g; od[idx+2]=sh2.b; od[idx+3]=-lambert*amp; }
     }
   }
   ovCtx.putImageData(ovImg,0,0);
-  ovCtx.globalCompositeOperation='destination-in'; ovCtx.drawImage(contentCanvas,0,0);
+
+  const ovCanvas = document.createElement('canvas'); ovCanvas.width=w; ovCanvas.height=h;
+  const fullCtx = ovCanvas.getContext('2d');
+  fullCtx.drawImage(ovSmall, 0, 0, w, h);
+  fullCtx.globalCompositeOperation='destination-in'; fullCtx.drawImage(contentCanvas,0,0);
+
   cctx.save(); cctx.globalCompositeOperation='overlay'; cctx.drawImage(ovCanvas,0,0); cctx.restore();
 }
-function applyLayerEffects(src, effects){
+function applyLayerEffects(src, effects, quality){
   const w = State.width, h = State.height;
   const result = document.createElement('canvas'); result.width=w; result.height=h;
   const rctx = result.getContext('2d');
@@ -769,7 +989,7 @@ function applyLayerEffects(src, effects){
   const content = document.createElement('canvas'); content.width=w; content.height=h;
   const cctx = content.getContext('2d'); cctx.drawImage(src,0,0);
 
-  if(effects.bevelEmboss.enabled) applyBevelEmboss(cctx, content, effects.bevelEmboss);
+  if(effects.bevelEmboss.enabled) applyBevelEmboss(cctx, content, effects.bevelEmboss, quality);
   if(effects.colorOverlay.enabled){
     const co = effects.colorOverlay;
     cctx.save(); cctx.globalCompositeOperation='source-atop'; cctx.globalAlpha = co.opacity/100;
@@ -791,7 +1011,105 @@ function applyLayerEffects(src, effects){
   rctx.drawImage(content, 0, 0);
   return result;
 }
-function renderMapComposite(mapId){
+
+/* ---- Effects panel UI (schema-driven, one accordion row per effect) ---- */
+const EFFECT_SCHEMA = {
+  dropShadow: { label:'Drop Shadow', fields:[
+    {key:'color', type:'color', label:'Color'},
+    {key:'opacity', label:'Opacity', min:0, max:100, suffix:'%'},
+    {key:'angle', label:'Angle', min:0, max:360, suffix:'°'},
+    {key:'distance', label:'Distance', min:0, max:60, suffix:'px'},
+    {key:'blur', label:'Blur', min:0, max:60, suffix:'px'},
+  ]},
+  innerShadow: { label:'Inner Shadow', fields:[
+    {key:'color', type:'color', label:'Color'},
+    {key:'opacity', label:'Opacity', min:0, max:100, suffix:'%'},
+    {key:'angle', label:'Angle', min:0, max:360, suffix:'°'},
+    {key:'distance', label:'Distance', min:0, max:60, suffix:'px'},
+    {key:'blur', label:'Blur', min:0, max:60, suffix:'px'},
+  ]},
+  outerGlow: { label:'Outer Glow', fields:[
+    {key:'color', type:'color', label:'Color'},
+    {key:'opacity', label:'Opacity', min:0, max:100, suffix:'%'},
+    {key:'blur', label:'Blur', min:0, max:80, suffix:'px'},
+  ]},
+  innerGlow: { label:'Inner Glow', fields:[
+    {key:'color', type:'color', label:'Color'},
+    {key:'opacity', label:'Opacity', min:0, max:100, suffix:'%'},
+    {key:'blur', label:'Blur', min:0, max:80, suffix:'px'},
+  ]},
+  stroke: { label:'Stroke (Outline)', fields:[
+    {key:'color', type:'color', label:'Color'},
+    {key:'opacity', label:'Opacity', min:0, max:100, suffix:'%'},
+    {key:'width', label:'Width', min:1, max:40, suffix:'px'},
+  ]},
+  colorOverlay: { label:'Color Overlay', fields:[
+    {key:'color', type:'color', label:'Color'},
+    {key:'opacity', label:'Opacity', min:0, max:100, suffix:'%'},
+  ]},
+  gradientOverlay: { label:'Gradient Overlay', fields:[
+    {key:'colorA', type:'color', label:'Color A'},
+    {key:'colorB', type:'color', label:'Color B'},
+    {key:'angle', label:'Angle', min:0, max:360, suffix:'°'},
+    {key:'opacity', label:'Opacity', min:0, max:100, suffix:'%'},
+  ]},
+  bevelEmboss: { label:'Bevel & Emboss', fields:[
+    {key:'size', label:'Size', min:1, max:60, suffix:'px'},
+    {key:'angle', label:'Angle', min:0, max:360, suffix:'°'},
+    {key:'altitude', label:'Altitude', min:0, max:90, suffix:'°'},
+    {key:'highlight', type:'color', label:'Highlight'},
+    {key:'shadow', type:'color', label:'Shadow'},
+    {key:'strength', label:'Strength', min:0, max:100, suffix:'%'},
+  ]},
+};
+function renderEffectsPanel(){
+  const container = document.getElementById('effects-list'); container.innerHTML = '';
+  const layer = activeLayer(); if(!layer || !layer.effects) return;
+  for(const key of Object.keys(EFFECT_SCHEMA)){
+    const def = EFFECT_SCHEMA[key]; const cfg = layer.effects[key];
+    const row = document.createElement('div'); row.className='fx-row';
+    const header = document.createElement('div'); header.className='fx-row-header';
+    const cb = document.createElement('input'); cb.type='checkbox'; cb.checked = cfg.enabled;
+    cb.addEventListener('change', ()=>{ cfg.enabled = cb.checked; invalidateLayerEffects(layer); composite(); renderLayerPanel(); });
+    const nameSpan = document.createElement('span'); nameSpan.className='fx-row-name'; nameSpan.textContent = def.label;
+    const expandBtn = document.createElement('button'); expandBtn.className='fx-expand-btn'; expandBtn.textContent = '▾';
+    header.append(cb, nameSpan, expandBtn);
+
+    const body = document.createElement('div'); body.className='fx-row-body'; body.style.display = 'none';
+    for(const f of def.fields){
+      const frow = document.createElement('div'); frow.className='row';
+      const flabel = document.createElement('label'); flabel.textContent = f.label; frow.appendChild(flabel);
+      if(f.type==='color'){
+        const inp = document.createElement('input'); inp.type='color'; inp.value = cfg[f.key];
+        inp.addEventListener('input', ()=>{
+          cfg[f.key] = inp.value;
+          RenderQuality.beginInteractive();
+          invalidateLayerEffects(layer); scheduleComposite();
+        });
+        inp.addEventListener('change', ()=> RenderQuality.endInteractive());
+        frow.appendChild(inp);
+      } else {
+        const inp = document.createElement('input'); inp.type='range'; inp.min=f.min; inp.max=f.max; inp.value=cfg[f.key];
+        const val = document.createElement('span'); val.className='val'; val.textContent = cfg[f.key]+(f.suffix||'');
+        inp.addEventListener('input', ()=>{
+          cfg[f.key]=Number(inp.value); val.textContent = inp.value+(f.suffix||'');
+          RenderQuality.beginInteractive();
+          invalidateLayerEffects(layer); scheduleComposite();
+        });
+        inp.addEventListener('change', ()=> RenderQuality.endInteractive());
+        frow.append(inp, val);
+      }
+      body.appendChild(frow);
+    }
+    expandBtn.addEventListener('click', ()=>{
+      const open = body.style.display !== 'none';
+      body.style.display = open ? 'none' : 'block';
+      expandBtn.textContent = open ? '▾' : '▴';
+    });
+    row.append(header, body); container.appendChild(row);
+  }
+}
+function renderMapComposite(mapId, quality){
   const map = State.maps[mapId];
   const out = document.createElement('canvas'); out.width = State.width; out.height = State.height;
   const octx = out.getContext('2d');
@@ -800,9 +1118,21 @@ function renderMapComposite(mapId){
     octx.save();
     octx.globalAlpha = layer.opacity/100;
     octx.globalCompositeOperation = layer.blend;
-    octx.drawImage(getLayerRenderCanvas(layer),0,0);
+    octx.drawImage(getLayerRenderCanvas(layer, quality),0,0);
     octx.restore();
   }
+  return out;
+}
+/* Exports and bakes must never capture a draft-quality frame. */
+function renderMapCompositeFull(mapId){
+  const prev = RenderQuality.current;
+  if(prev !== 'full'){
+    RenderQuality.current = 'full';
+    invalidateAllEffectCaches();
+  }
+  const out = renderMapComposite(mapId, 'full');
+  RenderQuality.current = prev;
+  if(prev !== 'full') invalidateAllEffectCaches();
   return out;
 }
 function composite(){
@@ -811,6 +1141,13 @@ function composite(){
   mainCtx.drawImage(out,0,0);
   if(State.channelView !== 'rgb') applyChannelViewToMainCanvas();
   renderSelectionOverlay();
+}
+/* Coalesces repeated redraw requests (slider drags) into one per animation frame. */
+let _compositePending = false;
+function scheduleComposite(){
+  if(_compositePending) return;
+  _compositePending = true;
+  requestAnimationFrame(()=>{ _compositePending = false; composite(); });
 }
 function applyChannelViewToMainCanvas(){
   const img = mainCtx.getImageData(0,0,State.width,State.height);
@@ -849,6 +1186,7 @@ function renderSelectionOverlay(){
       overlayCtx.restore();
     }
   }
+  drawComicGuides(overlayCtx);
   drawVectorOverlay();
 }
 function drawVectorOverlay(){
@@ -924,12 +1262,14 @@ function commitStroke(){
     applySelectionMaskBlend(pendingSnapshot.data, ctx, map.selection.canvas);
   }
   if(pendingSnapshot.target==='mask' && layer.mask) layer.mask.alphaCache = null;
+  invalidateLayerEffects(layer);
   const after = ctx.getImageData(0,0,State.width,State.height);
   map.undoStack.push({ type:'layer', layerId: pendingSnapshot.id, target: pendingSnapshot.target, before: pendingSnapshot.data, after });
   if(map.undoStack.length>40) map.undoStack.shift();
   map.redoStack.length = 0;
   pendingSnapshot = null;
   updateMenuStates();
+  if(Viewport3D.active) Viewport3D.scheduleRefresh();
 }
 function pushStructuralUndo(action){
   const map = CM();
@@ -948,7 +1288,7 @@ function undo(){
     const layer = findLayerById(a.layerId);
     if(layer){
       const ctx = a.target==='mask' ? (layer.mask && layer.mask.ctx) : layer.ctx;
-      if(ctx){ ctx.putImageData(a.before,0,0); if(a.target==='mask' && layer.mask) layer.mask.alphaCache=null; }
+      if(ctx){ ctx.putImageData(a.before,0,0); if(a.target==='mask' && layer.mask) layer.mask.alphaCache=null; invalidateLayerEffects(layer); }
     }
     map.redoStack.push(a);
   } else if(a.type==='layers-snapshot'){
@@ -964,7 +1304,7 @@ function redo(){
     const layer = findLayerById(a.layerId);
     if(layer){
       const ctx = a.target==='mask' ? (layer.mask && layer.mask.ctx) : layer.ctx;
-      if(ctx){ ctx.putImageData(a.after,0,0); if(a.target==='mask' && layer.mask) layer.mask.alphaCache=null; }
+      if(ctx){ ctx.putImageData(a.after,0,0); if(a.target==='mask' && layer.mask) layer.mask.alphaCache=null; invalidateLayerEffects(layer); }
     }
     map.undoStack.push(a);
   } else if(a.type==='layers-snapshot'){
@@ -977,6 +1317,7 @@ function cloneLayersState(){
     id:l.id, name:l.name, visible:l.visible, opacity:l.opacity, blend:l.blend, bgMode:l.bgMode, bgColor:l.bgColor,
     activeTarget:l.activeTarget, data: l.ctx.getImageData(0,0,State.width,State.height),
     maskData: l.mask ? l.mask.ctx.getImageData(0,0,State.width,State.height) : null,
+    effects: JSON.parse(JSON.stringify(l.effects || createDefaultEffects())),
   }));
 }
 function restoreLayersState(snap){
@@ -991,6 +1332,8 @@ function restoreLayersState(snap){
     }
     layer.name=s.name; layer.visible=s.visible; layer.opacity=s.opacity; layer.blend=s.blend;
     layer.bgMode=s.bgMode; layer.bgColor=s.bgColor; layer.activeTarget=s.activeTarget||'content';
+    layer.effects = JSON.parse(JSON.stringify(s.effects || createDefaultEffects()));
+    layer.effectsCache = null;
     layer.ctx.putImageData(s.data,0,0);
     if(s.maskData){
       if(!layer.mask){ const mc=document.createElement('canvas'); mc.width=State.width; mc.height=State.height; layer.mask={canvas:mc, ctx:mc.getContext('2d',{willReadFrequently:true})}; }
@@ -1021,6 +1364,7 @@ const TOOLS = [
   {id:'ellipse', name:'Ellipse', icon:'M12 5a7 7 0 100 14 7 7 0 000-14z'},
   {id:'pen', name:'Pen (vector path)', raw:'<circle cx="5" cy="18" r="1.5" fill="currentColor" stroke="none"/><circle cx="19" cy="6" r="1.5" fill="currentColor" stroke="none"/><path d="M6 17c4-6 8-9 12-11"/>'},
   {id:'text', name:'Text', icon:'M5 5h14M12 5v14M9 19h6'},
+  {id:'balloon', name:'Speech Balloon', raw:'<path d="M20 12a7 6 0 01-7 6H9l-4 3 1-4a6 6 0 01-2-5 7 6 0 017-6h2a7 6 0 017 6z"/>'},
   {id:'sep3', sep:true},
   {id:'pan', name:'Hand / Pan', icon:'M8 12V4a1.5 1.5 0 013 0v6M11 10V3a1.5 1.5 0 013 0v7M14 10.5V5a1.5 1.5 0 013 0v9M17 10v2a6 6 0 01-6 6h-1a6 6 0 01-5-2.7L3 12a1.3 1.3 0 012-1.6L8 13'},
   {id:'zoom', name:'Zoom', icon:'M11 4a7 7 0 100 14 7 7 0 000-14zM21 21l-4.3-4.3'},
@@ -1152,7 +1496,7 @@ document.getElementById('hex-input').addEventListener('change', (e)=>{
   if(/^#[0-9a-fA-F]{6}$/.test(v)) setColor(v);
 });
 
-/* ============================= Normal Brush (directional palette) ============================= */
+/* ============================= Map Brush palettes (Normal / AO / Cavity / Opacity) ============================= */
 const NORMAL_DIRECTIONS = [
   {label:'↖', nx:-1, ny:-1}, {label:'↑', nx:0, ny:-1}, {label:'↗', nx:1, ny:-1},
   {label:'←', nx:-1, ny:0},  {label:'flat', nx:0, ny:0, center:true}, {label:'→', nx:1, ny:0},
@@ -1167,9 +1511,51 @@ function normalDirColor(nxRaw, nyRaw, strengthPct){
   const r = Math.round((nx*0.5+0.5)*255), g = Math.round((ny*0.5+0.5)*255), b = Math.round((nz*0.5+0.5)*255);
   return '#'+[r,g,b].map(v=>v.toString(16).padStart(2,'0')).join('');
 }
+const VALUE_BRUSH_KINDS = {
+  ao:      { title:'Ambient Occlusion Brush', hint:'Darkening values for baked-look crevice shading. Black is fully occluded, white is fully lit.', labelFn:v=>Math.round((1-v)*100)+'% occluded' },
+  cavity:  { title:'Cavity Brush', hint:'Micro-surface recess values, multiplied over Base Color in-engine. Dark is recessed, white is flat.', labelFn:v=>Math.round((1-v)*100)+'% recessed' },
+  opacity: { title:'Opacity Brush', hint:'Alpha-cutout values. Black is fully transparent, white is fully opaque.', labelFn:v=>Math.round(v*100)+'% opaque' },
+};
+const VALUE_BRUSH_STEPS = [0, 0.15, 0.3, 0.45, 0.6, 0.75, 0.9, 1.0];
+function grayHex(v){ const g = Math.round(v*255).toString(16).padStart(2,'0'); return '#'+g+g+g; }
+
+function renderMapBrushPanel(){
+  const map = CM();
+  const panel = document.getElementById('map-brush-panel');
+  const body = document.getElementById('map-brush-body');
+  if(!map || (map.kind!=='normal' && !VALUE_BRUSH_KINDS[map.kind])){ panel.style.display='none'; return; }
+  panel.style.display = 'block'; body.innerHTML = '';
+
+  if(map.kind==='normal'){
+    document.getElementById('map-brush-title').textContent = 'Normal Brush';
+    document.getElementById('map-brush-hint').textContent = 'Directional colors for hand-painting tangent-space bumps on this Normal map.';
+    const grid = document.createElement('div'); grid.className='normal-dir-grid'; grid.id='normal-dir-grid';
+    body.appendChild(grid);
+    const row = document.createElement('div'); row.className='row'; row.style.marginTop='8px';
+    const label = document.createElement('label'); label.textContent='Tilt';
+    const input = document.createElement('input'); input.type='range'; input.min=10; input.max=100; input.value=State.normalBrush.strength;
+    const val = document.createElement('span'); val.className='val'; val.textContent=State.normalBrush.strength+'%';
+    input.addEventListener('input', ()=>{ State.normalBrush.strength = Number(input.value); val.textContent = input.value+'%'; renderNormalDirGrid(); });
+    row.append(label, input, val); body.appendChild(row);
+    renderNormalDirGrid();
+  } else {
+    const cfg = VALUE_BRUSH_KINDS[map.kind];
+    document.getElementById('map-brush-title').textContent = cfg.title;
+    document.getElementById('map-brush-hint').textContent = cfg.hint;
+    const grid = document.createElement('div'); grid.className='value-swatch-grid';
+    for(const v of VALUE_BRUSH_STEPS){
+      const btn = document.createElement('button'); btn.className='value-swatch';
+      const hex = grayHex(v); btn.style.background = hex; btn.title = cfg.labelFn(v)+' — '+hex;
+      btn.addEventListener('click', ()=> setColor(hex));
+      grid.appendChild(btn);
+    }
+    body.appendChild(grid);
+  }
+}
 function renderNormalDirGrid(){
-  const grid = document.getElementById('normal-dir-grid'); grid.innerHTML = '';
-  const strength = Number(document.getElementById('normal-tilt-strength').value);
+  const grid = document.getElementById('normal-dir-grid'); if(!grid) return;
+  grid.innerHTML = '';
+  const strength = State.normalBrush.strength;
   for(const d of NORMAL_DIRECTIONS){
     const btn = document.createElement('button'); btn.className = 'normal-dir-btn'+(d.center?' center':'');
     const color = normalDirColor(d.nx, d.ny, strength);
@@ -1179,15 +1565,7 @@ function renderNormalDirGrid(){
     grid.appendChild(btn);
   }
 }
-document.getElementById('normal-tilt-strength').addEventListener('input', (e)=>{
-  document.getElementById('normal-tilt-val').textContent = e.target.value+'%';
-  renderNormalDirGrid();
-});
-function updateNormalBrushPanelVisibility(){
-  const map = CM();
-  document.getElementById('normal-brush-panel').style.display = (map && map.kind==='normal') ? 'block' : 'none';
-  if(map && map.kind==='normal') renderNormalDirGrid();
-}
+function updateNormalBrushPanelVisibility(){ renderMapBrushPanel(); }
 
 /* ============================= Map tabs ============================= */
 function renderMapTabs(){
@@ -1220,8 +1598,23 @@ function deleteMap(id){
 }
 
 /* ============================= Layers panel ============================= */
+/* Layer thumbnails only need ~64px — encoding a full 2048² canvas to a data URL
+   on every panel refresh was a major stall. */
+const _thumbCanvas = document.createElement('canvas');
+function makeThumbDataURL(srcCanvas){
+  const size = 64;
+  const scale = Math.min(size/srcCanvas.width, size/srcCanvas.height);
+  _thumbCanvas.width = Math.max(1, Math.round(srcCanvas.width*scale));
+  _thumbCanvas.height = Math.max(1, Math.round(srcCanvas.height*scale));
+  const tctx = _thumbCanvas.getContext('2d');
+  tctx.clearRect(0,0,_thumbCanvas.width,_thumbCanvas.height);
+  tctx.drawImage(srcCanvas, 0, 0, _thumbCanvas.width, _thumbCanvas.height);
+  return _thumbCanvas.toDataURL();
+}
+
 function renderLayerPanel(){
   updateNormalBrushPanelVisibility();
+  renderEffectsPanel();
   const map = CM();
   document.getElementById('active-map-kind-label').innerHTML =
     `<span class="map-dot${map.kind==='orm'?' orm':''}" style="${map.kind==='orm'?'':'background:'+(KINDS[map.kind]||KINDS.custom).dot}"></span>${KIND_HINTS[map.kind]||''}`;
@@ -1239,7 +1632,7 @@ function renderLayerPanel(){
     vis.addEventListener('click', (e)=>{ e.stopPropagation(); layer.visible=!layer.visible; composite(); renderLayerPanel(); renderMapTabs(); });
 
     const thumb = document.createElement('div'); thumb.className='layer-thumb'+(layer.activeTarget==='content'&&idx===map.activeLayerIndex?' targeted':'');
-    const img = document.createElement('img'); img.src = getLayerRenderCanvas(layer).toDataURL(); thumb.appendChild(img);
+    const img = document.createElement('img'); img.src = makeThumbDataURL(getLayerRenderCanvas(layer)); thumb.appendChild(img);
     thumb.title = 'Content'; thumb.addEventListener('click', (e)=>{ e.stopPropagation(); map.activeLayerIndex=idx; layer.activeTarget='content'; renderLayerPanel(); });
 
     const name = document.createElement('input'); name.className='layer-name'; name.value = layer.name;
@@ -1249,7 +1642,7 @@ function renderLayerPanel(){
     row.append(vis, thumb);
     if(layer.mask){
       const maskThumb = document.createElement('div'); maskThumb.className='layer-thumb'+(layer.activeTarget==='mask'&&idx===map.activeLayerIndex?' targeted':'');
-      const mimg = document.createElement('img'); mimg.src = layer.mask.canvas.toDataURL(); maskThumb.appendChild(mimg);
+      const mimg = document.createElement('img'); mimg.src = makeThumbDataURL(layer.mask.canvas); maskThumb.appendChild(mimg);
       maskThumb.title='Mask'; maskThumb.addEventListener('click', (e)=>{ e.stopPropagation(); map.activeLayerIndex=idx; layer.activeTarget='mask'; renderLayerPanel(); });
       row.appendChild(maskThumb);
     }
@@ -1306,10 +1699,12 @@ document.getElementById('bg-transparent-cb').addEventListener('change', (e)=>{
   const layer = activeLayer();
   layer.bgMode = e.target.checked ? 'transparent' : 'color';
   document.getElementById('bg-color-input').disabled = !e.target.checked ? false : true;
+  invalidateLayerEffects(layer);
   composite(); renderLayerPanel();
 });
 document.getElementById('bg-color-input').addEventListener('input', (e)=>{
   const layer = activeLayer(); layer.bgColor = e.target.value;
+  invalidateLayerEffects(layer);
   if(layer.bgMode==='color') composite();
 });
 
@@ -1326,6 +1721,7 @@ function duplicateLayer(){
   const layer = makeLayer(src.name+' copy', 'transparent');
   layer.ctx.drawImage(src.canvas,0,0); layer.opacity = src.opacity; layer.blend = src.blend;
   layer.bgMode = src.bgMode; layer.bgColor = src.bgColor;
+  layer.effects = JSON.parse(JSON.stringify(src.effects || createDefaultEffects()));
   if(src.mask){ const mc=document.createElement('canvas'); mc.width=State.width; mc.height=State.height; const mctx=mc.getContext('2d',{willReadFrequently:true}); mctx.drawImage(src.mask.canvas,0,0); layer.mask={canvas:mc, ctx:mctx}; }
   map.layers.splice(map.activeLayerIndex+1,0,layer); map.activeLayerIndex = map.layers.indexOf(layer);
   pushStructuralUndo({type:'layers-snapshot', before:snapBefore, after:cloneLayersState()});
@@ -1344,6 +1740,7 @@ function mergeDown(){
   const top = map.layers[map.activeLayerIndex], below = map.layers[map.activeLayerIndex-1];
   below.ctx.save(); below.ctx.globalAlpha = top.opacity/100; below.ctx.globalCompositeOperation = top.blend;
   below.ctx.drawImage(getLayerRenderCanvas(top),0,0); below.ctx.restore();
+  invalidateLayerEffects(below);
   map.layers.splice(map.activeLayerIndex,1); map.activeLayerIndex--;
   pushStructuralUndo({type:'layers-snapshot', before:snapBefore, after:cloneLayersState()});
   composite(); renderLayerPanel();
@@ -1359,11 +1756,13 @@ function addLayerMask(){
   const ctx = c.getContext('2d', {willReadFrequently:true});
   ctx.fillStyle = '#ffffff'; ctx.fillRect(0,0,State.width,State.height);
   layer.mask = {canvas:c, ctx}; layer.activeTarget = 'mask';
+  invalidateLayerEffects(layer);
   renderLayerPanel(); composite();
 }
 function removeLayerMask(){
   const layer = activeLayer(); if(!layer.mask) return;
   layer.mask = null; layer.activeTarget = 'content';
+  invalidateLayerEffects(layer);
   renderLayerPanel(); composite();
 }
 function loadMaskAsSelection(){
@@ -1678,7 +2077,7 @@ function scheduleMaskSelectPreview(){
 }
 
 /* ---- pointer events ---- */
-let panStart = null, scrollStart = null, shapeDragStart = null;
+let panStart = null, scrollStart = null, shapeDragStart = null, balloonTailAngle = 90;
 
 mainCanvas.addEventListener('pointerdown', (e)=>{
   if(e.button===1 || (State.tool==='pan')){
@@ -1689,6 +2088,7 @@ mainCanvas.addEventListener('pointerdown', (e)=>{
 
   if(State.tool==='brush' || State.tool==='eraser' || State.tool==='pencil'){
     drawing = true; beginStroke();
+    if(anyEffectsActiveOnMap()) RenderQuality.beginInteractive();
     const ctx = targetCtx(); ctx.save(); clipToSelection(ctx);
     if(State.tool==='pencil') stampPencil(ctx, pt.x, pt.y, State.pencil.size, State.color);
     else { const cfg = State.tool==='brush'?State.brush:State.eraser; stampByPreset(cfg.preset||'soft', ctx, pt.x, pt.y, cfg.size, cfg.hardness, cfg.opacity, State.color, State.tool==='eraser'); }
@@ -1708,6 +2108,8 @@ mainCanvas.addEventListener('pointerdown', (e)=>{
     drawing = true; paintMaskSelection(pt, e.altKey, false); scheduleMaskSelectPreview();
   } else if(State.tool==='line' || State.tool==='rect' || State.tool==='ellipse'){
     drawing = true; shapeDragStart = pt;
+  } else if(State.tool==='balloon'){
+    drawing = true; shapeDragStart = pt; balloonTailAngle = 90;
   } else if(State.tool==='pen'){
     if(map.vectorPath){
       const idx = hitTestAnchor(map.vectorPath.points, pt);
@@ -1748,7 +2150,7 @@ mainCanvas.addEventListener('pointermove', (e)=>{
     const ctx = targetCtx(); ctx.save(); clipToSelection(ctx);
     if(State.tool==='pencil') drawStampLine(ctx, lastPt, pt, State.pencil.size, (x,y)=>stampPencil(ctx,x,y,State.pencil.size,State.color));
     else { const cfg = State.tool==='brush'?State.brush:State.eraser; drawStampLine(ctx, lastPt, pt, cfg.size, (x,y)=>stampByPreset(cfg.preset||'soft',ctx,x,y,cfg.size,cfg.hardness,cfg.opacity,State.color,State.tool==='eraser'), presetStepMultiplier(cfg.preset)); }
-    ctx.restore(); lastPt = pt; composite();
+    ctx.restore(); lastPt = pt; invalidateLayerEffects(activeLayer()); composite();
   } else if(State.tool==='marquee-rect' || State.tool==='marquee-ellipse'){
     map.selection.w = pt.x - map.selection.x; map.selection.h = pt.y - map.selection.y; renderSelectionOverlay();
   } else if(State.tool==='lasso'){
@@ -1771,6 +2173,24 @@ mainCanvas.addEventListener('pointermove', (e)=>{
       State.shape.fill ? overlayCtx.fill() : overlayCtx.stroke();
     }
     overlayCtx.restore();
+  } else if(State.tool==='balloon'){
+    if(e.shiftKey){
+      const cx=(shapeDragStart.x+pt.x)/2, cy=(shapeDragStart.y+pt.y)/2;
+      balloonTailAngle = Math.atan2(pt.y-cy, pt.x-cx)*180/Math.PI;
+    }
+    overlayCtx.clearRect(0,0,State.width,State.height);
+    overlayCtx.save();
+    const x=Math.min(shapeDragStart.x,pt.x), y=Math.min(shapeDragStart.y,pt.y);
+    const w=Math.abs(pt.x-shapeDragStart.x), h=Math.abs(pt.y-shapeDragStart.y);
+    const tailLen = Comic.balloon.tail/100 * Math.min(w,h) * 0.9;
+    overlayCtx.fillStyle = 'rgba(255,255,255,.9)';
+    overlayCtx.strokeStyle = State.color;
+    overlayCtx.lineWidth = Math.max(2, Comic.border);
+    overlayCtx.lineJoin = 'round';
+    drawBalloonPath(overlayCtx, x, y, w, h, Comic.balloon.style, balloonTailAngle, tailLen);
+    overlayCtx.fill(); overlayCtx.stroke();
+    overlayCtx.restore();
+    drawComicGuides(overlayCtx);
   } else if(State.tool==='move' && movingSelectionContent){
     const dx = pt.x - movingSelectionContent.x0, dy = pt.y - movingSelectionContent.y0;
     const ctx = targetCtx();
@@ -1778,6 +2198,7 @@ mainCanvas.addEventListener('pointermove', (e)=>{
     const tmp = document.createElement('canvas'); tmp.width=State.width; tmp.height=State.height;
     tmp.getContext('2d').putImageData(movingSelectionContent.original,0,0);
     ctx.clearRect(0,0,State.width,State.height); ctx.drawImage(tmp, dx, dy);
+    invalidateLayerEffects(activeLayer());
     composite();
   }
 });
@@ -1789,7 +2210,7 @@ window.addEventListener('pointerup', (e)=>{
   drawing = false; const map = CM();
 
   if(State.tool==='brush' || State.tool==='eraser' || State.tool==='pencil' || State.tool==='fill'){
-    commitStroke(); renderLayerPanel();
+    commitStroke(); RenderQuality.endInteractive(); renderLayerPanel();
   } else if(State.tool==='marquee-rect' || State.tool==='marquee-ellipse'){
     if(map.selection){
       if(map.selection.w<0){ map.selection.x += map.selection.w; map.selection.w = Math.abs(map.selection.w); }
@@ -1807,6 +2228,10 @@ window.addEventListener('pointerup', (e)=>{
     ctx.drawImage(overlayCanvas, 0, 0); ctx.restore();
     overlayCtx.clearRect(0,0,State.width,State.height);
     commitStroke(); composite(); renderLayerPanel(); shapeDragStart = null;
+  } else if(State.tool==='balloon'){
+    overlayCtx.clearRect(0,0,State.width,State.height);
+    commitBalloon(shapeDragStart, lastPt, balloonTailAngle);
+    renderSelectionOverlay(); shapeDragStart = null;
   } else if(State.tool==='move'){
     commitStroke(); renderLayerPanel(); movingSelectionContent = null;
   }
@@ -1940,7 +2365,7 @@ function filterRenormalize(){
 
 /* ============================= PBR: Normal-from-Height ============================= */
 function generateNormalFromHeight(strength, flipGreen){
-  const srcCanvas = renderMapComposite(State.activeMapId);
+  const srcCanvas = renderMapCompositeFull(State.activeMapId);
   const src = srcCanvas.getContext('2d').getImageData(0,0,State.width,State.height).data;
   const w = State.width, h = State.height;
   const heightMap = new Float32Array(w*h);
@@ -1998,7 +2423,7 @@ function buildPackerRows(){
 }
 function computePackedImageData(){
   const w=State.width, h=State.height; const out = new ImageData(w,h); const od = out.data; const sourceCache = {};
-  function getSourceData(mapId){ if(!sourceCache[mapId]) sourceCache[mapId] = renderMapComposite(mapId).getContext('2d').getImageData(0,0,w,h).data; return sourceCache[mapId]; }
+  function getSourceData(mapId){ if(!sourceCache[mapId]) sourceCache[mapId] = renderMapCompositeFull(mapId).getContext('2d').getImageData(0,0,w,h).data; return sourceCache[mapId]; }
   const chans = ['r','g','b','a'];
   for(let p=0, n=w*h; p<n; p++){
     const i = p*4;
@@ -2032,7 +2457,7 @@ function bakePackedMap(){
   renderMapTabs(); composite(); renderLayerPanel(); updateMenuStates(); hideModal('modal-packer');
 }
 function splitChannelsToMaps(){
-  const src = renderMapComposite(State.activeMapId);
+  const src = renderMapCompositeFull(State.activeMapId);
   const data = src.getContext('2d').getImageData(0,0,State.width,State.height).data;
   const baseName = CM().name;
   ['r','g','b'].forEach((ch, ci)=>{
@@ -2051,8 +2476,31 @@ document.querySelectorAll('.menu > button').forEach(btn=>{
     document.querySelectorAll('.menu.open').forEach(m=>m.classList.remove('open'));
     if(!wasOpen) menu.classList.add('open');
   });
+  btn.addEventListener('mouseenter', ()=>{
+    const openMenu = document.querySelector('.menu.open');
+    const thisMenu = btn.parentElement;
+    if(openMenu && openMenu !== thisMenu){
+      document.querySelectorAll('.menu.open').forEach(m=>m.classList.remove('open'));
+      thisMenu.classList.add('open');
+    }
+  });
 });
 document.addEventListener('click', ()=> document.querySelectorAll('.menu.open').forEach(m=>m.classList.remove('open')));
+document.getElementById('nc-template').addEventListener('change', (e)=>{
+  const v = e.target.value;
+  const wIn = document.getElementById('nc-width'), hIn = document.getElementById('nc-height');
+  if(v === 'custom'){ wIn.disabled = false; hIn.disabled = false; wIn.focus(); return; }
+  wIn.disabled = false; hIn.disabled = false;
+  wIn.value = v; hIn.value = v;
+});
+function syncTemplateFromDims(){
+  const w = document.getElementById('nc-width').value, h = document.getElementById('nc-height').value;
+  const sel = document.getElementById('nc-template');
+  sel.value = (w === h && ['512','1024','2048','4096','8192'].includes(String(w))) ? String(w) : 'custom';
+}
+document.getElementById('nc-width').addEventListener('input', syncTemplateFromDims);
+document.getElementById('nc-height').addEventListener('input', syncTemplateFromDims);
+
 function showModal(id){ document.getElementById(id).classList.add('show'); }
 function hideModal(id){ document.getElementById(id).classList.remove('show'); }
 document.querySelectorAll('[data-action="close-modal"]').forEach(b=> b.addEventListener('click', ()=> b.closest('.modal-backdrop').classList.remove('show')));
@@ -2066,25 +2514,44 @@ document.body.addEventListener('click', (e)=>{
     case 'save-project': saveProject(false); break;
     case 'save-project-as': saveProject(true); break;
     case 'new-canvas': showModal('modal-new'); break;
+    case 'v3d-toggle': Viewport3D.toggle(); break;
+    case 'v3d-load': loadModelDialog(); break;
+    case 'v3d-reset': Viewport3D.resetCamera(); break;
+    case 'v3d-refresh': Viewport3D.refreshTextures(); toast('Model textures refreshed.'); break;
     case 'create-canvas': createNewCanvas(); break;
     case 'import': doImport(); break;
     case 'export-png':
       document.getElementById('export-title').textContent='Export Current Map as PNG';
+      document.getElementById('export-format-row').style.display='none';
       document.getElementById('export-quality-row').style.display='none';
+      document.getElementById('export-exr-hint').style.display='none';
       document.getElementById('export-filename-label').textContent='File name';
       document.getElementById('export-all-hint').style.display='none';
       document.getElementById('export-filename').value = sanitizeName(CM().name);
       showModal('modal-export'); break;
     case 'export-jpg':
       document.getElementById('export-title').textContent='Export Current Map as JPEG';
+      document.getElementById('export-format-row').style.display='none';
       document.getElementById('export-quality-row').style.display='flex';
+      document.getElementById('export-exr-hint').style.display='none';
+      document.getElementById('export-filename-label').textContent='File name';
+      document.getElementById('export-all-hint').style.display='none';
+      document.getElementById('export-filename').value = sanitizeName(CM().name);
+      showModal('modal-export'); break;
+    case 'export-exr':
+      document.getElementById('export-title').textContent='Export Current Map as EXR';
+      document.getElementById('export-format-row').style.display='none';
+      document.getElementById('export-quality-row').style.display='none';
+      document.getElementById('export-exr-hint').style.display='block';
       document.getElementById('export-filename-label').textContent='File name';
       document.getElementById('export-all-hint').style.display='none';
       document.getElementById('export-filename').value = sanitizeName(CM().name);
       showModal('modal-export'); break;
     case 'export-all':
       document.getElementById('export-title').textContent='Export All Maps';
+      document.getElementById('export-format-row').style.display='flex';
       document.getElementById('export-quality-row').style.display='none';
+      document.getElementById('export-exr-hint').style.display='none';
       document.getElementById('export-filename-label').textContent='Name prefix';
       document.getElementById('export-all-hint').style.display='block';
       document.getElementById('export-filename').value = 'texture_set';
@@ -2133,6 +2600,9 @@ document.body.addEventListener('click', (e)=>{
 document.getElementById('bc-brightness').addEventListener('input', e=> document.getElementById('bc-b-val').textContent = e.target.value);
 document.getElementById('bc-contrast').addEventListener('input', e=> document.getElementById('bc-c-val').textContent = e.target.value);
 document.getElementById('export-quality').addEventListener('input', e=> document.getElementById('export-quality-val').textContent = e.target.value+'%');
+document.getElementById('export-all-format').addEventListener('change', (e)=>{
+  document.getElementById('export-quality-row').style.display = (e.target.value==='jpg') ? 'flex' : 'none';
+});
 document.getElementById('ng-strength').addEventListener('input', e=> document.getElementById('ng-strength-val').textContent = (e.target.value/10).toFixed(1)+'×');
 document.getElementById('channel-view-select').addEventListener('change', e=>{ State.channelView = e.target.value; composite(); });
 document.getElementById('am-kind').addEventListener('change', ()=>{
@@ -2162,6 +2632,7 @@ function createNewCanvas(){
   map.layers[0] = makeLayer('Background', bg);
   State.activeMapId = map.id;
   resizeStage(); composite(); renderLayerPanel(); renderMapTabs(); updateMenuStates();
+  applyStartupMode();
   zoomFit(); hideModal('modal-new');
 }
 function doAddMap(){
@@ -2179,7 +2650,8 @@ function duplicateMap(){
     const ctx = c.getContext('2d', {willReadFrequently:true}); ctx.drawImage(l.canvas,0,0);
     let mask = null;
     if(l.mask){ const mc=document.createElement('canvas'); mc.width=State.width; mc.height=State.height; const mctx=mc.getContext('2d',{willReadFrequently:true}); mctx.drawImage(l.mask.canvas,0,0); mask={canvas:mc, ctx:mctx}; }
-    return { id: State.nextLayerId++, name:l.name, canvas:c, ctx, visible:l.visible, opacity:l.opacity, blend:l.blend, mask, activeTarget:'content', bgMode:l.bgMode, bgColor:l.bgColor };
+    return { id: State.nextLayerId++, name:l.name, canvas:c, ctx, visible:l.visible, opacity:l.opacity, blend:l.blend, mask, activeTarget:'content', bgMode:l.bgMode, bgColor:l.bgColor,
+      effects: JSON.parse(JSON.stringify(l.effects || createDefaultEffects())), effectsCache:null };
   });
   map.activeLayerIndex = src.activeLayerIndex;
   State.activeMapId = map.id;
@@ -2233,6 +2705,86 @@ document.getElementById('hidden-file-input').addEventListener('change', (e)=>{
 /* ============================= Export (browser + Electron) ============================= */
 function canvasToBlob(canvas, mime, quality){ return new Promise(res => canvas.toBlob(res, mime, quality)); }
 
+/* ---- Minimal OpenEXR encoder: single-part scanline, uncompressed, 16-bit half-float RGBA ---- */
+function floatToHalf(val){
+  const floatView = new Float32Array(1); const int32View = new Int32Array(floatView.buffer);
+  floatView[0] = val; const x = int32View[0];
+  let bits = (x >> 16) & 0x8000;
+  let m = (x >> 12) & 0x07ff;
+  const e = (x >> 23) & 0xff;
+  if(e < 103) return bits;
+  if(e > 142){ bits |= 0x7c00; bits |= ((e===255)?0:1) && (x & 0x007fffff ? 0x200 : 0); return bits; }
+  if(e < 113){ m |= 0x0800; bits |= (m >> (114-e)) + ((m >> (113-e)) & 1); return bits; }
+  bits |= ((e-112) << 10) | (m >> 1);
+  bits += m & 1;
+  return bits;
+}
+function exrStrBytes(s){ const b = new Uint8Array(s.length+1); for(let i=0;i<s.length;i++) b[i]=s.charCodeAt(i); return b; }
+function exrConcat(parts){
+  let total=0; for(const p of parts) total+=p.length;
+  const out = new Uint8Array(total); let o=0;
+  for(const p of parts){ out.set(p,o); o+=p.length; }
+  return out;
+}
+function exrI32(v){ const b=new Uint8Array(4); new DataView(b.buffer).setInt32(0,v,true); return b; }
+function exrF32(v){ const b=new Uint8Array(4); new DataView(b.buffer).setFloat32(0,v,true); return b; }
+function exrU8(...vals){ return new Uint8Array(vals); }
+function exrAttr(name, type, valueBytes){
+  return exrConcat([exrStrBytes(name), exrStrBytes(type), exrI32(valueBytes.length), valueBytes]);
+}
+async function encodeEXRBlob(sourceCanvas){
+  const width = sourceCanvas.width, height = sourceCanvas.height;
+  const imgData = sourceCanvas.getContext('2d').getImageData(0,0,width,height).data;
+  const channels = ['A','B','G','R']; // OpenEXR requires alphabetical channel order
+  const chanIndex = {R:0, G:1, B:2, A:3};
+
+  const chParts = [];
+  for(const ch of channels){
+    chParts.push(exrStrBytes(ch), exrI32(1), exrU8(0,0,0,0), exrI32(1), exrI32(1));
+  }
+  chParts.push(exrU8(0));
+  const channelsVal = exrConcat(chParts);
+  const boxVal = exrConcat([exrI32(0), exrI32(0), exrI32(width-1), exrI32(height-1)]);
+
+  const headerParts = [
+    exrAttr('channels','chlist', channelsVal),
+    exrAttr('compression','compression', exrU8(0)),
+    exrAttr('dataWindow','box2i', boxVal),
+    exrAttr('displayWindow','box2i', boxVal),
+    exrAttr('lineOrder','lineOrder', exrU8(0)),
+    exrAttr('pixelAspectRatio','float', exrF32(1.0)),
+    exrAttr('screenWindowCenter','v2f', exrConcat([exrF32(0), exrF32(0)])),
+    exrAttr('screenWindowWidth','float', exrF32(1.0)),
+    exrU8(0),
+  ];
+  const magicVersion = exrConcat([exrU8(0x76,0x2f,0x31,0x01), exrU8(2,0,0,0)]);
+  const headerBytes = exrConcat(headerParts);
+  const offsetTable = new Uint8Array(height*8);
+  const offsetDv = new DataView(offsetTable.buffer);
+  const bytesPerScan = 8 + width*channels.length*2;
+  let runningOffset = magicVersion.length + headerBytes.length + offsetTable.length;
+  for(let y=0;y<height;y++){ offsetDv.setBigUint64(y*8, BigInt(runningOffset), true); runningOffset += bytesPerScan; }
+
+  const scanlineParts = [];
+  for(let y=0;y<height;y++){
+    const rowSize = width*channels.length*2;
+    const rowBuf = new Uint8Array(8+rowSize);
+    const rowDv = new DataView(rowBuf.buffer);
+    rowDv.setInt32(0, y, true); rowDv.setInt32(4, rowSize, true);
+    let offset = 8;
+    for(const ch of channels){
+      const ci = chanIndex[ch];
+      for(let x=0;x<width;x++){
+        const v = imgData[(y*width+x)*4+ci]/255;
+        rowDv.setUint16(offset, floatToHalf(v), true);
+        offset += 2;
+      }
+    }
+    scanlineParts.push(rowBuf);
+  }
+  return new Blob([magicVersion, headerBytes, offsetTable, ...scanlineParts], {type:'application/octet-stream'});
+}
+
 /* ============================= Project file (.vellum) — Save / Save As / Open ============================= */
 function serializeProject(){
   const mapsOut = {};
@@ -2242,7 +2794,7 @@ function serializeProject(){
       id: m.id, name: m.name, kind: m.kind, activeLayerIndex: m.activeLayerIndex,
       layers: m.layers.map(l=>({
         id: l.id, name: l.name, visible: l.visible, opacity: l.opacity, blend: l.blend,
-        bgMode: l.bgMode, bgColor: l.bgColor,
+        bgMode: l.bgMode, bgColor: l.bgColor, effects: l.effects,
         dataURL: l.canvas.toDataURL('image/png'),
         maskDataURL: l.mask ? l.mask.canvas.toDataURL('image/png') : null,
       })),
@@ -2282,7 +2834,8 @@ async function loadProjectFromJSON(jsonText){
         mask = { canvas: mc, ctx: mctx };
       }
       layers.push({ id: ld.id, name: ld.name, canvas: c, ctx, visible: ld.visible, opacity: ld.opacity, blend: ld.blend,
-        mask, activeTarget: 'content', bgMode: ld.bgMode, bgColor: ld.bgColor });
+        mask, activeTarget: 'content', bgMode: ld.bgMode, bgColor: ld.bgColor,
+        effects: ld.effects || createDefaultEffects(), effectsCache: null });
     }
     State.maps[id] = { id: md.id, name: md.name, kind: md.kind, layers, activeLayerIndex: md.activeLayerIndex,
       selection: null, vectorPath: null, undoStack: [], redoStack: [] };
@@ -2346,28 +2899,39 @@ document.getElementById('hidden-project-file-input').addEventListener('change', 
 
 async function doExport(){
   const title = document.getElementById('export-title').textContent;
-  const isAll = title.includes('All Maps'); const isJpg = title.includes('JPEG');
+  const isAll = title.includes('All Maps'); const isJpg = title.includes('JPEG'); const isExr = title.includes('EXR');
   const quality = Number(document.getElementById('export-quality').value)/100;
   const filenameField = document.getElementById('export-filename').value.trim();
 
-  if(isAll){ await exportAllMaps(sanitizeName(filenameField || 'texture_set')); hideModal('modal-export'); return; }
+  if(isAll){
+    const format = document.getElementById('export-all-format').value;
+    await exportAllMaps(sanitizeName(filenameField || 'texture_set'), format, quality);
+    hideModal('modal-export'); return;
+  }
 
   const baseName = sanitizeName(filenameField || CM().name);
-  const src = renderMapComposite(State.activeMapId);
-  const out = document.createElement('canvas'); out.width = State.width; out.height = State.height;
-  const octx = out.getContext('2d');
-  if(isJpg){ octx.fillStyle = '#ffffff'; octx.fillRect(0,0,State.width,State.height); }
-  octx.drawImage(src,0,0);
-  const blob = await canvasToBlob(out, isJpg?'image/jpeg':'image/png', isJpg?quality:1);
+  const src = renderMapCompositeFull(State.activeMapId);
+  let blob, ext, mime;
+
+  if(isExr){
+    blob = await encodeEXRBlob(src); ext = 'exr'; mime = 'application/octet-stream';
+  } else {
+    const out = document.createElement('canvas'); out.width = State.width; out.height = State.height;
+    const octx = out.getContext('2d');
+    if(isJpg){ octx.fillStyle = '#ffffff'; octx.fillRect(0,0,State.width,State.height); }
+    octx.drawImage(src,0,0);
+    blob = await canvasToBlob(out, isJpg?'image/jpeg':'image/png', isJpg?quality:1);
+    ext = isJpg?'jpg':'png';
+  }
 
   if(isElectron){
-    const filePath = await window.vellumAPI.saveFileDialog(baseName, isJpg?'jpg':'png');
+    const filePath = await window.vellumAPI.saveFileDialog(baseName, ext);
     if(!filePath) { hideModal('modal-export'); return; }
     const buf = new Uint8Array(await blob.arrayBuffer());
     await window.vellumAPI.saveImageFile(filePath, buf);
     toast('Saved '+filePath.split(/[\\/]/).pop());
   } else {
-    const filename = baseName + (isJpg?'.jpg':'.png');
+    const filename = baseName + '.' + ext;
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a'); a.href = url; a.download = filename;
     document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
@@ -2375,16 +2939,27 @@ async function doExport(){
   hideModal('modal-export');
 }
 
-async function exportAllMaps(prefix){
+async function exportAllMaps(prefix, format, quality){
+  format = format || 'png';
+  const ext = format==='exr' ? 'exr' : format==='jpg' ? 'jpg' : 'png';
+  async function makeBlob(canvas){
+    if(format==='exr') return encodeEXRBlob(canvas);
+    if(format==='jpg'){
+      const out = document.createElement('canvas'); out.width=canvas.width; out.height=canvas.height;
+      const octx = out.getContext('2d'); octx.fillStyle='#ffffff'; octx.fillRect(0,0,canvas.width,canvas.height); octx.drawImage(canvas,0,0);
+      return canvasToBlob(out, 'image/jpeg', quality||0.92);
+    }
+    return canvasToBlob(canvas, 'image/png', 1);
+  }
   if(isElectron){
     const folder = await window.vellumAPI.selectFolderDialog();
     if(!folder) return;
     for(const id of State.mapOrder){
       const map = State.maps[id];
-      const canvas = renderMapComposite(id);
-      const blob = await canvasToBlob(canvas, 'image/png', 1);
+      const canvas = renderMapCompositeFull(id);
+      const blob = await makeBlob(canvas);
       const buf = new Uint8Array(await blob.arrayBuffer());
-      const filePath = window.vellumAPI.joinPath(folder, prefix+'_'+sanitizeName(map.name)+'.png');
+      const filePath = window.vellumAPI.joinPath(folder, prefix+'_'+sanitizeName(map.name)+'.'+ext);
       await window.vellumAPI.saveImageFile(filePath, buf);
     }
     toast('Saved '+State.mapOrder.length+' maps to '+folder);
@@ -2393,9 +2968,9 @@ async function exportAllMaps(prefix){
   const entries = [];
   for(const id of State.mapOrder){
     const map = State.maps[id];
-    const canvas = renderMapComposite(id);
-    const blob = await canvasToBlob(canvas, 'image/png', 1);
-    entries.push({ filename: prefix+'_'+sanitizeName(map.name)+'.png', blob });
+    const canvas = renderMapCompositeFull(id);
+    const blob = await makeBlob(canvas);
+    entries.push({ filename: prefix+'_'+sanitizeName(map.name)+'.'+ext, blob });
   }
   if(typeof JSZip !== 'undefined'){
     const zip = new JSZip();
@@ -2434,6 +3009,7 @@ function applyCanvasResize(){
         layer.mask.ctx = layer.mask.canvas.getContext('2d', {willReadFrequently:true});
         layer.mask.ctx.drawImage(tmpm,0,0); layer.mask.alphaCache=null;
       }
+      layer.effectsCache = null;
     }
     map.undoStack = []; map.redoStack = [];
   }
@@ -2467,6 +3043,495 @@ window.addEventListener('keydown', (e)=>{
   if(!mod && shortcuts[key]){ selectTool(shortcuts[key]); }
 });
 
+/* ============================= 3D Viewport (OBJ / FBX painting) ============================= */
+const Viewport3D = {
+  ready:false, active:false, paintMode:true, wireframe:false,
+  scene:null, camera:null, renderer:null, controls:null, raycaster:null,
+  modelRoot:null, material:null, textures:{}, meshes:[], painting:false, lastUV:null,
+  _rafId:null, _refreshPending:false,
+
+  available(){ return typeof THREE !== 'undefined'; },
+
+  init(){
+    if(this.ready) return true;
+    if(!this.available()){ toast('3D libraries did not load — check your internet connection.'); return false; }
+    const wrapEl = document.getElementById('viewport3d-canvas-wrap');
+    this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color(0x0f1216);
+    this.camera = new THREE.PerspectiveCamera(45, 1, 0.01, 5000);
+    this.camera.position.set(0, 0.6, 3);
+    this.renderer = new THREE.WebGLRenderer({antialias:true});
+    this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio||1));
+    wrapEl.appendChild(this.renderer.domElement);
+    this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
+    this.controls.enableDamping = true; this.controls.dampingFactor = 0.09;
+    this.raycaster = new THREE.Raycaster();
+
+    const key = new THREE.DirectionalLight(0xffffff, 2.1); key.position.set(3,4,2); this.scene.add(key);
+    const rim = new THREE.DirectionalLight(0x9fc4ff, 0.7); rim.position.set(-3,1,-2); this.scene.add(rim);
+    this.scene.add(new THREE.HemisphereLight(0xcfd8e6, 0x20242e, 0.75));
+    const grid = new THREE.GridHelper(4, 16, 0x333a47, 0x22262e);
+    grid.position.y = -1; grid.material.opacity = 0.5; grid.material.transparent = true;
+    this.scene.add(grid);
+
+    this.material = new THREE.MeshStandardMaterial({ color:0xb8b2a6, roughness:0.85, metalness:0.0, side:THREE.DoubleSide });
+
+    this._bindInput();
+    this._resize();
+    window.addEventListener('resize', ()=> this._resize());
+    this._loop();
+    this.ready = true;
+    return true;
+  },
+
+  _resize(){
+    if(!this.renderer) return;
+    const el = document.getElementById('viewport3d-canvas-wrap');
+    const w = el.clientWidth || 1, h = el.clientHeight || 1;
+    this.renderer.setSize(w, h, false);
+    this.camera.aspect = w/h; this.camera.updateProjectionMatrix();
+  },
+
+  _loop(){
+    this._rafId = requestAnimationFrame(()=> this._loop());
+    if(!this.active) return;
+    if(this.controls) this.controls.update();
+    this.renderer.render(this.scene, this.camera);
+  },
+
+  show(on){
+    this.active = on;
+    document.getElementById('viewport3d').classList.toggle('show', on);
+    if(on){ if(!this.ready) this.init(); requestAnimationFrame(()=> this._resize()); }
+  },
+  toggle(){ this.show(!this.active); },
+
+  /* --- Model loading --- */
+  loadFromText(text, ext, name){
+    if(!this.init()) return;
+    try{
+      let obj;
+      if(ext === 'obj'){ obj = new THREE.OBJLoader().parse(text); }
+      else { toast('Unsupported model format: .'+ext); return; }
+      this._installModel(obj, name);
+    }catch(err){ console.error(err); toast('Could not parse that OBJ file.'); }
+  },
+  loadFromBuffer(arrayBuffer, ext, name){
+    if(!this.init()) return;
+    try{
+      let obj;
+      if(ext === 'fbx'){ obj = new THREE.FBXLoader().parse(arrayBuffer, ''); }
+      else if(ext === 'obj'){ obj = new THREE.OBJLoader().parse(new TextDecoder().decode(arrayBuffer)); }
+      else { toast('Unsupported model format: .'+ext); return; }
+      this._installModel(obj, name);
+    }catch(err){ console.error(err); toast('Could not parse that '+ext.toUpperCase()+' file.'); }
+  },
+
+  _installModel(obj, name){
+    if(this.modelRoot) this.scene.remove(this.modelRoot);
+    this.meshes = [];
+    let missingUV = false, triCount = 0;
+    obj.traverse(child=>{
+      if(child.isMesh){
+        child.material = this.material;
+        const g = child.geometry;
+        if(g){
+          if(!g.attributes.uv) missingUV = true;
+          if(!g.attributes.normal) g.computeVertexNormals();
+          triCount += (g.index ? g.index.count : (g.attributes.position ? g.attributes.position.count : 0))/3;
+        }
+        this.meshes.push(child);
+      }
+    });
+    // Normalize scale/position so any model frames sensibly.
+    const box = new THREE.Box3().setFromObject(obj);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z) || 1;
+    const scale = 2 / maxDim;
+    obj.scale.setScalar(scale);
+    obj.position.set(-center.x*scale, -center.y*scale, -center.z*scale);
+
+    this.modelRoot = obj;
+    this.scene.add(obj);
+    this.resetCamera();
+    this.refreshTextures();
+    document.getElementById('viewport3d-drop').classList.add('hidden');
+    document.getElementById('viewport3d-status').textContent =
+      `${name} · ${this.meshes.length} mesh${this.meshes.length===1?'':'es'} · ${Math.round(triCount).toLocaleString()} tris`;
+    if(missingUV) toast('Model has no UV coordinates — painting on it will not work.');
+    else toast('Model loaded. Paint on it directly.');
+  },
+
+  resetCamera(){
+    if(!this.camera) return;
+    this.camera.position.set(0, 0.7, 3.2);
+    if(this.controls){ this.controls.target.set(0,0,0); this.controls.update(); }
+  },
+  setWireframe(on){ this.wireframe = on; if(this.material) this.material.wireframe = on; },
+
+  /* --- Texture sync: feed the painted maps into the preview material --- */
+  _mapForKind(kind){
+    for(const id of State.mapOrder) if(State.maps[id].kind === kind) return id;
+    return null;
+  },
+  refreshTextures(){
+    if(!this.ready || !this.material) return;
+    const slots = [
+      ['albedo','map'], ['normal','normalMap'], ['roughness','roughnessMap'],
+      ['metallic','metalnessMap'], ['ao','aoMap'], ['emissive','emissiveMap'], ['opacity','alphaMap'],
+    ];
+    for(const [kind, slot] of slots){
+      const mapId = this._mapForKind(kind);
+      if(!mapId){ if(this.material[slot]){ this.material[slot] = null; } continue; }
+      const canvas = renderMapCompositeFull(mapId);
+      let tex = this.textures[kind];
+      if(!tex){
+        tex = new THREE.CanvasTexture(canvas);
+        tex.flipY = false; tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+        this.textures[kind] = tex;
+      } else {
+        tex.image = canvas;
+      }
+      tex.needsUpdate = true;
+      this.material[slot] = tex;
+    }
+    if(this.material.map) this.material.color.setHex(0xffffff);
+    if(this.material.metalnessMap) this.material.metalness = 1.0;
+    if(this.material.roughnessMap) this.material.roughness = 1.0;
+    if(this.material.emissiveMap) this.material.emissive.setHex(0xffffff);
+    if(this.material.alphaMap){ this.material.transparent = true; }
+    // aoMap requires a second UV set; reuse uv when uv2 is absent.
+    for(const m of this.meshes){
+      const g = m.geometry;
+      if(g && g.attributes.uv && !g.attributes.uv2) g.setAttribute('uv2', g.attributes.uv);
+    }
+    this.material.needsUpdate = true;
+  },
+  scheduleRefresh(){
+    if(!this.active || !this.ready) return;
+    if(this._refreshPending) return;
+    this._refreshPending = true;
+    setTimeout(()=>{ this._refreshPending = false; this.refreshTextures(); }, 120);
+  },
+
+  /* --- Painting on the mesh --- */
+  _uvAt(ev){
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2(
+      ((ev.clientX-rect.left)/rect.width)*2 - 1,
+      -((ev.clientY-rect.top)/rect.height)*2 + 1
+    );
+    this.raycaster.setFromCamera(ndc, this.camera);
+    const hits = this.raycaster.intersectObjects(this.meshes, true);
+    if(!hits.length || !hits[0].uv) return null;
+    return hits[0].uv;
+  },
+  _paintAt(uv, continueStroke){
+    const pt = { x: uv.x*State.width, y: uv.y*State.height };
+    const layer = activeLayer(); if(!layer) return;
+    const ctx = targetCtx();
+    const erase = State.tool==='eraser';
+    const cfg = erase ? State.eraser : State.brush;
+    ctx.save(); clipToSelection(ctx);
+    if(State.tool==='pencil'){
+      if(continueStroke && this.lastUV) drawStampLine(ctx, this.lastUV, pt, State.pencil.size, (x,y)=>stampPencil(ctx,x,y,State.pencil.size,State.color));
+      else stampPencil(ctx, pt.x, pt.y, State.pencil.size, State.color);
+    } else {
+      if(continueStroke && this.lastUV) drawStampLine(ctx, this.lastUV, pt, cfg.size, (x,y)=>stampByPreset(cfg.preset||'soft',ctx,x,y,cfg.size,cfg.hardness,cfg.opacity,State.color,erase), presetStepMultiplier(cfg.preset));
+      else stampByPreset(cfg.preset||'soft', ctx, pt.x, pt.y, cfg.size, cfg.hardness, cfg.opacity, State.color, erase);
+    }
+    ctx.restore();
+    this.lastUV = pt;
+    invalidateLayerEffects(layer);
+    composite();
+    this.scheduleRefresh();
+  },
+  _bindInput(){
+    const el = this.renderer.domElement;
+    const paintTools = ['brush','pencil','eraser'];
+    el.addEventListener('pointerdown', (e)=>{
+      if(!this.paintMode || !paintTools.includes(State.tool) || !this.meshes.length) return;
+      const uv = this._uvAt(e); if(!uv) return;
+      e.preventDefault(); e.stopPropagation();
+      this.controls.enabled = false;
+      this.painting = true; this.lastUV = null;
+      beginStroke();
+      if(anyEffectsActiveOnMap()) RenderQuality.beginInteractive();
+      this._paintAt(uv, false);
+      el.setPointerCapture(e.pointerId);
+    });
+    el.addEventListener('pointermove', (e)=>{
+      if(!this.painting) return;
+      const uv = this._uvAt(e); if(!uv) return;
+      this._paintAt(uv, true);
+    });
+    const endPaint = ()=>{
+      if(!this.painting) return;
+      this.painting = false; this.lastUV = null;
+      this.controls.enabled = true;
+      commitStroke(); RenderQuality.endInteractive();
+      renderLayerPanel(); this.refreshTextures();
+    };
+    el.addEventListener('pointerup', endPaint);
+    el.addEventListener('pointercancel', endPaint);
+
+    // Drag & drop a model straight into the viewport.
+    const vp = document.getElementById('viewport3d');
+    vp.addEventListener('dragover', e=>{ e.preventDefault(); });
+    vp.addEventListener('drop', e=>{
+      e.preventDefault();
+      const file = e.dataTransfer.files && e.dataTransfer.files[0];
+      if(file) readModelFile(file);
+    });
+  }
+};
+
+function readModelFile(file){
+  const ext = file.name.split('.').pop().toLowerCase();
+  const reader = new FileReader();
+  if(ext === 'obj'){
+    reader.onload = ()=> Viewport3D.loadFromText(reader.result, 'obj', file.name);
+    reader.readAsText(file);
+  } else {
+    reader.onload = ()=> Viewport3D.loadFromBuffer(reader.result, ext, file.name);
+    reader.readAsArrayBuffer(file);
+  }
+}
+async function loadModelDialog(){
+  Viewport3D.show(true);
+  document.getElementById('hidden-model-file-input').click();
+}
+document.getElementById('hidden-model-file-input').addEventListener('change', (e)=>{
+  const file = e.target.files[0]; if(file) readModelFile(file);
+  e.target.value = '';
+});
+document.getElementById('v3d-load').addEventListener('click', loadModelDialog);
+document.getElementById('v3d-reset').addEventListener('click', ()=> Viewport3D.resetCamera());
+document.getElementById('v3d-paint').addEventListener('click', (e)=>{
+  Viewport3D.paintMode = !Viewport3D.paintMode;
+  e.target.classList.toggle('active', Viewport3D.paintMode);
+});
+document.getElementById('v3d-wire').addEventListener('click', (e)=>{
+  Viewport3D.setWireframe(!Viewport3D.wireframe);
+  e.target.classList.toggle('active', Viewport3D.wireframe);
+});
+
+/* ============================= Webcomic mode ============================= */
+const COMIC_PRESETS = [
+  { id:'webtoon',  name:'Vertical Scroll', desc:'800 × 4000 · web strip',   w:800,  h:4000, bleed:0,  safe:40 },
+  { id:'page',     name:'Comic Page',      desc:'2048 × 3145 · print',      w:2048, h:3145, bleed:64, safe:128 },
+  { id:'manga',    name:'Manga B5',        desc:'2149 × 3035 · tankōbon',   w:2149, h:3035, bleed:60, safe:120 },
+  { id:'strip',    name:'Landscape Strip', desc:'2400 × 800 · 3–4 panels',  w:2400, h:800,  bleed:0,  safe:32 },
+];
+const Comic = {
+  enabled:false, preset:COMIC_PRESETS[0], showGuides:true,
+  rows:3, cols:2, gutter:36, border:6,
+  balloon:{ style:'round', tail:45 },
+};
+function comicApplyPreset(p){
+  Comic.preset = p;
+  document.getElementById('nc-width').value = p.w;
+  document.getElementById('nc-height').value = p.h;
+  document.querySelectorAll('#comic-preset-grid .comic-preset-btn').forEach(b=>
+    b.classList.toggle('active', b.dataset.preset === p.id));
+}
+function buildComicPresetGrid(){
+  const grid = document.getElementById('comic-preset-grid'); grid.innerHTML = '';
+  for(const p of COMIC_PRESETS){
+    const btn = document.createElement('button');
+    btn.className = 'comic-preset-btn'+(p.id===Comic.preset.id?' active':'');
+    btn.dataset.preset = p.id;
+    btn.innerHTML = `<b>${p.name}</b>${p.desc}`;
+    btn.addEventListener('click', ()=> comicApplyPreset(p));
+    grid.appendChild(btn);
+  }
+}
+function comicPanelRects(){
+  const p = Comic.preset;
+  const m = p.bleed + p.safe;
+  const x0 = m, y0 = m, w = State.width - m*2, h = State.height - m*2;
+  const g = Comic.gutter;
+  const cellW = (w - g*(Comic.cols-1))/Comic.cols;
+  const cellH = (h - g*(Comic.rows-1))/Comic.rows;
+  const rects = [];
+  for(let r=0;r<Comic.rows;r++) for(let c=0;c<Comic.cols;c++)
+    rects.push({ x: x0 + c*(cellW+g), y: y0 + r*(cellH+g), w: cellW, h: cellH });
+  return rects;
+}
+function drawComicGuides(ctx){
+  if(!Comic.enabled || !Comic.showGuides) return;
+  const p = Comic.preset;
+  ctx.save();
+  ctx.lineWidth = 1.5/State.zoom;
+  ctx.setLineDash([]);
+  if(p.bleed > 0){
+    ctx.strokeStyle = 'rgba(178,91,82,.85)';
+    ctx.strokeRect(p.bleed, p.bleed, State.width-p.bleed*2, State.height-p.bleed*2);
+  }
+  const m = p.bleed + p.safe;
+  ctx.strokeStyle = 'rgba(111,154,141,.85)';
+  ctx.setLineDash([9/State.zoom, 6/State.zoom]);
+  ctx.strokeRect(m, m, State.width-m*2, State.height-m*2);
+  ctx.strokeStyle = 'rgba(201,138,75,.5)';
+  for(const r of comicPanelRects()) ctx.strokeRect(r.x, r.y, r.w, r.h);
+  ctx.restore();
+}
+function comicDrawPanelGrid(){
+  const map = CM();
+  const snapBefore = cloneLayersState();
+  const layer = makeLayer('Panels', 'transparent');
+  const ctx = layer.ctx;
+  ctx.save();
+  ctx.strokeStyle = '#000000'; ctx.lineWidth = Comic.border; ctx.lineJoin = 'miter';
+  for(const r of comicPanelRects()){
+    if(Comic.border > 0) ctx.strokeRect(r.x, r.y, r.w, r.h);
+  }
+  ctx.restore();
+  map.layers.splice(map.activeLayerIndex+1, 0, layer);
+  map.activeLayerIndex = map.layers.indexOf(layer);
+  pushStructuralUndo({type:'layers-snapshot', before:snapBefore, after:cloneLayersState()});
+  composite(); renderLayerPanel();
+  toast('Panel grid drawn on a new layer.');
+}
+function drawBalloonPath(ctx, x, y, w, h, style, tailAngleDeg, tailLen){
+  const cx = x + w/2, cy = y + h/2, rx = Math.abs(w/2), ry = Math.abs(h/2);
+  ctx.beginPath();
+  if(style === 'oval'){
+    ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI*2);
+  } else if(style === 'caption'){
+    ctx.rect(x, y, w, h);
+  } else if(style === 'thought'){
+    const lobes = Math.max(9, Math.round((rx+ry)/22));
+    for(let i=0;i<lobes;i++){
+      const a = (i/lobes)*Math.PI*2;
+      const lx = cx + Math.cos(a)*rx*0.86, ly = cy + Math.sin(a)*ry*0.86;
+      const lr = Math.min(rx, ry)*0.30;
+      ctx.moveTo(lx+lr, ly); ctx.arc(lx, ly, lr, 0, Math.PI*2);
+    }
+  } else if(style === 'burst'){
+    const spikes = 14;
+    for(let i=0;i<spikes*2;i++){
+      const a = (i/(spikes*2))*Math.PI*2 - Math.PI/2;
+      const rr = (i%2===0) ? 1 : 0.66;
+      const px = cx + Math.cos(a)*rx*rr, py = cy + Math.sin(a)*ry*rr;
+      i===0 ? ctx.moveTo(px,py) : ctx.lineTo(px,py);
+    }
+    ctx.closePath();
+  } else { // rounded speech
+    const r = Math.min(rx, ry)*0.55;
+    ctx.moveTo(x+r, y);
+    ctx.arcTo(x+w, y, x+w, y+h, r);
+    ctx.arcTo(x+w, y+h, x, y+h, r);
+    ctx.arcTo(x, y+h, x, y, r);
+    ctx.arcTo(x, y, x+w, y, r);
+    ctx.closePath();
+  }
+  // Tail (skipped for caption boxes and thought clouds, which get trailing bubbles instead)
+  if(tailLen > 0 && style !== 'caption'){
+    const a = tailAngleDeg*Math.PI/180;
+    const bx = cx + Math.cos(a)*rx*0.92, by = cy + Math.sin(a)*ry*0.92;
+    const tx = cx + Math.cos(a)*(rx+tailLen), ty = cy + Math.sin(a)*(ry+tailLen);
+    if(style === 'thought'){
+      for(let i=1;i<=3;i++){
+        const t = i/3.4;
+        const px = bx + (tx-bx)*t, py = by + (ty-by)*t;
+        const pr = Math.min(rx,ry)*0.16*(1 - t*0.55);
+        ctx.moveTo(px+pr, py); ctx.arc(px, py, pr, 0, Math.PI*2);
+      }
+    } else {
+      const spread = 0.30;
+      ctx.moveTo(cx + Math.cos(a-spread)*rx*0.95, cy + Math.sin(a-spread)*ry*0.95);
+      ctx.lineTo(tx, ty);
+      ctx.lineTo(cx + Math.cos(a+spread)*rx*0.95, cy + Math.sin(a+spread)*ry*0.95);
+      ctx.closePath();
+    }
+  }
+}
+function commitBalloon(from, to, tailAngleDeg){
+  beginStroke();
+  const ctx = targetCtx();
+  const x = Math.min(from.x,to.x), y = Math.min(from.y,to.y);
+  const w = Math.abs(to.x-from.x), h = Math.abs(to.y-from.y);
+  if(w < 4 || h < 4){ pendingSnapshot = null; return; }
+  const tailLen = Comic.balloon.tail/100 * Math.min(w,h) * 0.9;
+  ctx.save(); clipToSelection(ctx);
+  ctx.fillStyle = '#ffffff';
+  ctx.strokeStyle = State.color;
+  ctx.lineWidth = Math.max(2, Comic.border);
+  ctx.lineJoin = 'round';
+  drawBalloonPath(ctx, x, y, w, h, Comic.balloon.style, tailAngleDeg, tailLen);
+  ctx.fill(); ctx.stroke();
+  ctx.restore();
+  commitStroke(); composite(); renderLayerPanel();
+}
+function setComicMode(on){
+  Comic.enabled = on;
+  document.getElementById('comic-panel').style.display = on ? 'block' : 'none';
+  document.querySelectorAll('.tool-btn[data-tool="balloon"]').forEach(b=> b.style.display = on ? '' : 'none');
+  renderSelectionOverlay();
+}
+function bindComicControls(){
+  const bind = (id, valId, key, fmt)=>{
+    const el = document.getElementById(id);
+    el.addEventListener('input', ()=>{
+      Comic[key] = Number(el.value);
+      document.getElementById(valId).textContent = fmt ? fmt(el.value) : el.value;
+      renderSelectionOverlay();
+    });
+  };
+  bind('comic-rows','comic-rows-val','rows');
+  bind('comic-cols','comic-cols-val','cols');
+  bind('comic-gutter','comic-gutter-val','gutter');
+  bind('comic-border','comic-border-val','border');
+  document.getElementById('comic-guides-cb').addEventListener('change', (e)=>{
+    Comic.showGuides = e.target.checked; renderSelectionOverlay();
+  });
+  document.getElementById('comic-make-panels').addEventListener('click', comicDrawPanelGrid);
+  document.getElementById('comic-balloon-style').addEventListener('change', (e)=> Comic.balloon.style = e.target.value);
+  document.getElementById('comic-balloon-tail').addEventListener('input', (e)=>{
+    Comic.balloon.tail = Number(e.target.value);
+    document.getElementById('comic-balloon-tail-val').textContent = e.target.value;
+  });
+}
+
+/* ============================= Startup mode picker ============================= */
+let StartupMode = '2d';
+function bindModePicker(){
+  document.querySelectorAll('.mode-card').forEach(card=>{
+    card.addEventListener('click', ()=>{
+      StartupMode = card.dataset.mode;
+      document.querySelectorAll('.mode-card').forEach(c=> c.classList.toggle('active', c===card));
+      ['2d','3d','comic'].forEach(m=>
+        document.getElementById('mode-section-'+m).classList.toggle('show', m===StartupMode));
+      if(StartupMode === 'comic') comicApplyPreset(Comic.preset);
+      else { document.getElementById('nc-width').value = 2048; document.getElementById('nc-height').value = 2048; }
+      syncTemplateFromDims();
+    });
+  });
+}
+function applyStartupMode(){
+  if(StartupMode === '3d'){
+    setComicMode(false);
+    // A 3D paint session wants the standard PBR slots ready to go.
+    for(const kind of ['normal','roughness','metallic','ao']){
+      if(!State.mapOrder.some(id=>State.maps[id].kind===kind)) createMap(kind, KINDS[kind].label);
+    }
+    State.activeMapId = State.mapOrder[0];
+    renderMapTabs(); composite(); renderLayerPanel(); updateMenuStates();
+    Viewport3D.show(true);
+    setTimeout(()=> loadModelDialog(), 250);
+  } else if(StartupMode === 'comic'){
+    Viewport3D.show(false);
+    setComicMode(true);
+    CM().name = 'Page';
+    renderMapTabs(); renderLayerPanel();
+  } else {
+    Viewport3D.show(false);
+    setComicMode(false);
+  }
+}
+
 /* ============================= Init ============================= */
 function init(){
   buildToolbar(); buildSwatches(); setColor('#c98a4b');
@@ -2475,8 +3540,12 @@ function init(){
   State.activeMapId = map.id;
   resizeStage(); composite(); renderLayerPanel(); renderMapTabs(); selectTool('brush'); updateMenuStates();
   updateCanvasCursorStyle();
+  bindModePicker(); buildComicPresetGrid(); bindComicControls();
+  setComicMode(false);
   if(isElectron) toast('Connected to desktop file system');
   requestAnimationFrame(zoomFit);
+  // Offer the resolution templates up front, the way most texture tools open.
+  requestAnimationFrame(()=> showModal('modal-new'));
 }
 init();
 
