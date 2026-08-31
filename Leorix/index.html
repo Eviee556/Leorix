@@ -84,6 +84,16 @@
     flex-shrink:0; overflow-y:auto;}
   .panel{border-bottom:1px solid var(--border); padding:12px 14px;}
   .panel h3{margin:0 0 10px; font-size:10.5px; letter-spacing:1.6px; text-transform:uppercase; color:var(--brass); font-weight:600; font-family:ui-monospace,monospace;}
+  .panel{position:relative;}
+  .panel h3.panel-drag-handle{cursor:grab; display:flex; align-items:center; gap:6px; user-select:none;}
+  .panel h3.panel-drag-handle:hover{color:#fff;}
+  .panel h3.panel-drag-handle:active{cursor:grabbing;}
+  .panel h3.panel-drag-handle::before{content:'⠿'; font-size:11px; opacity:.55; letter-spacing:0;}
+  .panel-dock-mini{display:none; position:absolute; top:11px; right:14px; margin-left:0; background:var(--panel-alt); border:1px solid var(--border); color:var(--text-muted);
+    width:16px; height:16px; border-radius:3px; cursor:pointer; font-size:9px; line-height:1; align-items:center; justify-content:center; flex-shrink:0; z-index:2;}
+  .panel-dock-mini:hover{color:var(--text); border-color:var(--brass-dim);}
+  .floating-panel .panel-dock-mini{display:flex;}
+  .panel.floating-panel{background:var(--panel); border-radius:8px;}
   .row{display:flex; align-items:center; gap:8px; margin-bottom:8px;}
   .row label{width:78px; font-size:12px; color:var(--text-muted); flex-shrink:0;}
   .row input[type=range]{flex:1; accent-color:var(--brass);}
@@ -274,6 +284,7 @@
   #timeline-bar button:hover{color:var(--text); border-color:var(--brass-dim);}
   #timeline-bar button.active{background:var(--brass-dim); color:#fff; border-color:var(--brass-dim);}
   #timeline-bar .spacer{flex:1;}
+  #viewport3d-bar .spacer{flex:1;}
   #timeline-bar span{font-size:11px; color:var(--text-muted); font-family:ui-monospace,monospace;}
   #timeline-track{position:relative; height:26px; background:var(--panel-alt); border:1px solid var(--border);
     border-radius:4px; cursor:pointer; overflow:hidden;}
@@ -302,6 +313,43 @@
   #polyspec-bar #ps-hint{color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
   #ps-boxselect{position:absolute; border:1px dashed var(--brass); background:rgba(201,138,75,.15);
     display:none; pointer-events:none; z-index:20;}
+  /* ---- Floating / dockable panels (3D viewport, toolbar) ---- */
+  .floating-panel{position:fixed !important; top:80px; left:80px; right:auto !important; bottom:auto !important;
+    width:420px; height:320px; z-index:400; box-shadow:0 20px 60px rgba(0,0,0,.6);
+    border-radius:8px; border:1px solid var(--brass-dim); overflow:hidden;}
+  .floating-panel.panel-minimized{height:auto !important; width:260px !important;}
+  .floating-panel.panel-minimized .panel-resize-grip{display:none !important;}
+  .floating-panel.panel-minimized .panel-body-hide-on-min{display:none !important;}
+  .panel-drag-handle{cursor:grab; user-select:none;}
+  .panel-drag-handle:active{cursor:grabbing;}
+  .panel-resize-grip{position:absolute; right:0; bottom:0; width:16px; height:16px; cursor:nwse-resize; z-index:5; display:none;}
+  .panel-resize-grip::after{content:''; position:absolute; right:3px; bottom:3px; width:8px; height:8px;
+    border-right:2px solid var(--text-muted); border-bottom:2px solid var(--text-muted);}
+  .floating-panel .panel-resize-grip{display:block;}
+  .panel-win-btn{background:none; border:1px solid var(--border); color:var(--text-muted); width:18px; height:18px;
+    border-radius:3px; cursor:pointer; font-size:10px; line-height:1; padding:0; display:flex; align-items:center; justify-content:center;}
+  .panel-win-btn:hover{color:var(--text); border-color:var(--brass-dim);}
+  #toolbar{position:relative;}
+  #toolbar-handle{display:none; align-items:center; justify-content:center; height:16px; cursor:grab; flex-shrink:0;
+    border-bottom:1px solid var(--border); color:var(--text-muted); gap:2px;}
+  #toolbar.floating-panel{width:52px !important; height:auto !important; flex-direction:column; padding:0 0 8px;}
+  #toolbar.floating-panel #toolbar-handle{display:flex;}
+  #toolbar.floating-panel.panel-minimized{height:auto !important; padding-bottom:0;}
+  #toolbar.floating-panel.panel-minimized .tool-btn, #toolbar.floating-panel.panel-minimized .tool-sep{display:none;}
+  #toolbar-dock-btn{position:absolute; top:1px; right:1px; display:none;}
+  #toolbar.floating-panel #toolbar-dock-btn{display:flex;}
+  /* ---- Sidebar splitter ---- */
+  #sidebar-splitter{width:5px; flex-shrink:0; background:var(--panel); border-left:1px solid var(--border);
+    border-right:1px solid var(--border); cursor:col-resize;}
+  #sidebar-splitter:hover, #sidebar-splitter.dragging{background:var(--brass-dim);}
+  /* ---- Theme / personalization ---- */
+  .theme-group-label{font-size:10px; letter-spacing:1px; text-transform:uppercase; color:var(--brass);
+    font-family:ui-monospace,monospace; margin:14px 0 8px;}
+  .theme-group-label:first-child{margin-top:0;}
+  .theme-row{display:flex; align-items:center; gap:10px; margin-bottom:7px;}
+  .theme-row label{width:130px; font-size:12px; color:var(--text-muted); flex-shrink:0;}
+  .theme-row input[type=color]{width:34px; height:26px; border:1px solid var(--border); border-radius:4px; background:none; padding:0; cursor:pointer; flex-shrink:0;}
+  .theme-row .theme-hex{width:80px; font-family:ui-monospace,monospace; font-size:11px; background:var(--panel); border:1px solid var(--border); border-radius:4px; padding:4px 6px; color:var(--text);}
   #toast{position:fixed; bottom:36px; left:50%; transform:translateX(-50%); background:var(--panel-alt); border:1px solid var(--brass-dim);
     color:var(--text); padding:9px 16px; border-radius:6px; font-size:12.5px; box-shadow:0 8px 24px rgba(0,0,0,.5); z-index:200; opacity:0; pointer-events:none; transition:opacity .2s;}
   #toast.show{opacity:1;}
@@ -403,6 +451,11 @@
         <button data-action="zoom-fit">Fit to Window</button>
         <button data-action="zoom-100">Actual Size (100%)</button>
         <button data-action="canvas-size">Canvas Size…</button>
+        <hr>
+        <button data-action="open-theme">Personalize Colors…</button>
+        <button data-action="v3d-dock-toggle">Float / Dock 3D Viewport</button>
+        <button data-action="toolbar-dock-toggle">Float / Dock Toolbar</button>
+        <button data-action="reset-layout">Reset Window Layout</button>
       </div>
     </div>
     <div id="win-controls">
@@ -425,13 +478,17 @@
     </div>
 
     <div id="viewport3d">
-      <div id="viewport3d-bar">
+      <div id="viewport3d-bar" class="panel-drag-handle" title="Drag to move this window">
         <button id="v3d-load">Load Model…</button>
         <button id="v3d-paint" class="active" title="Paint directly on the mesh">Paint</button>
         <button id="v3d-select" title="Select a mesh and drag to move it">Select</button>
         <button id="v3d-reset" title="Frame the model">Reset View</button>
         <button id="v3d-wire" title="Toggle wireframe">Wire</button>
         <span id="viewport3d-status">No model loaded</span>
+        <div class="spacer"></div>
+        <button id="v3d-float" class="panel-win-btn" title="Float / Dock this window">⇱</button>
+        <button id="v3d-minimize" class="panel-win-btn" title="Minimize">_</button>
+        <button id="v3d-maximize" class="panel-win-btn" title="Maximize">□</button>
       </div>
       <div id="polyspec-bar">
         <span class="ps-label">Poly Spec Mode</span>
@@ -445,22 +502,24 @@
         <div class="spacer"></div>
         <span id="ps-hint">Click select · Shift+click extend · B box-select · G/R/S transform · Tab to exit</span>
       </div>
-      <div id="viewport3d-canvas-wrap">
+      <div id="viewport3d-canvas-wrap" class="panel-body-hide-on-min">
         <div id="viewport3d-drop">
           <svg viewBox="0 0 24 24"><path d="M12 2l9 5v10l-9 5-9-5V7z"/><path d="M12 12l9-5M12 12v10M12 12L3 7"/></svg>
           <div>Drop an <b>.obj</b> or <b>.fbx</b> here,<br>or use Load Model…</div>
         </div>
         <div id="ps-boxselect"></div>
       </div>
+      <div id="viewport3d-resize-grip" class="panel-resize-grip"></div>
     </div>
 
+    <div id="sidebar-splitter" title="Drag to resize the sidebar"></div>
     <div id="sidebar">
       <div class="panel" id="tool-options-panel">
         <h3>Tool Options</h3>
         <div id="tool-options-body"></div>
       </div>
 
-      <div class="panel">
+      <div class="panel" id="color-panel">
         <h3>Color</h3>
         <div id="color-swatch-current"></div>
         <input class="num-input" id="hex-input" type="text" value="#c98a4b" maxlength="7">
@@ -473,7 +532,7 @@
         <div id="map-brush-body"></div>
       </div>
 
-      <div class="panel" style="flex:1; display:flex; flex-direction:column;">
+      <div class="panel" id="layers-panel" style="flex:1; display:flex; flex-direction:column;">
         <h3>Layers</h3>
         <div id="active-map-kind-label"></div>
         <div class="layer-toolbar">
@@ -666,7 +725,7 @@
         <button class="btn" id="d25-reset" style="width:100%; margin-top:4px;">Reset Camera</button>
       </div>
 
-      <div class="panel">
+      <div class="panel" id="effects-panel">
         <h3>Layer Effects</h3>
         <div id="effects-list"></div>
       </div>
@@ -893,6 +952,27 @@
   </div>
 </div>
 
+<div class="modal-backdrop" id="modal-theme">
+  <div class="modal wide">
+    <h2>Personalize Colors</h2>
+    <div class="row"><label>Preset</label>
+      <select id="theme-preset-select" class="num-input"></select>
+    </div>
+    <div id="theme-groups" style="max-height:360px; overflow-y:auto; padding-right:4px;"></div>
+    <div class="modal-actions" style="justify-content:space-between;">
+      <div style="display:flex; gap:8px;">
+        <button class="btn" id="theme-export">Export Theme…</button>
+        <button class="btn" id="theme-import">Import Theme…</button>
+      </div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn" id="theme-reset">Reset to Default</button>
+        <button class="btn primary" data-action="close-modal">Done</button>
+      </div>
+    </div>
+  </div>
+</div>
+<input type="file" id="hidden-theme-file-input" accept=".json,application/json">
+
 <input type="file" id="hidden-file-input" accept="image/*">
 <input type="file" id="hidden-project-file-input" accept=".leorix,application/json">
 <input type="file" id="hidden-brush-file-input" accept="image/*">
@@ -907,6 +987,7 @@
 
 /* ============================= Electron bridge detection ============================= */
 const isElectron = typeof window.leorixAPI !== 'undefined';
+let ToolbarPanel = null, Viewport3DPanel = null;
 
 function toast(msg){
   const t = document.getElementById('toast');
@@ -1617,6 +1698,13 @@ const TOOLS = [
 
 function buildToolbar(){
   const bar = document.getElementById('toolbar'); bar.innerHTML = '';
+  const handle = document.createElement('div'); handle.id = 'toolbar-handle'; handle.className = 'panel-drag-handle';
+  handle.title = 'Drag to move the toolbar';
+  handle.innerHTML = '<svg viewBox="0 0 16 8" width="16" height="8"><circle cx="2" cy="2" r="1" fill="currentColor"/><circle cx="8" cy="2" r="1" fill="currentColor"/><circle cx="14" cy="2" r="1" fill="currentColor"/><circle cx="2" cy="6" r="1" fill="currentColor"/><circle cx="8" cy="6" r="1" fill="currentColor"/><circle cx="14" cy="6" r="1" fill="currentColor"/></svg>';
+  bar.appendChild(handle);
+  const dockBtn = document.createElement('button'); dockBtn.id = 'toolbar-dock-btn'; dockBtn.className = 'panel-win-btn'; dockBtn.title = 'Dock to side';
+  dockBtn.textContent = '⇱';
+  bar.appendChild(dockBtn);
   for(const t of TOOLS){
     if(t.sep){ const d = document.createElement('div'); d.className='tool-sep'; bar.appendChild(d); continue; }
     const b = document.createElement('button');
@@ -1626,6 +1714,7 @@ function buildToolbar(){
     b.addEventListener('click', ()=> selectTool(t.id));
     bar.appendChild(b);
   }
+  dockBtn.addEventListener('click', ()=> ToolbarPanel.dock());
 }
 function selectTool(id){
   if(State.tool==='pen' && id!=='pen'){ penDraft = null; }
@@ -2840,6 +2929,10 @@ document.body.addEventListener('click', (e)=>{
       document.getElementById('rs-width').value = State.width; document.getElementById('rs-height').value = State.height;
       showModal('modal-resize'); break;
     case 'apply-resize': applyCanvasResize(); break;
+    case 'open-theme': buildThemeModal(); showModal('modal-theme'); break;
+    case 'v3d-dock-toggle': if(Viewport3DPanel) Viewport3DPanel.toggleDock(); break;
+    case 'toolbar-dock-toggle': if(ToolbarPanel) ToolbarPanel.toggleDock(); break;
+    case 'reset-layout': resetWindowLayout(); break;
   }
 });
 document.getElementById('bc-brightness').addEventListener('input', e=> document.getElementById('bc-b-val').textContent = e.target.value);
@@ -4366,6 +4459,9 @@ document.getElementById('v3d-wire').addEventListener('click', (e)=>{
   Viewport3D.setWireframe(!Viewport3D.wireframe);
   e.target.classList.toggle('active', Viewport3D.wireframe);
 });
+document.getElementById('v3d-float').addEventListener('click', ()=>{ if(Viewport3DPanel) Viewport3DPanel.toggleDock(); });
+document.getElementById('v3d-minimize').addEventListener('click', ()=>{ if(Viewport3DPanel) Viewport3DPanel.toggleMinimize(); });
+document.getElementById('v3d-maximize').addEventListener('click', ()=>{ if(Viewport3DPanel) Viewport3DPanel.toggleMaximize(); });
 document.getElementById('ps-vert').addEventListener('click', ()=> PolySpec.setSelectMode('vertex'));
 document.getElementById('ps-edge').addEventListener('click', ()=> PolySpec.setSelectMode('edge'));
 document.getElementById('ps-face').addEventListener('click', ()=> PolySpec.setSelectMode('face'));
@@ -4675,6 +4771,263 @@ function subdivideGeometry(geo){
   return out;
 }
 function clampNum(v,a,b){ return Math.max(a, Math.min(b, v)); }
+
+/* ============================= Floating panels (movable/resizable/minimize/maximize) =============================
+   A small reusable window manager for the two panels that make sense to reposition:
+   the 3D viewport and the left toolbar. Scope note: this is deliberately NOT a full
+   Blender-style edge-docking system where any panel can be dragged and dropped onto
+   any other — that's a much larger, separate undertaking with real risk to the pointer
+   event chains already built for painting/sculpting/Poly Spec. What's here is genuinely
+   useful: drag anywhere, resize (where enabled), minimize, maximize, and dock back to
+   the original fixed position. */
+function makeFloatingPanel(opts){
+  const el = document.getElementById(opts.elId);
+  const handle = document.getElementById(opts.handleId);
+  const grip = opts.gripId ? document.getElementById(opts.gripId) : null;
+  const state = { floating:false, minimized:false, maximized:false, savedRect:null, preMaxRect:null };
+
+  function clientRect(){ return el.getBoundingClientRect(); }
+  function setRect(r){
+    el.style.left = r.left+'px'; el.style.top = r.top+'px';
+    el.style.width = r.width+'px'; el.style.height = r.height+'px';
+    if(opts.onResize) opts.onResize();
+  }
+
+  function float(){
+    if(state.floating) return;
+    const r = clientRect();
+    el.classList.add('floating-panel');
+    setRect({ left:r.left, top:r.top, width:r.width, height:r.height });
+    state.floating = true;
+    if(opts.onDockChange) opts.onDockChange(true);
+  }
+  function dock(){
+    if(!state.floating) return;
+    el.classList.remove('floating-panel', 'panel-minimized');
+    el.style.left = el.style.top = el.style.width = el.style.height = '';
+    state.floating = false; state.minimized = false; state.maximized = false;
+    if(opts.onDockChange) opts.onDockChange(false);
+    if(opts.onResize) opts.onResize();
+  }
+  function toggleDock(){ state.floating ? dock() : float(); }
+
+  function toggleMinimize(){
+    if(!state.floating) float();
+    if(!state.minimized){
+      state.savedRect = clientRect();
+      el.classList.add('panel-minimized');
+    } else {
+      el.classList.remove('panel-minimized');
+      if(state.savedRect) setRect(state.savedRect);
+    }
+    state.minimized = !state.minimized;
+  }
+  function toggleMaximize(){
+    if(!state.floating) float();
+    if(state.minimized) toggleMinimize();
+    if(!state.maximized){
+      state.preMaxRect = clientRect();
+      const pad = 20;
+      setRect({ left:pad, top:pad, width:window.innerWidth-pad*2, height:window.innerHeight-pad*2 });
+    } else if(state.preMaxRect){
+      setRect(state.preMaxRect);
+    }
+    state.maximized = !state.maximized;
+  }
+
+  // Drag via the handle.
+  let dragging = false, dragStart = null, elStart = null;
+  handle.addEventListener('pointerdown', (e)=>{
+    if(e.target.closest('button')) return; // don't start a drag from a button click
+    if(!state.floating) float();
+    if(state.maximized) toggleMaximize();
+    dragging = true; dragStart = {x:e.clientX, y:e.clientY}; elStart = clientRect();
+    handle.setPointerCapture(e.pointerId);
+  });
+  handle.addEventListener('pointermove', (e)=>{
+    if(!dragging) return;
+    const dx = e.clientX-dragStart.x, dy = e.clientY-dragStart.y;
+    let left = clampNum(elStart.left+dx, -20, window.innerWidth-40);
+    let top = clampNum(elStart.top+dy, 0, window.innerHeight-30);
+    el.style.left = left+'px'; el.style.top = top+'px';
+  });
+  handle.addEventListener('pointerup', ()=>{ dragging = false; });
+
+  // Resize via the corner grip, if this panel supports it.
+  if(grip && opts.resizable){
+    let resizing = false, rStart = null, rElStart = null;
+    grip.addEventListener('pointerdown', (e)=>{
+      e.stopPropagation();
+      if(!state.floating) float();
+      resizing = true; rStart = {x:e.clientX, y:e.clientY}; rElStart = clientRect();
+      grip.setPointerCapture(e.pointerId);
+    });
+    grip.addEventListener('pointermove', (e)=>{
+      if(!resizing) return;
+      const w = clampNum(rElStart.width + (e.clientX-rStart.x), opts.minWidth||200, window.innerWidth);
+      const h = clampNum(rElStart.height + (e.clientY-rStart.y), opts.minHeight||150, window.innerHeight);
+      el.style.width = w+'px'; el.style.height = h+'px';
+      if(opts.onResize) opts.onResize();
+    });
+    grip.addEventListener('pointerup', ()=>{ resizing = false; });
+  }
+
+  return { float, dock, toggleDock, toggleMinimize, toggleMaximize, state };
+}
+
+/* ============================= Theme / Personalization ============================= */
+const THEME_VARS = [
+  { group:'Backgrounds', vars:[
+    {key:'--bg', label:'App Background'}, {key:'--panel', label:'Panel'}, {key:'--panel-alt', label:'Panel (Alt)'},
+    {key:'--check-a', label:'Checkerboard A'}, {key:'--check-b', label:'Checkerboard B'},
+  ]},
+  { group:'Borders', vars:[ {key:'--border', label:'Border'}, {key:'--border-soft', label:'Border (Soft)'} ]},
+  { group:'Accents', vars:[
+    {key:'--brass', label:'Accent (Primary)'}, {key:'--brass-dim', label:'Accent (Dim)'},
+    {key:'--verdigris', label:'Accent (Secondary)'}, {key:'--danger', label:'Danger / Warning'},
+  ]},
+  { group:'Text', vars:[ {key:'--text', label:'Text (Primary)'}, {key:'--text-muted', label:'Text (Muted)'} ]},
+];
+const THEME_PRESETS = {
+  slate:   { '--bg':'#12151c','--panel':'#181c26','--panel-alt':'#1e2330','--border':'#2f3648','--border-soft':'#252b3a',
+    '--brass':'#5a8ee0','--brass-dim':'#3f68a8','--verdigris':'#6fb0c9','--text':'#e4e8f0','--text-muted':'#8b93a8',
+    '--danger':'#e0655a','--check-a':'#1c2129','--check-b':'#232a35' },
+  forest:  { '--bg':'#141a15','--panel':'#1a221b','--panel-alt':'#202a21','--border':'#33402f','--border-soft':'#28331f',
+    '--brass':'#7fae5a','--brass-dim':'#587a3d','--verdigris':'#6f9a8d','--text':'#e6ecdf','--text-muted':'#8d9986',
+    '--danger':'#c9614b','--check-a':'#1c2420','--check-b':'#232d27' },
+  crimson: { '--bg':'#180f10','--panel':'#211416','--panel-alt':'#291a1c','--border':'#4a2b2c','--border-soft':'#382023',
+    '--brass':'#d0584a','--brass-dim':'#953f35','--verdigris':'#c98a4b','--text':'#f0e3e0','--text-muted':'#a3888a',
+    '--danger':'#e0655a','--check-a':'#241618','--check-b':'#2c1a1d' },
+  midnight:{ '--bg':'#0d0e14','--panel':'#14151f','--panel-alt':'#191a27','--border':'#2a2b3d','--border-soft':'#20212f',
+    '--brass':'#9c6bd8','--brass-dim':'#6b4a9c','--verdigris':'#6f9ac9','--text':'#e5e3f0','--text-muted':'#8a8aa3',
+    '--danger':'#c95a7a','--check-a':'#16171f','--check-b':'#1c1d28' },
+};
+let DEFAULT_THEME = null;
+function captureDefaultTheme(){
+  if(DEFAULT_THEME) return;
+  const cs = getComputedStyle(document.documentElement);
+  DEFAULT_THEME = {};
+  for(const g of THEME_VARS) for(const v of g.vars) DEFAULT_THEME[v.key] = cs.getPropertyValue(v.key).trim();
+}
+function applyThemeObj(theme){ for(const [k,v] of Object.entries(theme)) if(v) document.documentElement.style.setProperty(k, v); }
+function currentThemeObj(){
+  const cs = getComputedStyle(document.documentElement);
+  const out = {}; for(const g of THEME_VARS) for(const v of g.vars) out[v.key] = cs.getPropertyValue(v.key).trim();
+  return out;
+}
+function toHexColor(cssValue){
+  if(/^#[0-9a-f]{6}$/i.test(cssValue)) return cssValue;
+  const tmp = document.createElement('div'); tmp.style.color = cssValue; document.body.appendChild(tmp);
+  const rgb = getComputedStyle(tmp).color.match(/\d+/g); document.body.removeChild(tmp);
+  return rgb ? '#'+rgb.slice(0,3).map(n=>Number(n).toString(16).padStart(2,'0')).join('') : '#000000';
+}
+function buildThemeModal(){
+  captureDefaultTheme();
+  const container = document.getElementById('theme-groups'); container.innerHTML = '';
+  const cs = getComputedStyle(document.documentElement);
+  for(const g of THEME_VARS){
+    const label = document.createElement('div'); label.className='theme-group-label'; label.textContent = g.group;
+    container.appendChild(label);
+    for(const v of g.vars){
+      const row = document.createElement('div'); row.className='theme-row';
+      const lab = document.createElement('label'); lab.textContent = v.label;
+      const hex = toHexColor(cs.getPropertyValue(v.key).trim());
+      const input = document.createElement('input'); input.type='color'; input.value = hex;
+      const hexField = document.createElement('input'); hexField.type='text'; hexField.className='theme-hex'; hexField.value = hex;
+      input.addEventListener('input', ()=>{ document.documentElement.style.setProperty(v.key, input.value); hexField.value = input.value; });
+      hexField.addEventListener('change', ()=>{
+        let val = hexField.value.trim(); if(!val.startsWith('#')) val = '#'+val;
+        if(/^#[0-9a-f]{6}$/i.test(val)){ document.documentElement.style.setProperty(v.key, val); input.value = val; }
+      });
+      row.append(lab, input, hexField); container.appendChild(row);
+    }
+  }
+}
+function bindThemeControls(){
+  const sel = document.getElementById('theme-preset-select');
+  const defOpt = document.createElement('option'); defOpt.value='default'; defOpt.textContent='Ink & Brass (Default)'; sel.appendChild(defOpt);
+  for(const key of Object.keys(THEME_PRESETS)){ const o=document.createElement('option'); o.value=key; o.textContent=key[0].toUpperCase()+key.slice(1); sel.appendChild(o); }
+  sel.addEventListener('change', ()=>{
+    captureDefaultTheme();
+    applyThemeObj(sel.value==='default' ? DEFAULT_THEME : THEME_PRESETS[sel.value]);
+    buildThemeModal();
+  });
+  document.getElementById('theme-reset').addEventListener('click', ()=>{
+    captureDefaultTheme(); applyThemeObj(DEFAULT_THEME); sel.value='default'; buildThemeModal(); toast('Theme reset to default.');
+  });
+  document.getElementById('theme-export').addEventListener('click', async ()=>{
+    const json = JSON.stringify(currentThemeObj(), null, 2);
+    if(isElectron){
+      const fp = await window.leorixAPI.saveFileDialog('leorix-theme','json');
+      if(fp){ await window.leorixAPI.saveTextFile(fp.endsWith('.json')?fp:fp.replace(/\.[^.]*$/,'')+'.json', json); toast('Theme exported.'); }
+    } else {
+      const blob = new Blob([json], {type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href=url; a.download='leorix-theme.json';
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    }
+  });
+  document.getElementById('theme-import').addEventListener('click', ()=> document.getElementById('hidden-theme-file-input').click());
+  document.getElementById('hidden-theme-file-input').addEventListener('change', (e)=>{
+    const file = e.target.files[0]; if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      try{ applyThemeObj(JSON.parse(reader.result)); buildThemeModal(); toast('Theme imported.'); }
+      catch(err){ toast('Could not read that theme file.'); }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  });
+}
+
+/* ============================= Sidebar splitter ============================= */
+function bindSidebarSplitter(){
+  const splitter = document.getElementById('sidebar-splitter');
+  const sidebar = document.getElementById('sidebar');
+  let dragging = false, startX = 0, startWidth = 0;
+  splitter.addEventListener('pointerdown', (e)=>{
+    dragging = true; startX = e.clientX; startWidth = sidebar.getBoundingClientRect().width;
+    splitter.classList.add('dragging'); splitter.setPointerCapture(e.pointerId);
+  });
+  splitter.addEventListener('pointermove', (e)=>{
+    if(!dragging) return;
+    const w = clampNum(startWidth - (e.clientX-startX), 200, 560);
+    sidebar.style.width = w+'px';
+  });
+  splitter.addEventListener('pointerup', ()=>{ dragging=false; splitter.classList.remove('dragging'); });
+}
+
+/* ============================= Every sidebar panel is floatable ============================= */
+const SIDEBAR_PANEL_IDS = [
+  'tool-options-panel','color-panel','map-brush-panel','layers-panel','comic-panel',
+  'uv-panel','create3d-panel','sculpt-panel','stats-panel','hdri-panel','modifier-panel',
+  'rig-panel','weight-panel','cloth-panel','rig2d-panel','scene25d-panel','effects-panel',
+];
+const PanelWindows = {}; // panel id -> its FloatingPanel controller
+function makeAllPanelsFloatable(){
+  for(const id of SIDEBAR_PANEL_IDS){
+    const panel = document.getElementById(id);
+    const h3 = panel && panel.querySelector('h3');
+    if(!panel || !h3) continue;
+    h3.classList.add('panel-drag-handle');
+    if(!h3.id) h3.id = id+'-handle'; // some panels (Map Brush) already have their own id, read elsewhere by name
+    const dockBtn = document.createElement('button');
+    dockBtn.className = 'panel-dock-mini'; dockBtn.title = 'Dock back to the sidebar'; dockBtn.textContent = '⇱';
+    h3.insertAdjacentElement('afterend', dockBtn);
+    const fp = makeFloatingPanel({ elId:id, handleId:h3.id, resizable:false, minWidth:220, minHeight:80 });
+    dockBtn.addEventListener('click', (e)=>{ e.stopPropagation(); fp.dock(); });
+    h3.addEventListener('dblclick', ()=> fp.toggleDock());
+    PanelWindows[id] = fp;
+  }
+}
+function resetWindowLayout(){
+  for(const id of SIDEBAR_PANEL_IDS){ if(PanelWindows[id]) PanelWindows[id].dock(); }
+  if(ToolbarPanel) ToolbarPanel.dock();
+  if(Viewport3DPanel) Viewport3DPanel.dock();
+  toast('Window layout reset.');
+}
+
+
 
 /* ============================= Modifiers (Blender-style modifier stack) =============================
    Design choice, stated plainly: this is a "preview + Apply" system, not a fully live
@@ -6679,6 +7032,13 @@ function init(){
   updateCanvasCursorStyle();
   bindModePicker(); buildComicPresetGrid(); bindComicControls(); bindCreationControls();
   bindRigControls(); bindModifierControls();
+  bindThemeControls(); bindSidebarSplitter();
+  ToolbarPanel = makeFloatingPanel({ elId:'toolbar', handleId:'toolbar-handle', resizable:false });
+  Viewport3DPanel = makeFloatingPanel({
+    elId:'viewport3d', handleId:'viewport3d-bar', gripId:'viewport3d-resize-grip', resizable:true,
+    minWidth:280, minHeight:220, onResize:()=> Viewport3D._resize(),
+  });
+  makeAllPanelsFloatable();
   setComicMode(false); setWorkspacePanels({});
   if(isElectron) toast('Connected to desktop file system');
   requestAnimationFrame(zoomFit);

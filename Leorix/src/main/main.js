@@ -55,7 +55,7 @@ ipcMain.handle('open-file-dialog', async () => {
 });
 
 ipcMain.handle('save-file-dialog', async (event, filename, format) => {
-  const known = ['jpg', 'zip', 'exr', 'usda', 'png'];
+  const known = ['jpg', 'zip', 'exr', 'usda', 'json', 'png'];
   const ext = known.includes(format) ? format : 'png';
   const result = await dialog.showSaveDialog(win, {
     defaultPath: filename + '.' + ext,
