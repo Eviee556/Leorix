@@ -582,6 +582,16 @@
         <button class="btn" id="hdri-load" style="width:100%; margin-top:4px;">Load HDRI / Equirect Image…</button>
       </div>
 
+      <div class="panel" id="modifier-panel" style="display:none;">
+        <h3>Modifiers</h3>
+        <p style="font-size:11.5px; color:var(--text-muted); margin:0 0 8px; line-height:1.5;" id="mod-hint">Select a mesh with the Select tool to add modifiers.</p>
+        <select id="mod-add-select" class="num-input" style="margin-bottom:6px;"></select>
+        <button class="btn" id="mod-add-btn" style="width:100%; margin-bottom:8px;">Add Modifier</button>
+        <div id="mod-stack-list"></div>
+        <button class="btn primary" id="mod-apply-all" style="width:100%; margin-top:4px;">Apply All</button>
+        <button class="btn" id="mod-remove-all" style="width:100%; margin-top:5px;">Remove All (Revert)</button>
+      </div>
+
       <div class="panel" id="rig-panel" style="display:none;">
         <h3>Rig &amp; Animation</h3>
         <div class="row"><label>Naming</label>
@@ -3685,11 +3695,12 @@ const Viewport3D = {
         if(hits.length){
           e.preventDefault(); e.stopPropagation();
           this.selectMesh(hits[0].object);
+          Modifiers.refreshPanel();
           this.controls.enabled = false; this._movingMesh = true;
           this._moveLastPoint = hits[0].point.clone();
           el.setPointerCapture(e.pointerId);
         } else {
-          this.deselectMesh(); // clicked empty space — outline leaves
+          this.deselectMesh(); Modifiers.refreshPanel(); // clicked empty space — outline leaves
         }
         return;
       }
@@ -4567,20 +4578,31 @@ function applyStartupMode(){
     Viewport3D.show(true);
     const sub = document.getElementById('mode-3d-sub').value;
     if(sub === 'creation'){
-      setWorkspacePanels({ uv:true, create:true, sculpt:true, stats:true, hdri:true });
+      setWorkspacePanels({ uv:true, create:true, sculpt:true, stats:true, hdri:true, modifiers:true });
       HDRI.apply('studio');
       toast('3D Creation — add a primitive, then enable Sculpt mode.');
+    } else if(sub === 'animation'){
+      setWorkspacePanels({ uv:true, stats:true, hdri:true, modifiers:true, rig:true, weight:true, cloth:true, timeline:true });
+      HDRI.apply('studio');
+      setTimeout(()=> loadModelDialog(), 250);
     } else {
-      setWorkspacePanels({ uv:true, stats:true, hdri:true });
+      setWorkspacePanels({ uv:true, stats:true, hdri:true, modifiers:true });
       HDRI.apply('studio');
       setTimeout(()=> loadModelDialog(), 250);
     }
   } else if(StartupMode === 'comic'){
     Viewport3D.show(false);
     setComicMode(true);
-    setWorkspacePanels({});
+    setWorkspacePanels({ rig2d:true });
     CM().name = 'Page';
     renderMapTabs(); renderLayerPanel();
+  } else if(StartupMode === '25d'){
+    Viewport3D.show(false); setComicMode(false);
+    Scene25D.enabled = true;
+    if(!State.mapOrder.some(id=>State.maps[id].kind==='normal')) createMap('normal','Normal');
+    State.activeMapId = State.mapOrder[0];
+    setWorkspacePanels({ scene25d:true, rig2d:true });
+    renderMapTabs(); composite(); renderLayerPanel(); updateMenuStates();
   } else {
     Viewport3D.show(false);
     setComicMode(false);
@@ -4653,6 +4675,488 @@ function subdivideGeometry(geo){
   return out;
 }
 function clampNum(v,a,b){ return Math.max(a, Math.min(b, v)); }
+
+/* ============================= Modifiers (Blender-style modifier stack) =============================
+   Design choice, stated plainly: this is a "preview + Apply" system, not a fully live
+   non-destructive stack wired into Sculpt/Poly Spec editing. Each mesh gets a base
+   geometry snapshot (taken the first time you open this panel for it) plus a stack of
+   modifiers; the panel recomputes base->stack->result live as you tweak parameters, and
+   mesh.geometry always shows that result. "Apply All" bakes the current result in as the
+   new base and empties the stack, after which Sculpt/Poly Spec/Weight Paint keep working
+   on it exactly as they do on any other mesh. If you edit the mesh with those tools while
+   a stack is still active, the *next* parameter tweak will recompute from the old base and
+   discard those edits — Apply first if you plan to keep sculpting or editing.
+   In scope: Mirror, Subdivision Surface (Loop), Solidify, Array, Smooth, Decimate,
+   Displace (constant or driven by any painted map via UV), Weld.
+   Deliberately out of scope: Boolean (real CSG is a huge, bug-prone undertaking not
+   appropriate to bolt on here), Bevel (robust edge-based bevel has the same problem),
+   Shrinkwrap, Lattice/Curve deform, Skin, Screw, Build, and anything needing quads/n-gons
+   (this engine is triangle-only throughout). */
+
+function ensureIndexed(geo){
+  if(geo.index) return;
+  const n = geo.attributes.position.count;
+  const idx = new (n>65535 ? Uint32Array : Uint16Array)(n);
+  for(let i=0;i<n;i++) idx[i]=i;
+  geo.setIndex(new THREE.BufferAttribute(idx,1));
+}
+function findBoundaryEdges(geo){
+  ensureIndexed(geo);
+  const idx = geo.index.array;
+  const use = new Map();
+  for(let t=0;t<idx.length;t+=3){
+    const a=idx[t],b=idx[t+1],c=idx[t+2];
+    for(const [i,j] of [[a,b],[b,c],[c,a]]){
+      const k = edgeKey(i,j);
+      if(!use.has(k)) use.set(k, {a:i,b:j,count:0});
+      use.get(k).count++;
+    }
+  }
+  return Array.from(use.values()).filter(e=>e.count===1);
+}
+function computeVertexNormalsArray(pos, idx, count){
+  const nrm = new Float32Array(count*3);
+  const p = (i,c)=> pos[i*3+c];
+  for(let t=0;t<idx.length;t+=3){
+    const a=idx[t],b=idx[t+1],c=idx[t+2];
+    const ux=p(b,0)-p(a,0), uy=p(b,1)-p(a,1), uz=p(b,2)-p(a,2);
+    const vx=p(c,0)-p(a,0), vy=p(c,1)-p(a,1), vz=p(c,2)-p(a,2);
+    const nx=uy*vz-uz*vy, ny=uz*vx-ux*vz, nz=ux*vy-uy*vx;
+    for(const v of [a,b,c]){ nrm[v*3]+=nx; nrm[v*3+1]+=ny; nrm[v*3+2]+=nz; }
+  }
+  for(let i=0;i<count;i++){
+    const x=nrm[i*3],y=nrm[i*3+1],z=nrm[i*3+2];
+    const len = Math.hypot(x,y,z)||1;
+    nrm[i*3]=x/len; nrm[i*3+1]=y/len; nrm[i*3+2]=z/len;
+  }
+  return nrm;
+}
+function makeGeo(positions, index, uvs){
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(positions,3));
+  if(uvs) g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs,2));
+  const IndexArr = (positions.length/3) > 65535 ? Uint32Array : Uint16Array;
+  g.setIndex(new THREE.BufferAttribute(new IndexArr(index),1));
+  g.computeVertexNormals();
+  return g;
+}
+
+const MODIFIER_ALGOS = {
+  mirror(geo, p){
+    ensureIndexed(geo);
+    const pos = geo.attributes.position, idx = geo.index.array;
+    const n = pos.count;
+    const axisIdx = p.axis==='x'?0 : p.axis==='y'?1 : 2;
+    const positions = Array.from(pos.array);
+    for(let i=0;i<n;i++){
+      const v = [pos.getX(i),pos.getY(i),pos.getZ(i)];
+      v[axisIdx] = -v[axisIdx];
+      positions.push(v[0],v[1],v[2]);
+    }
+    const index = Array.from(idx);
+    for(let t=0;t<idx.length;t+=3){
+      // Reverse winding on the mirrored copy so its normals still face outward.
+      index.push(idx[t]+n, idx[t+2]+n, idx[t+1]+n);
+    }
+    let g = makeGeo(positions, index);
+    if(p.merge) g = weldGeometry(g, p.mergeDist);
+    return g;
+  },
+
+  subsurf(geo, p){
+    ensureIndexed(geo);
+    let g = geo;
+    for(let iter=0; iter<p.iterations; iter++) g = loopSubdivide(g);
+    return g;
+  },
+
+  solidify(geo, p){
+    ensureIndexed(geo);
+    const pos = geo.attributes.position, idx = geo.index.array;
+    const n = pos.count;
+    const nrm = geo.attributes.normal ? geo.attributes.normal.array : computeVertexNormalsArray(pos.array, idx, n);
+    const positions = Array.from(pos.array);
+    for(let i=0;i<n;i++){
+      positions.push(pos.getX(i)-nrm[i*3]*p.thickness, pos.getY(i)-nrm[i*3+1]*p.thickness, pos.getZ(i)-nrm[i*3+2]*p.thickness);
+    }
+    const index = Array.from(idx);
+    // Inner shell: reversed winding, offset copy.
+    for(let t=0;t<idx.length;t+=3) index.push(idx[t]+n, idx[t+2]+n, idx[t+1]+n);
+    // Stitch open boundary edges with side walls so the shell isn't hollow at the rim.
+    for(const e of findBoundaryEdges(geo)){
+      index.push(e.a, e.b, e.b+n, e.a, e.b+n, e.a+n);
+    }
+    return makeGeo(positions, index);
+  },
+
+  array(geo, p){
+    ensureIndexed(geo);
+    const pos = geo.attributes.position, idx = geo.index.array, uvAttr = geo.attributes.uv;
+    const n = pos.count;
+    const positions = [];
+    const uvs = uvAttr ? [] : null;
+    const index = [];
+    for(let c=0;c<p.count;c++){
+      for(let i=0;i<n;i++){
+        positions.push(pos.getX(i)+p.offsetX*c, pos.getY(i)+p.offsetY*c, pos.getZ(i)+p.offsetZ*c);
+        if(uvs) uvs.push(uvAttr.getX(i), uvAttr.getY(i));
+      }
+      for(let t=0;t<idx.length;t++) index.push(idx[t]+n*c);
+    }
+    return makeGeo(positions, index, uvs);
+  },
+
+  smooth(geo, p){
+    ensureIndexed(geo);
+    const pos = geo.attributes.position, idx = geo.index.array;
+    const n = pos.count;
+    const adj = Array.from({length:n}, ()=>new Set());
+    for(let t=0;t<idx.length;t+=3){
+      const a=idx[t],b=idx[t+1],c=idx[t+2];
+      adj[a].add(b); adj[a].add(c); adj[b].add(a); adj[b].add(c); adj[c].add(a); adj[c].add(b);
+    }
+    let cur = Array.from(pos.array);
+    for(let iter=0; iter<p.iterations; iter++){
+      const next = cur.slice();
+      for(let i=0;i<n;i++){
+        const nb = Array.from(adj[i]); if(!nb.length) continue;
+        let sx=0,sy=0,sz=0;
+        for(const j of nb){ sx+=cur[j*3]; sy+=cur[j*3+1]; sz+=cur[j*3+2]; }
+        sx/=nb.length; sy/=nb.length; sz/=nb.length;
+        next[i*3]   = cur[i*3]   + (sx-cur[i*3])*p.factor;
+        next[i*3+1] = cur[i*3+1] + (sy-cur[i*3+1])*p.factor;
+        next[i*3+2] = cur[i*3+2] + (sz-cur[i*3+2])*p.factor;
+      }
+      cur = next;
+    }
+    return makeGeo(cur, Array.from(idx));
+  },
+
+  decimate(geo, p){
+    // Uniform grid vertex-clustering — a standard, well-behaved decimation technique.
+    ensureIndexed(geo);
+    const pos = geo.attributes.position, idx = geo.index.array;
+    const n = pos.count;
+    if(!geo.boundingBox) geo.computeBoundingBox();
+    const bb = geo.boundingBox;
+    const size = new THREE.Vector3(); bb.getSize(size);
+    const maxDim = Math.max(size.x,size.y,size.z,1e-6);
+    const targetCells = Math.max(4, Math.round(n * p.ratio));
+    const gridRes = Math.max(2, Math.round(Math.cbrt(targetCells)));
+    const cell = maxDim / gridRes;
+    const bucket = new Map();
+    for(let i=0;i<n;i++){
+      const x=pos.getX(i)-bb.min.x, y=pos.getY(i)-bb.min.y, z=pos.getZ(i)-bb.min.z;
+      const key = `${Math.floor(x/cell)},${Math.floor(y/cell)},${Math.floor(z/cell)}`;
+      if(!bucket.has(key)) bucket.set(key, {sum:[0,0,0], count:0, id:-1});
+      const b = bucket.get(key);
+      b.sum[0]+=pos.getX(i); b.sum[1]+=pos.getY(i); b.sum[2]+=pos.getZ(i); b.count++;
+    }
+    const positions = []; let nextId = 0;
+    for(const b of bucket.values()){ b.id = nextId++; positions.push(b.sum[0]/b.count, b.sum[1]/b.count, b.sum[2]/b.count); }
+    const vertBucket = new Array(n);
+    for(let i=0;i<n;i++){
+      const x=pos.getX(i)-bb.min.x, y=pos.getY(i)-bb.min.y, z=pos.getZ(i)-bb.min.z;
+      const key = `${Math.floor(x/cell)},${Math.floor(y/cell)},${Math.floor(z/cell)}`;
+      vertBucket[i] = bucket.get(key).id;
+    }
+    const index = [];
+    for(let t=0;t<idx.length;t+=3){
+      const a=vertBucket[idx[t]], b=vertBucket[idx[t+1]], c=vertBucket[idx[t+2]];
+      if(a===b||b===c||c===a) continue;
+      index.push(a,b,c);
+    }
+    return makeGeo(positions, index.length ? index : [0,0,0]);
+  },
+
+  displace(geo, p){
+    ensureIndexed(geo);
+    const pos = geo.attributes.position, idx = geo.index.array;
+    const n = pos.count;
+    const nrm = geo.attributes.normal ? geo.attributes.normal.array : computeVertexNormalsArray(pos.array, idx, n);
+    const positions = Array.from(pos.array);
+    if(p.mode==='map' && p.mapId && State.maps[p.mapId] && geo.attributes.uv){
+      const uv = geo.attributes.uv;
+      const src = renderMapCompositeFull(p.mapId);
+      const sctx = src.getContext('2d');
+      const W = src.width, H = src.height;
+      const data = sctx.getImageData(0,0,W,H).data;
+      for(let i=0;i<n;i++){
+        const u = clampNum(uv.getX(i),0,1), v = clampNum(uv.getY(i),0,1);
+        const px = Math.min(W-1, Math.floor(u*W)), py = Math.min(H-1, Math.floor((1-v)*H));
+        const di = (py*W+px)*4;
+        const lum = (data[di]*0.299+data[di+1]*0.587+data[di+2]*0.114)/255;
+        const amt = (lum-0.5)*2*p.amount;
+        positions[i*3]   += nrm[i*3]*amt;
+        positions[i*3+1] += nrm[i*3+1]*amt;
+        positions[i*3+2] += nrm[i*3+2]*amt;
+      }
+    } else {
+      if(p.mode==='map') toast('Displace: no UVs on this mesh (or no map picked) — using a constant push instead.');
+      for(let i=0;i<n;i++){
+        positions[i*3]   += nrm[i*3]*p.amount;
+        positions[i*3+1] += nrm[i*3+1]*p.amount;
+        positions[i*3+2] += nrm[i*3+2]*p.amount;
+      }
+    }
+    return makeGeo(positions, Array.from(idx), geo.attributes.uv ? Array.from(geo.attributes.uv.array) : null);
+  },
+
+  weld(geo, p){ return weldGeometry(geo, p.distance); },
+};
+
+/* Loop subdivision with the standard simplified beta weight (3/(8k)); boundary edges/verts
+   use the plain-average boundary rule rather than the interior rule. */
+function loopSubdivide(geo){
+  ensureIndexed(geo);
+  const pos = geo.attributes.position, idx = geo.index.array;
+  const n = pos.count;
+  const P = (i,c)=> pos.array[i*3+c];
+
+  const adj = Array.from({length:n}, ()=>new Set());
+  const edgeFaceVerts = new Map(); // edgeKey -> [oppositeVertIdx, ...] (1 or 2 entries)
+  for(let t=0;t<idx.length;t+=3){
+    const a=idx[t],b=idx[t+1],c=idx[t+2];
+    adj[a].add(b); adj[a].add(c); adj[b].add(a); adj[b].add(c); adj[c].add(a); adj[c].add(b);
+    for(const [i,j,opp] of [[a,b,c],[b,c,a],[c,a,b]]){
+      const k = edgeKey(i,j);
+      if(!edgeFaceVerts.has(k)) edgeFaceVerts.set(k, []);
+      edgeFaceVerts.get(k).push(opp);
+    }
+  }
+  const boundaryVerts = new Set();
+  for(const [k,opps] of edgeFaceVerts){ if(opps.length===1){ const [a,b]=k.split('|').map(Number); boundaryVerts.add(a); boundaryVerts.add(b); } }
+
+  // New positions for original vertices (smoothed).
+  const smoothed = new Float32Array(n*3);
+  for(let i=0;i<n;i++){
+    const nb = Array.from(adj[i]);
+    if(boundaryVerts.has(i)){
+      // Boundary rule: average with just the two boundary-edge neighbors.
+      const boundaryNb = nb.filter(j=> edgeFaceVerts.get(edgeKey(i,j)).length===1);
+      if(boundaryNb.length>=2){
+        const [b1,b2] = boundaryNb;
+        smoothed[i*3]   = 0.75*P(i,0) + 0.125*(P(b1,0)+P(b2,0));
+        smoothed[i*3+1] = 0.75*P(i,1) + 0.125*(P(b1,1)+P(b2,1));
+        smoothed[i*3+2] = 0.75*P(i,2) + 0.125*(P(b1,2)+P(b2,2));
+      } else { smoothed[i*3]=P(i,0); smoothed[i*3+1]=P(i,1); smoothed[i*3+2]=P(i,2); }
+    } else {
+      const k = nb.length;
+      const beta = k>0 ? 3/(8*k) : 0;
+      let sx=0,sy=0,sz=0;
+      for(const j of nb){ sx+=P(j,0); sy+=P(j,1); sz+=P(j,2); }
+      smoothed[i*3]   = (1-k*beta)*P(i,0) + beta*sx;
+      smoothed[i*3+1] = (1-k*beta)*P(i,1) + beta*sy;
+      smoothed[i*3+2] = (1-k*beta)*P(i,2) + beta*sz;
+    }
+  }
+
+  // New edge-point vertices.
+  const edgeVertId = new Map();
+  const newVerts = [];
+  let nextId = n;
+  for(const [k,opps] of edgeFaceVerts){
+    const [a,b] = k.split('|').map(Number);
+    let x,y,z;
+    if(opps.length===2){
+      const [p1,p2] = opps;
+      x = 0.375*(P(a,0)+P(b,0)) + 0.125*(P(p1,0)+P(p2,0));
+      y = 0.375*(P(a,1)+P(b,1)) + 0.125*(P(p1,1)+P(p2,1));
+      z = 0.375*(P(a,2)+P(b,2)) + 0.125*(P(p1,2)+P(p2,2));
+    } else {
+      x = (P(a,0)+P(b,0))/2; y = (P(a,1)+P(b,1))/2; z = (P(a,2)+P(b,2))/2;
+    }
+    edgeVertId.set(k, nextId); newVerts.push(x,y,z); nextId++;
+  }
+
+  const positions = new Array(n*3);
+  for(let i=0;i<n;i++){ positions[i*3]=smoothed[i*3]; positions[i*3+1]=smoothed[i*3+1]; positions[i*3+2]=smoothed[i*3+2]; }
+  positions.push(...newVerts);
+
+  const index = [];
+  for(let t=0;t<idx.length;t+=3){
+    const a=idx[t],b=idx[t+1],c=idx[t+2];
+    const ab = edgeVertId.get(edgeKey(a,b)), bc = edgeVertId.get(edgeKey(b,c)), ca = edgeVertId.get(edgeKey(c,a));
+    index.push(a,ab,ca, ab,b,bc, ca,bc,c, ab,bc,ca);
+  }
+  return makeGeo(positions, index);
+}
+
+/* --- Modifier stack management (per-mesh, via WeakMap) --- */
+const MODIFIER_DEFS = [
+  { type:'mirror', label:'Mirror', defaults:{axis:'x', merge:true, mergeDist:0.001}, fields:[
+    {key:'axis', type:'select', label:'Axis', options:[['x','X'],['y','Y'],['z','Z']]},
+    {key:'merge', type:'checkbox', label:'Merge seam'},
+    {key:'mergeDist', type:'range', label:'Merge Dist', min:0.0001, max:0.05, step:0.0001, suffix:''},
+  ]},
+  { type:'subsurf', label:'Subdivision Surface', defaults:{iterations:1}, fields:[
+    {key:'iterations', type:'range', label:'Iterations', min:1, max:3, step:1, suffix:''},
+  ]},
+  { type:'solidify', label:'Solidify', defaults:{thickness:0.05}, fields:[
+    {key:'thickness', type:'range', label:'Thickness', min:0.001, max:0.5, step:0.001, suffix:''},
+  ]},
+  { type:'array', label:'Array', defaults:{count:3, offsetX:1.2, offsetY:0, offsetZ:0}, fields:[
+    {key:'count', type:'range', label:'Count', min:1, max:20, step:1, suffix:''},
+    {key:'offsetX', type:'range', label:'Offset X', min:-4, max:4, step:0.01, suffix:''},
+    {key:'offsetY', type:'range', label:'Offset Y', min:-4, max:4, step:0.01, suffix:''},
+    {key:'offsetZ', type:'range', label:'Offset Z', min:-4, max:4, step:0.01, suffix:''},
+  ]},
+  { type:'smooth', label:'Smooth', defaults:{factor:0.5, iterations:3}, fields:[
+    {key:'factor', type:'range', label:'Factor', min:0, max:1, step:0.01, suffix:''},
+    {key:'iterations', type:'range', label:'Iterations', min:1, max:20, step:1, suffix:''},
+  ]},
+  { type:'decimate', label:'Decimate', defaults:{ratio:0.5}, fields:[
+    {key:'ratio', type:'range', label:'Ratio', min:0.05, max:1, step:0.01, suffix:''},
+  ]},
+  { type:'displace', label:'Displace', defaults:{mode:'constant', amount:0.1, mapId:''}, fields:[
+    {key:'mode', type:'select', label:'Source', options:[['constant','Constant'],['map','Painted Map']]},
+    {key:'amount', type:'range', label:'Amount', min:-1, max:1, step:0.005, suffix:''},
+    {key:'mapId', type:'mapselect', label:'Map'},
+  ]},
+  { type:'weld', label:'Weld', defaults:{distance:0.001}, fields:[
+    {key:'distance', type:'range', label:'Distance', min:0.0001, max:0.05, step:0.0001, suffix:''},
+  ]},
+];
+const Modifiers = {
+  stacks: new WeakMap(), // mesh -> { list:[{id,type,enabled,params}], base: BufferGeometry }
+  _nextId: 1,
+
+  _entryFor(mesh){
+    if(!this.stacks.has(mesh)) this.stacks.set(mesh, { list:[], base: mesh.geometry.clone() });
+    return this.stacks.get(mesh);
+  },
+  add(type){
+    const mesh = Viewport3D.selectedMesh;
+    if(!mesh){ toast('Select a mesh first.'); return; }
+    const def = MODIFIER_DEFS.find(d=>d.type===type); if(!def) return;
+    const entry = this._entryFor(mesh);
+    entry.list.push({ id:this._nextId++, type, enabled:true, params:{...def.defaults} });
+    this.recompute(mesh);
+    this.refreshPanel();
+  },
+  remove(mesh, id){
+    const entry = this.stacks.get(mesh); if(!entry) return;
+    entry.list = entry.list.filter(m=>m.id!==id);
+    this.recompute(mesh); this.refreshPanel();
+  },
+  move(mesh, id, dir){
+    const entry = this.stacks.get(mesh); if(!entry) return;
+    const i = entry.list.findIndex(m=>m.id===id);
+    const j = i+dir;
+    if(i<0 || j<0 || j>=entry.list.length) return;
+    [entry.list[i], entry.list[j]] = [entry.list[j], entry.list[i]];
+    this.recompute(mesh); this.refreshPanel();
+  },
+  recompute(mesh){
+    const entry = this.stacks.get(mesh); if(!entry) return;
+    let geo = entry.base.clone();
+    for(const m of entry.list){
+      if(!m.enabled) continue;
+      try{ geo = MODIFIER_ALGOS[m.type](geo, m.params); }
+      catch(err){ console.error('Modifier failed:', m.type, err); toast('Modifier "'+m.type+'" failed — check its parameters.'); }
+    }
+    const old = mesh.geometry;
+    mesh.geometry = geo;
+    if(old !== entry.base) old.dispose();
+    if(mesh.isSkinnedMesh && Rig.bones) toast('Note: modifiers on a rigged mesh do not update skin weights.');
+    UVView.invalidate(); refreshMeshStats(); refreshUVPanel();
+    if(Viewport3D.selectedMesh === mesh) Viewport3D.selectMesh(mesh); // rebuild the outline against the new geometry
+  },
+  applyAll(mesh){
+    const entry = this.stacks.get(mesh); if(!entry || !entry.list.length) return;
+    entry.base.dispose();
+    entry.base = mesh.geometry.clone();
+    entry.list = [];
+    this.refreshPanel();
+    toast('Modifiers applied — now part of the base mesh.');
+  },
+  removeAll(mesh){
+    const entry = this.stacks.get(mesh); if(!entry) return;
+    entry.list = [];
+    this.recompute(mesh);
+    this.refreshPanel();
+    toast('Reverted to the pre-modifier mesh.');
+  },
+
+  refreshPanel(){
+    const mesh = Viewport3D.selectedMesh;
+    const hint = document.getElementById('mod-hint');
+    const list = document.getElementById('mod-stack-list');
+    if(!mesh){ hint.style.display='block'; list.innerHTML=''; return; }
+    hint.style.display='none';
+    const entry = this._entryFor(mesh);
+    list.innerHTML = '';
+    entry.list.forEach((m,i)=>{
+      const def = MODIFIER_DEFS.find(d=>d.type===m.type);
+      const row = document.createElement('div'); row.className='fx-row';
+      const header = document.createElement('div'); header.className='fx-row-header';
+      const cb = document.createElement('input'); cb.type='checkbox'; cb.checked=m.enabled;
+      cb.addEventListener('change', ()=>{ m.enabled=cb.checked; this.recompute(mesh); });
+      const name = document.createElement('span'); name.className='fx-row-name'; name.textContent = def.label;
+      const up = document.createElement('button'); up.className='icon-btn'; up.title='Move up';
+      up.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
+      up.addEventListener('click', ()=> this.move(mesh, m.id, -1));
+      const down = document.createElement('button'); down.className='icon-btn'; down.title='Move down';
+      down.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12l7 7 7-7"/></svg>';
+      down.addEventListener('click', ()=> this.move(mesh, m.id, 1));
+      const del = document.createElement('button'); del.className='icon-btn'; del.title='Remove';
+      del.innerHTML = '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>';
+      del.addEventListener('click', ()=> this.remove(mesh, m.id));
+      const expandBtn = document.createElement('button'); expandBtn.className='fx-expand-btn'; expandBtn.textContent='▾';
+      header.append(cb, name, up, down, del, expandBtn);
+
+      const body = document.createElement('div'); body.className='fx-row-body'; body.style.display='none';
+      for(const f of def.fields){
+        const frow = document.createElement('div'); frow.className='row';
+        const flabel = document.createElement('label'); flabel.textContent=f.label; frow.appendChild(flabel);
+        if(f.type==='select'){
+          const sel = document.createElement('select');
+          for(const [val,lbl] of f.options){ const o=document.createElement('option'); o.value=val; o.textContent=lbl; sel.appendChild(o); }
+          sel.value = m.params[f.key];
+          sel.addEventListener('change', ()=>{ m.params[f.key]=sel.value; this.recompute(mesh); });
+          frow.appendChild(sel);
+        } else if(f.type==='mapselect'){
+          const sel = document.createElement('select');
+          const none = document.createElement('option'); none.value=''; none.textContent='(none)'; sel.appendChild(none);
+          for(const id of State.mapOrder){ const o=document.createElement('option'); o.value=id; o.textContent=State.maps[id].name; sel.appendChild(o); }
+          sel.value = m.params[f.key]||'';
+          sel.addEventListener('change', ()=>{ m.params[f.key]=sel.value; this.recompute(mesh); });
+          frow.appendChild(sel);
+        } else if(f.type==='checkbox'){
+          const cb2 = document.createElement('input'); cb2.type='checkbox'; cb2.checked = !!m.params[f.key];
+          cb2.addEventListener('change', ()=>{ m.params[f.key]=cb2.checked; this.recompute(mesh); });
+          frow.appendChild(cb2);
+        } else {
+          const inp = document.createElement('input'); inp.type='range'; inp.min=f.min; inp.max=f.max; inp.step=f.step||1; inp.value=m.params[f.key];
+          const val = document.createElement('span'); val.className='val'; val.textContent = m.params[f.key];
+          inp.addEventListener('input', ()=>{
+            m.params[f.key] = Number(inp.value); val.textContent = inp.value;
+            this.recompute(mesh);
+          });
+          frow.append(inp, val);
+        }
+        body.appendChild(frow);
+      }
+      expandBtn.addEventListener('click', ()=>{
+        const open = body.style.display!=='none';
+        body.style.display = open?'none':'block'; expandBtn.textContent = open?'▾':'▴';
+      });
+      row.append(header, body); list.appendChild(row);
+    });
+  }
+};
+function bindModifierControls(){
+  const sel = document.getElementById('mod-add-select');
+  for(const d of MODIFIER_DEFS){ const o=document.createElement('option'); o.value=d.type; o.textContent=d.label; sel.appendChild(o); }
+  document.getElementById('mod-add-btn').addEventListener('click', ()=> Modifiers.add(sel.value));
+  document.getElementById('mod-apply-all').addEventListener('click', ()=>{
+    if(Viewport3D.selectedMesh) Modifiers.applyAll(Viewport3D.selectedMesh); else toast('Select a mesh first.');
+  });
+  document.getElementById('mod-remove-all').addEventListener('click', ()=>{
+    if(Viewport3D.selectedMesh) Modifiers.removeAll(Viewport3D.selectedMesh); else toast('Select a mesh first.');
+  });
+}
+
 
 /* ============================= UV map reading + seam detection ============================= */
 const UVView = {
@@ -5122,8 +5626,15 @@ function setWorkspacePanels(opts){
   const show = (id,on)=>{ const el=document.getElementById(id); if(el) el.style.display = on?'block':'none'; };
   show('uv-panel', !!opts.uv); show('create3d-panel', !!opts.create);
   show('sculpt-panel', !!opts.sculpt); show('stats-panel', !!opts.stats); show('hdri-panel', !!opts.hdri);
+  show('modifier-panel', !!opts.modifiers);
+  show('rig-panel', !!opts.rig); show('weight-panel', !!opts.weight); show('cloth-panel', !!opts.cloth);
+  show('rig2d-panel', !!opts.rig2d); show('scene25d-panel', !!opts.scene25d);
+  document.getElementById('timeline').classList.toggle('show', !!opts.timeline);
   if(opts.uv) refreshUVPanel();
   if(opts.stats) refreshMeshStats();
+  if(opts.rig) renderRigPanel();
+  if(opts.weight) renderBoneList();
+  if(opts.modifiers) Modifiers.refreshPanel();
 }
 function bindCreationControls(){
   /* --- window controls (frameless) --- */
@@ -6167,6 +6678,7 @@ function init(){
   resizeStage(); composite(); renderLayerPanel(); renderMapTabs(); selectTool('brush'); updateMenuStates();
   updateCanvasCursorStyle();
   bindModePicker(); buildComicPresetGrid(); bindComicControls(); bindCreationControls();
+  bindRigControls(); bindModifierControls();
   setComicMode(false); setWorkspacePanels({});
   if(isElectron) toast('Connected to desktop file system');
   requestAnimationFrame(zoomFit);
