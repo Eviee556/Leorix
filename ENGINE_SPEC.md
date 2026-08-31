@@ -40,7 +40,7 @@ Vector Maps (Normal, Displacement): Reoriented Normal Mapping (RNM).
 
 Normal maps must be blended as vectors to prevent the "flattening" effect common in standard alpha blending.
 
-# # 3. Command Pattern (Undo/Redo)
+# 3. Command Pattern (Undo/Redo)
 To maintain Affected Area memory complexity:
 
 Dirty Tiles: Only areas modified by a command are processed.
