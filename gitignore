@@ -1,0 +1,19 @@
+# Dependencies — reinstalled via `npm install`, never commit this
+node_modules/
+
+# electron-builder output — regenerated via `npm run dist` / `npm run pack`
+dist/
+
+# OS cruft
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+
+# Logs
+*.log
+npm-debug.log*
