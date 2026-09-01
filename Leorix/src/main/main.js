@@ -1,6 +1,14 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 
+// This machine has two GPUs (a discrete AMD Radeon RX 7900 XTX and an integrated
+// AMD Radeon Graphics chip). Electron doesn't always pick the discrete one the way
+// a properly-installed browser does, and this particular AMD driver combination
+// treats a lost GPU context as fatal rather than recoverable (visible in chrome://gpu
+// as the "exit_on_context_lost" workaround) — a bad combination if the wrong GPU
+// gets selected. This explicitly requests the high-performance/discrete GPU.
+app.commandLine.appendSwitch('force_high_performance_gpu');
+
 let win;
 
 function createWindow() {

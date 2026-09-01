@@ -283,12 +283,17 @@
   .normal-dir-btn:hover{border-color:var(--brass);}
   .normal-dir-btn.center{color:rgba(0,0,0,.35); font-size:10px;}
   /* ---- Custom window controls (frameless) ---- */
-  #win-controls{margin-left:auto; display:flex; gap:2px; -webkit-app-region:no-drag;}
+  #win-controls{display:flex; gap:2px; -webkit-app-region:no-drag;}
   #win-controls button{width:34px; height:26px; background:none; border:none; color:var(--text-muted);
     cursor:pointer; border-radius:3px; display:flex; align-items:center; justify-content:center;}
   #win-controls button svg{width:11px; height:11px; stroke:currentColor; fill:none; stroke-width:1.4;}
   #win-controls button:hover{background:var(--panel-alt); color:var(--text);}
   #win-controls button.close:hover{background:var(--danger); color:#fff;}
+  #workspace-focus-controls{margin-left:auto; display:flex; gap:2px; -webkit-app-region:no-drag; padding-right:8px; border-right:1px solid var(--border); margin-right:6px;}
+  #workspace-focus-controls button{width:30px; height:26px; background:none; border:none; color:var(--text-muted);
+    cursor:pointer; border-radius:3px; display:flex; align-items:center; justify-content:center;}
+  #workspace-focus-controls button svg{width:15px; height:15px; stroke:currentColor; fill:none; stroke-width:1.5;}
+  #workspace-focus-controls button:hover{background:var(--panel-alt); color:var(--brass);}
   /* ---- UV / stats rows ---- */
   .uv-row{display:flex; align-items:center; gap:8px; margin-bottom:8px;}
   .uv-row input[type=checkbox]{accent-color:var(--brass); width:14px; height:14px;}
@@ -530,6 +535,11 @@
         <button data-action="reset-layout">Reset Window Layout</button>
       </div>
     </div>
+    <div id="workspace-focus-controls">
+      <button id="wf-both" title="Show Both Workspaces (F1)"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="9" height="16" rx="1.5"/><rect x="13" y="4" width="9" height="16" rx="1.5"/></svg></button>
+      <button id="wf-2d" title="Focus 2D / UV Canvas (F2)"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M3 15l4-4 3 3 4-5 7 7"/></svg></button>
+      <button id="wf-3d" title="Focus 3D Viewport (F3)"><svg viewBox="0 0 24 24"><path d="M12 2l9 5v10l-9 5-9-5V7z"/><path d="M12 12l9-5M12 12v10M12 12L3 7"/></svg></button>
+    </div>
     <div id="win-controls">
       <button id="win-min" title="Minimize"><svg viewBox="0 0 12 12"><path d="M2 6h8"/></svg></button>
       <button id="win-max" title="Maximize"><svg viewBox="0 0 12 12"><rect x="2.5" y="2.5" width="7" height="7"/></svg></button>
@@ -594,8 +604,8 @@
         </div>
         <div id="ps-boxselect"></div>
         <div id="mesh-stats"></div>
+        <div id="viewport3d-gizmo"></div>
       </div>
-      <canvas id="viewport3d-gizmo"></canvas>
       <div id="viewport3d-resize-grip" class="panel-resize-grip"></div>
     </div>
 
@@ -1103,6 +1113,7 @@ leorix.log('Added a sphere.');"></textarea>
 
 /* ============================= Electron bridge detection ============================= */
 const isElectron = typeof window.leorixAPI !== 'undefined';
+let ActiveWorkspace = '2d'; // '2d' | '3d' — tracks which canvas was last actually interacted with
 
 /* Single source of truth for every 3D-viewport color, so Preferences can edit all
    of them live instead of them being hardcoded hex values scattered through the
@@ -2545,6 +2556,7 @@ function scheduleMaskSelectPreview(){
 let panStart = null, scrollStart = null, shapeDragStart = null, balloonTailAngle = 90;
 
 mainCanvas.addEventListener('pointerdown', (e)=>{
+  ActiveWorkspace = '2d';
   if(e.button===1 || (State.tool==='pan')){
     panStart = {x:e.clientX,y:e.clientY}; scrollStart = {left:wrap.scrollLeft, top:wrap.scrollTop}; return;
   }
@@ -3532,6 +3544,10 @@ window.addEventListener('keydown', (e)=>{
   }
 
   // Tab toggles Poly Spec Mode any time the 3D viewport is visible, regardless of what else is going on.
+  if(key==='f1'){ e.preventDefault(); showBothWorkspaces(); return; }
+  if(key==='f2'){ e.preventDefault(); focusWorkspace2D(); return; }
+  if(key==='f3'){ e.preventDefault(); focusWorkspace3D(); return; }
+
   if(key==='tab' && Viewport3D.active){ e.preventDefault(); PolySpec.toggle(); return; }
 
   if(PolySpec.active){
@@ -3580,8 +3596,8 @@ window.addEventListener('keydown', (e)=>{
 
   const shortcuts = { b:'brush', n:'pencil', e:'eraser', v:'move', m:'marquee-rect', q:'lasso', k:'mask-select',
     g:'fill', i:'eyedropper', t:'text', u:'rect', l:'line', p:'pen', h:'pan', z:'zoom' };
-  if(mod && key==='z' && !e.shiftKey){ e.preventDefault(); Viewport3D.active ? Viewport3DHistory.undo() : undo(); return; }
-  if(mod && ((key==='z' && e.shiftKey) || key==='y')){ e.preventDefault(); Viewport3D.active ? Viewport3DHistory.redo() : redo(); return; }
+  if(mod && key==='z' && !e.shiftKey){ e.preventDefault(); ActiveWorkspace==='3d' && Viewport3D.active ? Viewport3DHistory.undo() : undo(); return; }
+  if(mod && ((key==='z' && e.shiftKey) || key==='y')){ e.preventDefault(); ActiveWorkspace==='3d' && Viewport3D.active ? Viewport3DHistory.redo() : redo(); return; }
   if(mod && key==='s'){ e.preventDefault(); saveProject(e.shiftKey); return; }
   if(mod && key==='a'){ e.preventDefault(); CM().selection = {type:'rect', x:0,y:0,w:State.width,h:State.height}; renderSelectionOverlay(); return; }
   if(mod && key==='d'){ e.preventDefault(); CM().selection=null; renderSelectionOverlay(); return; }
@@ -3924,6 +3940,7 @@ const Viewport3D = {
       showViewportContextMenu(e.clientX, e.clientY, items);
     });
     el.addEventListener('pointerdown', (e)=>{
+      ActiveWorkspace = '3d';
       // Poly Spec (edit mode) takes priority over everything else in the viewport.
       if(PolySpec.active){
         if(PolySpec.transform){
@@ -4009,7 +4026,18 @@ const Viewport3D = {
           this._moveLastPoint = hits[0].point.clone();
           el.setPointerCapture(e.pointerId);
         } else {
-          this.deselectMesh(); Modifiers.refreshPanel(); // clicked empty space — outline leaves
+          // Not a mesh — arm a box-select drag. Resolved on release: a small
+          // movement is treated as a plain click (deselect); a real drag selects
+          // whichever mesh's on-screen position falls inside the box.
+          e.preventDefault(); e.stopPropagation();
+          this._boxSelecting = true;
+          const rect = el.getBoundingClientRect();
+          this._boxSelectStart = { x:e.clientX-rect.left, y:e.clientY-rect.top };
+          const box = document.getElementById('ps-boxselect');
+          box.style.left = this._boxSelectStart.x+'px'; box.style.top = this._boxSelectStart.y+'px';
+          box.style.width = '0px'; box.style.height = '0px'; box.style.display = 'block';
+          this.controls.enabled = false;
+          el.setPointerCapture(e.pointerId);
         }
         return;
       }
@@ -4067,6 +4095,15 @@ const Viewport3D = {
         if(this.raycaster.ray.intersectPlane(plane, target)) Rig.solveIK(this._ikChain, target);
         return;
       }
+      if(this._boxSelecting && this._boxSelectStart){
+        const rect = el.getBoundingClientRect();
+        const cx = e.clientX-rect.left, cy = e.clientY-rect.top;
+        const x0 = Math.min(this._boxSelectStart.x, cx), y0 = Math.min(this._boxSelectStart.y, cy);
+        const x1 = Math.max(this._boxSelectStart.x, cx), y1 = Math.max(this._boxSelectStart.y, cy);
+        const box = document.getElementById('ps-boxselect');
+        box.style.left = x0+'px'; box.style.top = y0+'px'; box.style.width = (x1-x0)+'px'; box.style.height = (y1-y0)+'px';
+        return;
+      }
       if(this._movingMesh && this.selectedMesh){
         this.raycaster.setFromCamera(ndcAt(e), this.camera);
         const normal = this.camera.getWorldDirection(new THREE.Vector3()).negate();
@@ -4117,6 +4154,32 @@ const Viewport3D = {
       }
       if(this._wpDrag){ this._wpDrag = false; this.controls.enabled = true; return; }
       if(this._ikChain){ this._ikChain = null; this.controls.enabled = true; return; }
+      if(this._boxSelecting){
+        this._boxSelecting = false; this.controls.enabled = true;
+        const box = document.getElementById('ps-boxselect');
+        const x0 = parseFloat(box.style.left), y0 = parseFloat(box.style.top);
+        const w = parseFloat(box.style.width), h = parseFloat(box.style.height);
+        box.style.display = 'none';
+        this._boxSelectStart = null;
+        if(w < 4 && h < 4){
+          this.deselectMesh(); Modifiers.refreshPanel(); // treated as a plain click on empty space
+          return;
+        }
+        const rect = el.getBoundingClientRect();
+        const cx = x0+w/2, cy = y0+h/2;
+        let best = null, bestDist = Infinity;
+        for(const mesh of this.meshes){
+          const worldPos = new THREE.Vector3(); mesh.getWorldPosition(worldPos);
+          const s = projectToScreen(worldPos, this.camera, rect);
+          if(s.x < x0 || s.x > x0+w || s.y < y0 || s.y > y0+h) continue;
+          const d = Math.hypot(s.x-cx, s.y-cy);
+          if(d < bestDist){ bestDist = d; best = mesh; }
+        }
+        if(best){ this.selectMesh(best); toast('Selected via box-select.'); }
+        else this.deselectMesh();
+        Modifiers.refreshPanel();
+        return;
+      }
       if(this._movingMesh){
         this._movingMesh = false; this._moveLastPoint = null; this.controls.enabled = true;
         if(this.selectedMesh && this._moveUndoBefore){
@@ -4285,13 +4348,46 @@ const PolySpec = {
     this._overlayFacesSel.raycast = ()=>{};
     this.mesh.add(this._overlayFacesSel);
 
+    // All-edges baseline wireframe — Blender shows the full edge wireframe in every
+    // select mode, not just when in Edge mode, so you can see what you're clicking.
+    const edgePos = new Float32Array(this.edges.length*6);
+    for(let i=0;i<this.edges.length;i++){
+      const e = this.edges[i];
+      edgePos[i*6]=pos.getX(e.a); edgePos[i*6+1]=pos.getY(e.a); edgePos[i*6+2]=pos.getZ(e.a);
+      edgePos[i*6+3]=pos.getX(e.b); edgePos[i*6+4]=pos.getY(e.b); edgePos[i*6+5]=pos.getZ(e.b);
+    }
+    const edgeAllGeo = new THREE.BufferGeometry();
+    edgeAllGeo.setAttribute('position', new THREE.BufferAttribute(edgePos,3));
+    this._overlayEdgesAll = new THREE.LineSegments(edgeAllGeo, new THREE.LineBasicMaterial({ color:0x4a5568, transparent:true, opacity:0.55, depthTest:false }));
+    this._overlayEdgesAll.renderOrder = 993;
+    this._overlayEdgesAll.raycast = ()=>{};
+    this.mesh.add(this._overlayEdgesAll);
+
+    // Face-center dots — one per triangle, matching Blender's per-face click
+    // indicator shown in Face select mode.
+    const idx = this.mesh.geometry.index.array;
+    const triCount = idx.length/3;
+    const faceDotPos = new Float32Array(triCount*3);
+    for(let t=0;t<triCount;t++){
+      const a=idx[t*3], b=idx[t*3+1], c=idx[t*3+2];
+      faceDotPos[t*3]   = (pos.getX(a)+pos.getX(b)+pos.getX(c))/3;
+      faceDotPos[t*3+1] = (pos.getY(a)+pos.getY(b)+pos.getY(c))/3;
+      faceDotPos[t*3+2] = (pos.getZ(a)+pos.getZ(b)+pos.getZ(c))/3;
+    }
+    const faceDotGeo = new THREE.BufferGeometry();
+    faceDotGeo.setAttribute('position', new THREE.BufferAttribute(faceDotPos,3));
+    this._overlayFaceDots = new THREE.Points(faceDotGeo, new THREE.PointsMaterial({ color:0x6f8fce, size:0.02, sizeAttenuation:true, depthTest:false }));
+    this._overlayFaceDots.renderOrder = 995;
+    this._overlayFaceDots.raycast = ()=>{};
+    this.mesh.add(this._overlayFaceDots);
+
     this._refreshOverlays();
   },
   _destroyOverlays(){
-    for(const o of [this._overlayVertsAll, this._overlayVertsSel, this._overlayEdgesSel, this._overlayFacesSel]){
+    for(const o of [this._overlayVertsAll, this._overlayVertsSel, this._overlayEdgesSel, this._overlayFacesSel, this._overlayEdgesAll, this._overlayFaceDots]){
       if(o){ this.mesh.remove(o); o.geometry.dispose(); o.material.dispose(); }
     }
-    this._overlayVertsAll = this._overlayVertsSel = this._overlayEdgesSel = this._overlayFacesSel = null;
+    this._overlayVertsAll = this._overlayVertsSel = this._overlayEdgesSel = this._overlayFacesSel = this._overlayEdgesAll = this._overlayFaceDots = null;
   },
   _refreshOverlays(){
     if(!this.active) return;
@@ -4333,6 +4429,8 @@ const PolySpec = {
 
     // Also nudge the base points cloud color/size by mode so it's obvious what you're selecting.
     this._overlayVertsAll.visible = true;
+    this._overlayEdgesAll.visible = true;
+    this._overlayFaceDots.visible = (this.selectMode==='face');
     this._overlayEdgesSel.visible = (this.selectMode==='edge');
     this._overlayFacesSel.visible = (this.selectMode==='face');
     this._overlayVertsSel.visible = true;
@@ -4769,6 +4867,9 @@ document.getElementById('viewport3d-bar').addEventListener('dblclick', (e)=>{
 document.getElementById('c2d-float').addEventListener('click', ()=>{ if(Canvas2DPanel) Canvas2DPanel.toggleDock(); });
 document.getElementById('c2d-minimize').addEventListener('click', ()=>{ if(Canvas2DPanel) Canvas2DPanel.toggleMinimize(); });
 document.getElementById('c2d-maximize').addEventListener('click', ()=>{ if(Canvas2DPanel) Canvas2DPanel.toggleMaximize(); });
+document.getElementById('wf-both').addEventListener('click', showBothWorkspaces);
+document.getElementById('wf-2d').addEventListener('click', focusWorkspace2D);
+document.getElementById('wf-3d').addEventListener('click', focusWorkspace3D);
 document.getElementById('canvas2d-bar').addEventListener('dblclick', (e)=>{
   if(e.target.closest('button')) return;
   if(Canvas2DPanel) Canvas2DPanel.toggleMinimize();
@@ -5650,6 +5751,26 @@ function makeAllPanelsFloatable(){
     PanelWindows[id] = fp;
   }
 }
+/* ============================= Workspace focus shortcuts (F1/F2/F3) ============================= */
+function showBothWorkspaces(){
+  if(Viewport3DPanel && Viewport3DPanel.state.maximized) Viewport3DPanel.toggleMaximize();
+  if(Canvas2DPanel && Canvas2DPanel.state.maximized) Canvas2DPanel.toggleMaximize();
+  toast('Showing both workspaces.');
+}
+function focusWorkspace2D(){
+  ActiveWorkspace = '2d';
+  if(Viewport3DPanel && Viewport3DPanel.state.maximized) Viewport3DPanel.toggleMaximize();
+  if(Canvas2DPanel && !Canvas2DPanel.state.maximized) Canvas2DPanel.toggleMaximize();
+  toast('Focused: 2D / UV Canvas');
+}
+function focusWorkspace3D(){
+  ActiveWorkspace = '3d';
+  if(Canvas2DPanel && Canvas2DPanel.state.maximized) Canvas2DPanel.toggleMaximize();
+  if(!Viewport3D.active) Viewport3D.show(true);
+  if(Viewport3DPanel && !Viewport3DPanel.state.maximized) Viewport3DPanel.toggleMaximize();
+  toast('Focused: 3D Viewport');
+}
+
 function resetWindowLayout(){
   for(const id of SIDEBAR_PANEL_IDS){ if(PanelWindows[id]) PanelWindows[id].dock(); }
   if(ToolbarPanel) ToolbarPanel.dock();
@@ -6505,13 +6626,14 @@ function addPrimitive(id, forceAppend){
 
 /* ============================= Navigation gizmo (Blender-style corner widget) ============================= */
 const Gizmo = {
-  ready:false, scene:null, camera:null, renderer:null, raycaster:null, buttons:[],
+  ready:false, scene:null, camera:null, raycaster:null, buttons:[], sizePx:76,
   init(){
     if(this.ready) return;
-    const canvas = document.getElementById('viewport3d-gizmo');
-    this.renderer = new THREE.WebGLRenderer({ canvas, alpha:true, antialias:true });
-    this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio||1));
-    this.renderer.setSize(76, 76, false);
+    // Deliberately no separate WebGLRenderer/canvas here — this shares Viewport3D's
+    // single renderer via a scissored sub-rectangle each frame. A second full
+    // WebGLRenderer just for a 76px corner widget doubles the app's WebGL context
+    // usage, and browsers cap the total number of simultaneous contexts; that's a
+    // real, avoidable way to eventually hit "Error creating WebGL context."
     this.scene = new THREE.Scene();
     this.camera = new THREE.OrthographicCamera(-1.6,1.6,1.6,-1.6, 0.1, 10);
     this.raycaster = new THREE.Raycaster();
@@ -6533,23 +6655,41 @@ const Gizmo = {
     const light = new THREE.DirectionalLight(0xffffff, 1.2); light.position.set(2,3,4); this.scene.add(light);
     this.scene.add(new THREE.AmbientLight(0xffffff, 0.6));
 
-    canvas.addEventListener('click', (e)=> this._onClick(e));
+    document.getElementById('viewport3d-gizmo').addEventListener('click', (e)=> this._onClick(e));
     this.ready = true;
   },
   updateColors(){
     for(const b of this.buttons) b.material.color.set(Prefs3D[b.userData.prefsKey]);
   },
+  // Called from Viewport3D._loop() right after the main scene renders — draws into
+  // a small scissored corner of the SAME canvas/context, then hands scissor state
+  // back to full-canvas so the next frame's main render isn't clipped.
   render(){
-    if(!this.ready || !Viewport3D.camera) return;
+    if(!this.ready || !Viewport3D.camera || !Viewport3D.renderer) return;
+    const renderer = Viewport3D.renderer;
     const dir = new THREE.Vector3();
     Viewport3D.camera.getWorldDirection(dir);
     this.camera.position.copy(dir).multiplyScalar(-4);
     this.camera.up.copy(Viewport3D.camera.up);
     this.camera.lookAt(0,0,0);
-    this.renderer.render(this.scene, this.camera);
+
+    const el = renderer.domElement;
+    const ratio = renderer.getPixelRatio();
+    const canvasH = el.clientHeight;
+    const size = this.sizePx * ratio;
+    const margin = 10 * ratio;
+    const x = el.width - size - margin;
+    const y = margin; // WebGL viewport Y is bottom-up; bottom margin in CSS = small Y here
+    renderer.setScissorTest(true);
+    renderer.setViewport(x, y, size, size);
+    renderer.setScissor(x, y, size, size);
+    renderer.clearDepth();
+    renderer.render(this.scene, this.camera);
+    renderer.setScissorTest(false);
+    renderer.setViewport(0, 0, el.width, el.height);
   },
   _onClick(e){
-    const rect = e.target.getBoundingClientRect();
+    const rect = e.currentTarget.getBoundingClientRect();
     const ndc = new THREE.Vector2(((e.clientX-rect.left)/rect.width)*2-1, -((e.clientY-rect.top)/rect.height)*2+1);
     this.raycaster.setFromCamera(ndc, this.camera);
     const hits = this.raycaster.intersectObjects(this.buttons);
