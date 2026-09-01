@@ -10,6 +10,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     title: 'Leorix — PBR Image Editor',
+    icon: path.join(__dirname, '../../build/icon.ico'),
     // Frameless: Leorix draws its own title bar so the window can be dragged
     // anywhere on screen from the menu strip.
     frame: false,
