@@ -221,6 +221,14 @@
   #viewport3d-bar button:hover{color:var(--text); border-color:var(--brass-dim);}
   #viewport3d-bar button.active{background:var(--brass-dim); color:#fff; border-color:var(--brass-dim);}
   #viewport3d-status{margin-left:auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  /* This row is deliberately separate from #viewport3d-bar's own (potentially crowded)
+     button row — that's the fix. It can never be squeezed off-screen by other content
+     because it never shares horizontal space with anything else. */
+  #viewport3d-winctl{display:flex; justify-content:flex-end; gap:4px; padding:3px 6px 0;
+    flex-shrink:0; background:var(--panel);}
+  .floating-panel.panel-minimized #v3d-load, .floating-panel.panel-minimized #v3d-paint,
+  .floating-panel.panel-minimized #v3d-select, .floating-panel.panel-minimized #v3d-reset,
+  .floating-panel.panel-minimized #v3d-wire, .floating-panel.panel-minimized #viewport3d-status{ display:none; }
   #viewport3d-drop{position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
     flex-direction:column; gap:8px; color:var(--text-muted); font-size:12.5px; text-align:center; padding:20px;}
   #viewport3d-drop.hidden{display:none;}
@@ -478,17 +486,18 @@
     </div>
 
     <div id="viewport3d">
-      <div id="viewport3d-bar" class="panel-drag-handle" title="Drag to move this window">
+      <div id="viewport3d-winctl">
+        <button id="v3d-float" class="panel-win-btn" title="Float / Dock this window">⇱</button>
+        <button id="v3d-minimize" class="panel-win-btn" title="Minimize / Restore">_</button>
+        <button id="v3d-maximize" class="panel-win-btn" title="Maximize">□</button>
+      </div>
+      <div id="viewport3d-bar" class="panel-drag-handle" title="Drag to move · double-click to minimize/restore">
         <button id="v3d-load">Load Model…</button>
         <button id="v3d-paint" class="active" title="Paint directly on the mesh">Paint</button>
         <button id="v3d-select" title="Select a mesh and drag to move it">Select</button>
         <button id="v3d-reset" title="Frame the model">Reset View</button>
         <button id="v3d-wire" title="Toggle wireframe">Wire</button>
         <span id="viewport3d-status">No model loaded</span>
-        <div class="spacer"></div>
-        <button id="v3d-float" class="panel-win-btn" title="Float / Dock this window">⇱</button>
-        <button id="v3d-minimize" class="panel-win-btn" title="Minimize">_</button>
-        <button id="v3d-maximize" class="panel-win-btn" title="Maximize">□</button>
       </div>
       <div id="polyspec-bar">
         <span class="ps-label">Poly Spec Mode</span>
@@ -4462,6 +4471,10 @@ document.getElementById('v3d-wire').addEventListener('click', (e)=>{
 document.getElementById('v3d-float').addEventListener('click', ()=>{ if(Viewport3DPanel) Viewport3DPanel.toggleDock(); });
 document.getElementById('v3d-minimize').addEventListener('click', ()=>{ if(Viewport3DPanel) Viewport3DPanel.toggleMinimize(); });
 document.getElementById('v3d-maximize').addEventListener('click', ()=>{ if(Viewport3DPanel) Viewport3DPanel.toggleMaximize(); });
+document.getElementById('viewport3d-bar').addEventListener('dblclick', (e)=>{
+  if(e.target.closest('button')) return;
+  if(Viewport3DPanel) Viewport3DPanel.toggleMinimize();
+});
 document.getElementById('ps-vert').addEventListener('click', ()=> PolySpec.setSelectMode('vertex'));
 document.getElementById('ps-edge').addEventListener('click', ()=> PolySpec.setSelectMode('edge'));
 document.getElementById('ps-face').addEventListener('click', ()=> PolySpec.setSelectMode('face'));
