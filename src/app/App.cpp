@@ -778,15 +778,15 @@ void App::NewProjectModal() {
     };
     for (int i = 0; i < 4; ++i) {
         if (i) ImGui::SameLine();
-        bool selected = npMode == i;
+        bool selected = np.mode == i;
         ImGui::PushID(i);
         ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.79f, 0.54f, 0.29f, 0.12f));
         ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.79f, 0.54f, 0.29f, 0.08f));
         ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.79f, 0.54f, 0.29f, 0.20f));
         if (ImGui::Selectable("##card", selected, 0, ImVec2(cardW, cardH))) {
-            npMode = i;
-            if (i == 2) { npWidth = kComicPresets[npComicPreset].w; npHeight = kComicPresets[npComicPreset].h; npTemplate = 5; }
-            else if (npTemplate == 5 && i != 2) { npTemplate = 2; npWidth = npHeight = 2048; }
+            np.mode = i;
+            if (i == 2) { np.width = kComicPresets[np.comicPreset].w; np.height = kComicPresets[np.comicPreset].h; np.templateIndex = 5; }
+            else if (np.templateIndex == 5 && i != 2) { np.templateIndex = 2; np.width = np.height = 2048; }
         }
         ImGui::PopStyleColor(3);
         ImVec2 mn = ImGui::GetItemRectMin(), mx = ImGui::GetItemRectMax();
@@ -803,9 +803,9 @@ void App::NewProjectModal() {
     ImGui::Spacing();
 
     // Mode-specific sections, same wording as Electron Leorix
-    if (npMode == 0) {
+    if (np.mode == 0) {
         ImGui::TextDisabled("Creates a Base Color map. Add Normal, Roughness, Metallic, AO, Height, Emissive or ORM maps afterward from the Maps menu - they'll all share this resolution.");
-    } else if (npMode == 1) {
+    } else if (np.mode == 1) {
         static const char* items[] = {
             "3D Design - paint textures on a model",
             "3D Creation - primitives & sculpting",
@@ -814,24 +814,24 @@ void App::NewProjectModal() {
         };
         ImGui::AlignTextToFramePadding(); ImGui::Text("Workspace"); ImGui::SameLine(110);
         ImGui::SetNextItemWidth(contentW - 110);
-        ImGui::Combo("##ws3d", &np3DWorkspace, items, IM_COUNTOF(items));
+        ImGui::Combo("##ws3d", &np.workspace3D, items, IM_COUNTOF(items));
         static const char* hints[] = {
             "Design loads a model and paints straight onto it. Creation gives you primitives, sculpt brushes, mesh stats and HDRI lighting. Animation adds marker-based rigging, weight painting, cloth and a keyframe timeline.",
             "Creation opens in Sculpt Mode with the full brush set, plus Edit Mode and Retopology for building clean topology.",
             "Animation adds marker-based rigging, weight painting, cloth and a keyframe timeline.",
             "Render opens the 3D viewport with render settings: engine, samples, resolution, camera and output. Your texture maps stay available for materials.",
         };
-        ImGui::TextDisabled("%s", hints[np3DWorkspace]);
-    } else if (npMode == 2) {
+        ImGui::TextDisabled("%s", hints[np.workspace3D]);
+    } else if (np.mode == 2) {
         ImGui::TextDisabled("Sets up a comic page at the size below with bleed and safe-area guides, plus the panel and balloon tools in the sidebar.");
         for (int i = 0; i < 4; ++i) {
             if (i % 2) ImGui::SameLine();
             ImGui::PushID(100 + i);
-            bool sel = npComicPreset == i;
+            bool sel = np.comicPreset == i;
             if (sel) ImGui::PushStyleColor(ImGuiCol_Border, kBrass);
             char label[96]; std::snprintf(label, sizeof(label), "%s\n%s", kComicPresets[i].name, kComicPresets[i].desc);
             if (ImGui::Button(label, ImVec2((contentW - ImGui::GetStyle().ItemSpacing.x) * 0.5f, 44))) {
-                npComicPreset = i; npWidth = kComicPresets[i].w; npHeight = kComicPresets[i].h; npTemplate = 5;
+                np.comicPreset = i; np.width = kComicPresets[i].w; np.height = kComicPresets[i].h; np.templateIndex = 5;
             }
             if (sel) ImGui::PopStyleColor();
             ImGui::PopID();
@@ -841,30 +841,30 @@ void App::NewProjectModal() {
     }
     ImGui::Spacing();
 
-    bool renderOnly = npMode == 1 && np3DWorkspace == 3;
+    bool renderOnly = np.mode == 1 && np.workspace3D == 3;
     ImGui::BeginDisabled(renderOnly);
     static const char* templates[] = {"512 x 512", "1024 x 1024 (1K)", "2048 x 2048 (2K)", "4096 x 4096 (4K)", "8192 x 8192 (8K)", "Custom..."};
     static const int templateSizes[] = {512, 1024, 2048, 4096, 8192};
     const float labelW = 110.0f;
     ImGui::AlignTextToFramePadding(); ImGui::Text("Template"); ImGui::SameLine(labelW);
     ImGui::SetNextItemWidth(contentW - labelW);
-    if (ImGui::Combo("##tpl", &npTemplate, templates, IM_COUNTOF(templates)) && npTemplate < 5)
-        npWidth = npHeight = templateSizes[npTemplate];
+    if (ImGui::Combo("##tpl", &np.templateIndex, templates, IM_COUNTOF(templates)) && np.templateIndex < 5)
+        np.width = np.height = templateSizes[np.templateIndex];
     ImGui::AlignTextToFramePadding(); ImGui::Text("Width (px)"); ImGui::SameLine(labelW);
     ImGui::SetNextItemWidth(contentW - labelW);
-    bool dimsChanged = ImGui::InputInt("##w", &npWidth, 0);
+    bool dimsChanged = ImGui::InputInt("##w", &np.width, 0);
     ImGui::AlignTextToFramePadding(); ImGui::Text("Height (px)"); ImGui::SameLine(labelW);
     ImGui::SetNextItemWidth(contentW - labelW);
-    dimsChanged |= ImGui::InputInt("##h", &npHeight, 0);
-    npWidth = std::clamp(npWidth, 1, 16384); npHeight = std::clamp(npHeight, 1, 16384);
+    dimsChanged |= ImGui::InputInt("##h", &np.height, 0);
+    np.width = std::clamp(np.width, 1, 16384); np.height = std::clamp(np.height, 1, 16384);
     if (dimsChanged) { // same syncTemplateFromDims() rule as Leorix
-        npTemplate = 5;
-        for (int i = 0; i < 5; ++i) if (npWidth == npHeight && npWidth == templateSizes[i]) npTemplate = i;
+        np.templateIndex = 5;
+        for (int i = 0; i < 5; ++i) if (np.width == np.height && np.width == templateSizes[i]) np.templateIndex = i;
     }
     static const char* backgrounds[] = {"White", "Transparent", "Black"};
     ImGui::AlignTextToFramePadding(); ImGui::Text("Background"); ImGui::SameLine(labelW);
     ImGui::SetNextItemWidth(contentW - labelW);
-    ImGui::Combo("##bg", &npBackground, backgrounds, IM_COUNTOF(backgrounds));
+    ImGui::Combo("##bg", &np.background, backgrounds, IM_COUNTOF(backgrounds));
     ImGui::EndDisabled();
     if (renderOnly) ImGui::TextDisabled("Render output size is set in Render Settings.");
 
@@ -877,17 +877,17 @@ void App::NewProjectModal() {
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.54f, 0.37f, 0.22f, 1));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, kBrass);
     if (ImGui::Button("Create", ImVec2(bw, 0))) {
-        canvasW = npWidth; canvasH = npHeight;
+        canvasW = np.width; canvasH = np.height;
         {
-            uint32_t bg = npBackground == 0 ? 0xFFFFFFFFu : npBackground == 2 ? 0xFF000000u : 0x00000000u;
-            paint.New(npWidth, npHeight, MapKind::Albedo, bg);
+            uint32_t bg = np.background == 0 ? 0xFFFFFFFFu : np.background == 2 ? 0xFF000000u : 0x00000000u;
+            paint.New(np.width, np.height, MapKind::Albedo, bg);
         }
-        canvasBackground = npBackground == 0 ? IM_COL32(255, 255, 255, 255) : npBackground == 2 ? IM_COL32(0, 0, 0, 255) : 0;
+        canvasBackground = np.background == 0 ? IM_COL32(255, 255, 255, 255) : np.background == 2 ? IM_COL32(0, 0, 0, 255) : 0;
         canvasZoom = std::min(0.5f, 700.0f / std::max(canvasW, canvasH));
         static const Workspace ws3d[] = {Workspace::Design3D, Workspace::Creation3D, Workspace::Animation3D, Workspace::Render3D};
-        switch (npMode) {
+        switch (np.mode) {
             case 0: ApplyWorkspace(Workspace::Texture2D); break;
-            case 1: ApplyWorkspace(ws3d[np3DWorkspace]); break;
+            case 1: ApplyWorkspace(ws3d[np.workspace3D]); break;
             case 2: ApplyWorkspace(Workspace::Webcomic); break;
             default: ApplyWorkspace(Workspace::Scene25D); break;
         }

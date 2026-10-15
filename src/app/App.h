@@ -13,6 +13,7 @@
 #include "mesh/UVView.h"
 #include "tools/BrushImage.h"
 #include "tools/Tools3D.h"
+#include "tools/TransformOp.h"
 #include "viewport/MeshView.h"
 #include "viewport/Viewport3D.h"
 #include <algorithm>
@@ -30,6 +31,16 @@ extern const int kTools2DCount;
 
 // Workspaces offered by the New Project dialog: Electron Leorix's startup picker plus 3D Render.
 enum class Workspace { Texture2D, Design3D, Creation3D, Animation3D, Render3D, Webcomic, Scene25D };
+
+// New Project dialog state (mirrors Electron Leorix's modal). Only NewProjectModal() reads these.
+struct NewProjectDialog {
+    int mode = 0;            // 0 2D, 1 3D, 2 Webcomic, 3 2.5D
+    int workspace3D = 0;     // Design, Creation, Animation, Render
+    int templateIndex = 2;   // 512, 1K, 2K, 4K, 8K, Custom
+    int width = 2048, height = 2048;
+    int background = 0;      // White, Transparent, Black
+    int comicPreset = 0;
+};
 
 struct RenderSettings {
     int   engine = 0, resolutionPreset = 0, width = 1920, height = 1080;
@@ -120,20 +131,7 @@ private:
     ViewLighting BuildLighting() const;
     PickResult lastPick;
 
-    // Modal transform operator (G / R / S), the way Blender runs it: press, move the mouse,
-    // optionally press X/Y/Z to constrain, left-click or Enter to confirm, Esc or right-click to cancel.
-    struct TransformOp {
-        bool   active = false;
-        int    mode = 0;              // 0 grab, 1 rotate, 2 scale
-        int    axis = -1;             // -1 free, 0 X, 1 Y, 2 Z
-        ImVec2 startMouse{0, 0};
-        Float3 pivot;                 // world-space
-        float  pivotDepth = 1.0f;
-        std::vector<Float3> savedVerts;   // edit mode
-        std::vector<uint32_t> movedVerts;
-        Transform savedTransform;         // object mode
-        int    objectIndex = -1;
-    } xform;
+    TransformOp xform;
     bool  sculpting = false;
     bool  openEdgeMenu = false;   // Ctrl+E in Edit Mode; opened and drawn at the top level
     bool  showMultires = false;
@@ -157,13 +155,7 @@ private:
     unsigned canvasBackground = 0xFFFFFFFF; // ABGR for ImDrawList; 0 = transparent
     bool comicMode = false;
 
-    // ---- New Project dialog state (mirrors Electron Leorix's modal)
-    int  npMode = 0;            // 0 2D, 1 3D, 2 Webcomic, 3 2.5D
-    int  np3DWorkspace = 0;     // Design, Creation, Animation, Render
-    int  npTemplate = 2;        // 512, 1K, 2K, 4K, 8K, Custom
-    int  npWidth = 2048, npHeight = 2048;
-    int  npBackground = 0;      // White, Transparent, Black
-    int  npComicPreset = 0;
+    NewProjectDialog np;
 
     // ---- 2D tools
     PaintProject paint;
