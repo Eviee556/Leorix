@@ -1,0 +1,11 @@
+# build output
+leorix.exe
+build/
+out/
+cmake-build-*/
+
+# generated
+graphify-out/
+
+# local ImGui window layout
+imgui.ini
