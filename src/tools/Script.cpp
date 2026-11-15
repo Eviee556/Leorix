@@ -6,12 +6,18 @@ extern "C" {
 #include "lualib.h"
 }
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <new>
+#include <unordered_set>
 
 // Script results live here for the duration of one run (single-threaded UI use).
 namespace {
-struct ScriptCtx { ScriptResult* result; };
+constexpr int    kHookEvery     = 1000000;     // instructions between hook calls
+constexpr int    kMaxHookCalls  = 100;         // -> ~100M instructions per run
+constexpr size_t kMemoryLimit   = size_t(512) << 20;
+
+struct ScriptCtx { ScriptResult* result; int hookCalls = 0; };
 ScriptCtx* Ctx(lua_State* L) {
     lua_getfield(L, LUA_REGISTRYINDEX, "leorix_ctx");
     auto* c = static_cast<ScriptCtx*>(lua_touserdata(L, -1));
@@ -73,7 +79,17 @@ int l_mesh_face(lua_State* L) {
     int n = lua_gettop(L) - 1;
     if (n < 3) return luaL_error(L, "face() needs at least 3 vertices");
     std::vector<uint32_t> idx(n);
-    for (int i = 0; i < n; ++i) idx[i] = (uint32_t)luaL_checkinteger(L, i + 2);
+    const lua_Integer count = (lua_Integer)m->mesh.positions.size();
+    std::unordered_set<uint32_t> distinct;
+    for (int i = 0; i < n; ++i) {
+        lua_Integer v = luaL_checkinteger(L, i + 2);
+        if (v < 0 || v >= count)
+            return luaL_error(L, "face(): vertex index %I does not exist (this mesh has %I vertices, numbered 0 to %I)",
+                              v, count, count - 1);
+        idx[i] = (uint32_t)v;
+        distinct.insert(idx[i]);
+    }
+    if (distinct.size() < 3) return luaL_error(L, "face() needs at least 3 different vertices");
     for (int i = 1; i + 1 < n; ++i) m->mesh.tris.push_back({idx[0], idx[i], idx[i + 1], m->poly});
     ++m->poly;
     return 0;
@@ -108,11 +124,29 @@ void OpenMeshLib(lua_State* L) {
     lua_setfield(L, -2, "PI");
     lua_pop(L, 1);
 }
+// Count hook: runaway loops end with an error instead of freezing the UI thread.
+void InstructionHook(lua_State* L, lua_Debug*) {
+    if (++Ctx(L)->hookCalls >= kMaxHookCalls)
+        luaL_error(L, "script took too long (stopped after %d million instructions)", kHookEvery / 1000000 * kMaxHookCalls);
+}
+
+// Allocator with a hard cap: returning null makes Lua raise a memory error the script can't ignore.
+struct MemoryBudget { size_t used = 0; };
+void* CappedAlloc(void* ud, void* ptr, size_t oldSize, size_t newSize) {
+    auto* b = static_cast<MemoryBudget*>(ud);
+    if (!ptr) oldSize = 0;   // when ptr is null, oldSize is a type tag, not a size
+    if (newSize == 0) { std::free(ptr); b->used -= oldSize; return nullptr; }
+    if (newSize > oldSize && b->used - oldSize + newSize > kMemoryLimit) return nullptr;
+    void* p = std::realloc(ptr, newSize);
+    if (p) b->used = b->used - oldSize + newSize;
+    return p;
+}
 } // namespace
 
 ScriptResult RunMeshScript(const std::string& code) {
     ScriptResult result;
-    lua_State* L = luaL_newstate();
+    MemoryBudget budget;
+    lua_State* L = lua_newstate(CappedAlloc, &budget);
     if (!L) { result.output = "Could not start the scripting engine."; return result; }
     // Only safe standard libraries: base, math, string, table. No io/os/package/loadfile.
     luaL_requiref(L, LUA_GNAME, luaopen_base, 1); lua_pop(L, 1);
@@ -126,10 +160,12 @@ ScriptResult RunMeshScript(const std::string& code) {
     lua_pushlightuserdata(L, &ctx);
     lua_setfield(L, LUA_REGISTRYINDEX, "leorix_ctx");
     OpenMeshLib(L);
+    lua_sethook(L, InstructionHook, LUA_MASKCOUNT, kHookEvery);
 
-    int status = luaL_loadbuffer(L, code.c_str(), code.size(), "leorix") || lua_pcall(L, 0, 0, 0);
+    int status = luaL_loadbuffer(L, code.c_str(), code.size(), "leorix");
+    if (status == LUA_OK) status = lua_pcall(L, 0, 0, 0);   // keep the real code: LUA_ERRMEM is reported below
     if (status != LUA_OK) {
-        const char* msg = lua_tostring(L, -1);
+        const char* msg = status == LUA_ERRMEM ? "script ran out of memory (limit 512 MB)" : lua_tostring(L, -1);
         result.output += std::string("\nError: ") + (msg ? msg : "unknown error") + "\n";
         result.ok = false;
     } else {
@@ -144,6 +180,26 @@ ScriptResult RunMeshScript(const std::string& code) {
     }
     lua_close(L);
     return result;
+}
+
+Mesh MergeScriptMeshes(std::vector<Mesh> meshes) {
+    Mesh combined;
+    bool perVertexUVs = true;
+    for (const auto& m : meshes) perVertexUVs = perVertexUVs && m.uvs.size() == m.positions.size();
+    for (auto& m : meshes) {
+        m.EnsureUVs();   // per mesh: its own UVs, or a fallback for this mesh only
+        if (m.normals.size() != m.positions.size()) m.ComputeNormals();
+        uint32_t base = (uint32_t)combined.positions.size(), polyBase = combined.polyCount;
+        combined.positions.insert(combined.positions.end(), m.positions.begin(), m.positions.end());
+        combined.normals.insert(combined.normals.end(), m.normals.begin(), m.normals.end());
+        if (perVertexUVs) combined.uvs.insert(combined.uvs.end(), m.uvs.begin(), m.uvs.end());
+        combined.loopUVs.insert(combined.loopUVs.end(), m.loopUVs.begin(), m.loopUVs.end());
+        for (Tri t : m.tris) { t.a += base; t.b += base; t.c += base; t.poly += polyBase; combined.tris.push_back(t); }
+        combined.polyCount += m.polyCount;
+    }
+    combined.name = "Script mesh";
+    combined.ComputeBounds();
+    return combined;
 }
 
 const char* DefaultScriptExample() {

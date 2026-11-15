@@ -1043,23 +1043,13 @@ void App::ScriptingPanel() {
     if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Enter, false)) run = true;
     ImGui::SameLine();
     if (ImGui::Button("Reset Example")) { std::snprintf(buffer, sizeof(buffer), "%s", DefaultScriptExample()); }
-    ImGui::SameLine(); ImGui::TextDisabled("Creating a mesh replaces the current one.");
+    ImGui::SameLine(); ImGui::TextDisabled("Each run adds a new object to the scene.");
     if (run) {
         scriptCode = buffer;
         ScriptResult r = RunMeshScript(scriptCode);
         scriptOutput = r.output;
         if (r.ok && !r.meshes.empty()) {
-            Mesh combined = r.meshes.front();
-            for (size_t i = 1; i < r.meshes.size(); ++i) {
-                uint32_t base = static_cast<uint32_t>(combined.positions.size());
-                uint32_t polyBase = combined.polyCount;
-                for (const auto& v : r.meshes[i].positions) combined.positions.push_back(v);
-                for (const auto& uv : r.meshes[i].uvs) combined.uvs.push_back(uv);
-                for (auto t : r.meshes[i].tris) { t.a += base; t.b += base; t.c += base; t.poly += polyBase; combined.tris.push_back(t); }
-                combined.polyCount += r.meshes[i].polyCount;
-            }
-            combined.name = "Script mesh";
-            scene.AddMesh(std::move(combined), "Script mesh");
+            scene.AddMesh(MergeScriptMeshes(std::move(r.meshes)), "Script mesh");
             showViewport3D = true;
             ShowStatus("Script created a mesh");
         }
