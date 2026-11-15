@@ -150,6 +150,21 @@ static int SelfTest() {
         // Rows are seeded by index, so a multithreaded render must equal a single-threaded one
         // exactly; it can only differ if the render is reported finished with rows still unwritten.
         check(render(16, true, 2, 8) == render(16, true, 2, 1), "multithreaded render complete when reported done");
+        {
+            // The UI's case: 640x320, sky + sun, all cores, denoise on. Rows are claimed top-down,
+            // so unfinished rows showed up as streaks along the bottom of saved renders.
+            RayTraceSettings st;
+            st.width = 640; st.height = 320; st.samples = 32; st.maxBounces = 2;
+            PathTracer pt;
+            pt.Start(scene, scene.Camera(), 0.0f, 0.5f, 6.0f, {0, 0, 0}, false, st, RayTraceWorld{});
+            while (pt.Running()) std::this_thread::yield();   // read the moment it says done, as the UI does
+            const auto& px = pt.Pixels();
+            auto rowMean = [&](int y) { double s = 0; for (int x = 0; x < 640; ++x) for (int c = 0; c < 3; ++c) s += px[((size_t)y * 640 + x) * 4 + c]; return s / (640 * 3); };
+            bool opaque = true, steady = true;
+            for (size_t i = 3; i < px.size(); i += 4) opaque = opaque && px[i] == 255;
+            for (int y = 320 - 32; y < 320; ++y) steady = steady && std::fabs(rowMean(y) - rowMean(y - 32)) < 0.15 * rowMean(y - 32) + 4.0;
+            check(opaque && steady, "640x320 multithreaded render has no unfinished bottom rows");
+        }
         double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
         double mRef = mean(ref), mNee = mean(neeA), nNee = noise(neeA, neeB), nBf = noise(bfA, bfB);
         std::printf("  tracer mean ref=%.2f nee=%.2f  noise nee=%.2f brute=%.2f  (%.2fs)\n", mRef, mNee, nNee, nBf, secs);
