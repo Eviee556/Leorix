@@ -60,6 +60,7 @@ private:
     std::atomic<bool> running{false}, cancel{false};
     std::atomic<float> progress{0.0f};
     std::atomic<int>  nextRow{0};
+    std::atomic<int>  liveWorkers{0};   // the last worker out finishes the render
     std::vector<uint8_t> pixels;
     int width = 0, height = 0;
     RayTraceStats stats;

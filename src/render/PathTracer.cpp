@@ -325,6 +325,7 @@ bool PathTracer::Start(const Scene& scene, const SceneCamera& camera, float view
     int threadCount = settings.threads > 0 ? settings.threads
                                            : std::max(1u, std::thread::hardware_concurrency());
     stats.threadsUsed = threadCount;
+    liveWorkers = threadCount;
     running = true;
     auto started = std::chrono::steady_clock::now();
     auto startTime = std::make_shared<std::chrono::steady_clock::time_point>(started);
@@ -541,13 +542,13 @@ bool PathTracer::Start(const Scene& scene, const SceneCamera& camera, float view
                 }
                 progress = std::min(1.0f, (float)nextRow.load() / height);
             }
-            if (nextRow.load() >= height || cancel) {
-                bool expected = true;
-                if (running.compare_exchange_strong(expected, false)) {
-                    if (settings.denoise && !cancel) Denoise(settings.denoiseStrength);
-                    stats.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - *startTime).count();
-                    progress = 1.0f;
-                }
+            // Rows are claimed before they are drawn, so nextRow reaching the end does not mean the
+            // other workers are done; only the last worker to exit may denoise and clear `running`.
+            if (liveWorkers.fetch_sub(1) == 1) {
+                if (settings.denoise && !cancel) Denoise(settings.denoiseStrength);
+                stats.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - *startTime).count();
+                progress = 1.0f;
+                running = false;
             }
         });
     }

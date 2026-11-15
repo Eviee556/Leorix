@@ -127,11 +127,11 @@ static int SelfTest() {
         lamp->material.emissiveStrengthRT = 12.0f;
         RayTraceWorld world;
         world.sunStrength = 0.0f; world.skyStrength = 0.0f;
-        auto render = [&](int spp, bool nee, int seed) {
+        auto render = [&](int spp, bool nee, int seed, int threads = 1) {
             RayTraceSettings st;
             st.width = 48; st.height = 32; st.samples = spp; st.maxBounces = 2;
             st.denoise = false; st.clampEnabled = false; st.lightSampling = nee; st.seed = seed;
-            st.threads = 1;   // shortcut: Start's completion check can fire before other workers finish their last row
+            st.threads = threads;
             PathTracer pt;
             pt.Start(scene, scene.Camera(), 0.0f, 1.2f, 5.0f, {0, 0, 0}, false, st, world);
             while (pt.Running()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -147,6 +147,9 @@ static int SelfTest() {
         auto ref = render(1024, false, 1);
         auto neeA = render(16, true, 2), neeB = render(16, true, 3);
         auto bfA = render(16, false, 2), bfB = render(16, false, 3);
+        // Rows are seeded by index, so a multithreaded render must equal a single-threaded one
+        // exactly; it can only differ if the render is reported finished with rows still unwritten.
+        check(render(16, true, 2, 8) == render(16, true, 2, 1), "multithreaded render complete when reported done");
         double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
         double mRef = mean(ref), mNee = mean(neeA), nNee = noise(neeA, neeB), nBf = noise(bfA, bfB);
         std::printf("  tracer mean ref=%.2f nee=%.2f  noise nee=%.2f brute=%.2f  (%.2fs)\n", mRef, mNee, nNee, nBf, secs);
