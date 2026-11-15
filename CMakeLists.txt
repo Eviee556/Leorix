@@ -119,6 +119,8 @@ add_executable(leorix
   src/tools/BrushImage.cpp
   src/tools/Script.cpp
   src/tools/Sculpt.cpp
+  src/tools/VisualScript.cpp
+  src/app/VisualScriptPanel.cpp
   src/mesh/Mesh.cpp
   src/mesh/EditOps.cpp
   src/mesh/Primitives.cpp

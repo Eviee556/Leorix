@@ -7,6 +7,7 @@
 #include "tools/Script.h"
 #include "render/PathTracer.h"
 #include "tools/Sculpt.h"
+#include "tools/VisualScript.h"
 #include <cmath>
 #include "gpu/VulkanContext.h"
 #include "imgui.h"
@@ -302,6 +303,54 @@ static int SelfTest() {
         check(live.roughness == 0.25f && live.HasCpu(MapSlot::Normal), "material undo restores params, keeps maps");
         stack.Redo();
         check(live.roughness == 0.9f, "material redo");
+    }
+    // Visual Scripting: blocks and wires build the same meshes as the primitives.
+    {
+        auto build = [](VisualGraph& g) { return EvaluateGraph(g); };
+        std::string why;
+        VisualGraph g; int box = g.Add(BlockType::Box), show = g.Add(BlockType::ShowInScene);
+        g.Connect(box, show, 0, why);
+        BuildResult r = build(g);
+        check(r.ok && r.mesh.VertexCount() == 8 && r.mesh.polyCount == 6, "visual: box -> show gives 8 verts / 6 faces");
+        int line = g.Add(BlockType::CopyLine);
+        g.Connect(box, line, 0, why); g.Connect(line, show, 0, why);   // replaces the old wire
+        r = build(g);
+        check(r.ok && r.mesh.VertexCount() == 24 && r.mesh.polyCount == 18 && r.mesh.HasLoopUVs(), "visual: copy in a line x3 gives 24 / 18");
+        int grid = g.Add(BlockType::CopyGrid);
+        g.Connect(box, grid, 0, why); g.Connect(grid, show, 0, why);
+        r = build(g);
+        check(r.ok && r.mesh.VertexCount() == 48 && r.mesh.polyCount == 36, "visual: copy in a grid 2x3 gives 6 copies");
+        int mv = g.Add(BlockType::Move); g.Find(mv)->values[2] = 5.0f;
+        g.Connect(box, mv, 0, why); g.Connect(mv, show, 0, why);
+        r = build(g);
+        bool lifted = r.ok;
+        for (const Float3& p : r.mesh.positions) lifted &= p.y >= 3.99f && p.y <= 6.01f;
+        check(lifted, "visual: move offsets positions");
+        int a = g.Add(BlockType::Number), b = g.Add(BlockType::Number), m = g.Add(BlockType::Math);
+        g.Find(a)->values[0] = 6; g.Find(b)->values[0] = 3;
+        g.Connect(a, m, 0, why); g.Connect(b, m, 1, why);
+        float out = 0; bool mathOk = true;
+        const float expect[] = {9, 3, 18, 2};
+        for (int op = 0; op < kMathOpCount; ++op) { g.Find(m)->op = op; mathOk &= EvaluateNumber(g, m, out, why) && out == expect[op]; }
+        g.Find(b)->values[0] = 0; g.Find(m)->op = 3;
+        mathOk &= !EvaluateNumber(g, m, out, why);
+        check(mathOk, "visual: math add / take away / times / divide by, and divide by zero refused");
+        check(!g.Connect(m, mv, 0, why), "visual: number wire into a shape slot is refused");
+        check(!g.Connect(box, mv, 1, why), "visual: shape wire into a number slot is refused");
+        int m2 = g.Add(BlockType::Math);
+        g.Connect(m, m2, 0, why);
+        check(!g.Connect(m2, m, 0, why) && why.find("Loops") != std::string::npos, "visual: loops are refused");
+        int rnd = g.Add(BlockType::Random); float r1 = 0, r2 = 0;
+        EvaluateNumber(g, rnd, r1, why); EvaluateNumber(g, rnd, r2, why);
+        g.Find(rnd)->values[2] = 7; float r3 = 0; EvaluateNumber(g, rnd, r3, why);
+        check(r1 == r2 && r1 >= 0 && r1 <= 10 && r3 != r1, "visual: random number repeats for the same seed");
+        g.Find(line)->values[1] = 5000; g.Connect(line, show, 0, why);
+        r = build(g);
+        check(r.ok && r.mesh.VertexCount() == 8 * (size_t)kMaxCopies && !r.notes.empty(), "visual: copies capped at 1000 with a note");
+        VisualGraph empty; empty.Add(BlockType::ShowInScene);
+        check(!build(empty).ok && !empty.blocks[0].error.empty(), "visual: empty Show in Scene explains itself");
+        VisualGraph starter; starter.LoadStarter();
+        check(build(starter).ok, "visual: starter example builds");
     }
     std::printf(failures ? "self-test FAILED (%d)\n" : "self-test passed\n", failures);
     return failures ? 1 : 0;
