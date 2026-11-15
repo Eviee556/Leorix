@@ -212,6 +212,7 @@ void App::Frame() {
     if (showRender)         RenderPanel();
     if (showRenderSettings) RenderSettingsPanel();
     if (showScripting)      ScriptingPanel();
+    if (showVisualScripting) VisualScriptingPanel();
     if (showAbout)          AboutWindow();
     AddPrimitiveMenu();
     NewProjectModal();
@@ -354,6 +355,7 @@ void App::MenuBar() {
         ImGui::MenuItem(kRender, nullptr, &showRender);
         ImGui::MenuItem(kRenderSettings, nullptr, &showRenderSettings);
         ImGui::MenuItem("Leorix Scripting", nullptr, &showScripting);
+        ImGui::MenuItem("Visual Scripting (blocks)", nullptr, &showVisualScripting);
         ImGui::Separator();
         if (ImGui::MenuItem("Show Both Workspaces", "F1")) { showCanvas2D = showViewport3D = true; resetLayout = true; }
         if (ImGui::MenuItem("Focus 2D Canvas", "F2"))      { showCanvas2D = true; showViewport3D = false; resetLayout = true; }
@@ -412,6 +414,7 @@ void App::MenuBar() {
         if (ImGui::MenuItem("Material Preview", nullptr, shading == ShadingMode::Material)) shading = ShadingMode::Material;
         if (ImGui::MenuItem("Rendered", nullptr, shading == ShadingMode::Rendered)) shading = ShadingMode::Rendered;
         if (ImGui::MenuItem("Leorix Scripting", nullptr, showScripting)) showScripting = !showScripting;
+        if (ImGui::MenuItem("Visual Scripting (blocks)", nullptr, showVisualScripting)) showVisualScripting = !showVisualScripting;
         ImGui::Separator();
         if (ImGui::MenuItem("Import Mesh...")) RequestMeshImport();
         if (ImGui::MenuItem("Export Mesh...", nullptr, false, scene.HasMesh())) RequestMeshExport();

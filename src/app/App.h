@@ -14,6 +14,7 @@
 #include "tools/BrushImage.h"
 #include "tools/Tools3D.h"
 #include "tools/TransformOp.h"
+#include "tools/VisualScript.h"
 #include "viewport/MeshView.h"
 #include "viewport/Viewport3D.h"
 #include <algorithm>
@@ -144,6 +145,7 @@ private:
     bool showToolbar = true, showCanvas2D = true, showViewport3D = true;
     bool showToolOptions = true, showColor = true, showLayers = true, showRender = true;
     bool showRenderSettings = false, showTool3D = false;
+    bool showVisualScripting = false;
     bool showScripting = false, showAbout = false, resetLayout = false, showNewProject = true;
     bool showHierarchy = true;
     bool canvas2DHovered = false;   // set by Canvas2DPanel; 2D tool shortcuts require it
@@ -198,6 +200,10 @@ private:
     std::string pendingProjectSave, pendingProjectOpen, projectPath, pendingHdri;
     ImportKind  queuedKind = ImportKind::None;
     std::string scriptCode, scriptOutput;
+    // Visual Scripting panel state (graph + canvas pan + the wire being dragged).
+    VisualGraph visualGraph; bool visualStarted = false;
+    ImVec2 visualPan{0, 0}; int visualDragFrom = -1;
+    std::string visualMessage; bool visualMessageOk = true; std::vector<std::string> visualNotes;
     std::string statusMessage; double statusUntil = 0;
 
     // ---- App.cpp
@@ -253,6 +259,7 @@ private:
     void ProcessPendingImport();
     void AddPrimitiveMenu();
     void ScriptingPanel();
+    void VisualScriptingPanel();
     void MeshStatsOverlay(ImVec2 origin, ImVec2 size);
     void EditModePick(bool viewportHovered);
     void HierarchyPanel();
