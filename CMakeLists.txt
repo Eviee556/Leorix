@@ -110,7 +110,6 @@ add_executable(leorix
   src/paint/Paint.cpp
   src/paint/Project.cpp
   src/core/Undo.cpp
-  src/core/Undo.cpp
   src/viewport/Viewport3D.cpp
   src/app/Theme.cpp
   src/app/App.cpp
@@ -140,3 +139,6 @@ if(MINGW)
   # Single self-contained .exe: no libstdc++/libgcc DLLs to ship.
   target_link_options(leorix PRIVATE -static -static-libgcc -static-libstdc++)
 endif()
+
+enable_testing()
+add_test(NAME selftest COMMAND leorix --selftest)

@@ -9,6 +9,7 @@
 #include "imgui_impl_sdl3.h"
 #include "imgui_impl_vulkan.h"
 #include <SDL3/SDL.h>
+#include <filesystem>
 #include <SDL3/SDL_main.h>
 #include <SDL3/SDL_vulkan.h>
 #include <cstdlib>
@@ -88,15 +89,29 @@ static int Fail(const std::string& message) {
 
 static int SelfTest() {
     std::printf("== Leorix mesh self-test ==\n");
+    int failures = 0;
+    auto check = [&](bool ok, const char* what) { if (!ok) { std::printf("  FAIL: %s\n", what); ++failures; } };
+    // Expected counts are Blender's Add Mesh defaults (README "Primitive topology").
+    struct Expect { Primitive t; size_t verts; unsigned polys; };
     PrimitiveParams pp;
-    for (Primitive t : {Primitive::Plane, Primitive::Cube, Primitive::Circle, Primitive::UVSphere,
-                        Primitive::IcoSphere, Primitive::Cylinder, Primitive::Cone, Primitive::Torus, Primitive::Grid}) {
-        Mesh m = BuildPrimitive(t, pp);
-        std::printf("  %-11s verts=%5zu tris=%5zu polys=%u\n", PrimitiveName(t), m.VertexCount(), m.TriCount(), m.polyCount);
+    for (Expect e : {Expect{Primitive::Plane, 4, 1}, {Primitive::Cube, 8, 6}, {Primitive::Circle, 32, 1},
+                     {Primitive::UVSphere, 482, 512}, {Primitive::IcoSphere, 42, 80}, {Primitive::Cylinder, 64, 34},
+                     {Primitive::Cone, 33, 33}, {Primitive::Torus, 512, 512}, {Primitive::Grid, 121, 100}}) {
+        Mesh m = BuildPrimitive(e.t, pp);
+        std::printf("  %-11s verts=%5zu tris=%5zu polys=%u\n", PrimitiveName(e.t), m.VertexCount(), m.TriCount(), m.polyCount);
+        check(m.VertexCount() == e.verts && m.polyCount == e.polys, PrimitiveName(e.t));
     }
     ScriptResult r = RunMeshScript(DefaultScriptExample());
     std::printf("  script ok=%d meshes=%zu\n", r.ok ? 1 : 0, r.meshes.size());
-    return r.ok ? 0 : 1;
+    check(r.ok, "script");
+    // OBJ round trip must keep quads (README "Mesh formats").
+    Mesh cube = BuildPrimitive(Primitive::Cube, pp), back; std::string error;
+    std::string path = (std::filesystem::temp_directory_path() / "leorix_selftest.obj").string();
+    check(ExportMesh(path, cube, error) && ImportMesh(path, back, error), "obj export/import");
+    check(back.VertexCount() == cube.VertexCount() && back.polyCount == cube.polyCount, "obj round trip keeps quads");
+    std::filesystem::remove(path);
+    std::printf(failures ? "self-test FAILED (%d)\n" : "self-test passed\n", failures);
+    return failures ? 1 : 0;
 }
 
 // leorix --convert in.obj out.glb : headless format conversion, also used to test the importers.
