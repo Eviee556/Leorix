@@ -81,6 +81,17 @@ struct ProjV { ImVec2 s; float z; bool ok; float shade; float sss; };
 
 static float Dot3(const Float3& a, const Float3& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
 
+// Blinn-Phong highlight at P; roughness drives how tight it is.
+static float BlinnSpec(const Float3& n, const Float3& L, const Float3& P, const Vec3& eye, float roughness, float sun) {
+    Float3 V{eye.x - P.x, eye.y - P.y, eye.z - P.z};
+    float vl = std::sqrt(Dot3(V, V)); if (vl > 1e-6f) { V.x /= vl; V.y /= vl; V.z /= vl; }
+    Float3 H{L.x + V.x, L.y + V.y, L.z + V.z};
+    float hl = std::sqrt(Dot3(H, H)); if (hl > 1e-6f) { H.x /= hl; H.y /= hl; H.z /= hl; }
+    float rough = std::clamp(roughness, 0.03f, 1.0f);
+    float shininess = std::min(2.0f / (rough * rough * rough * rough + 1e-4f), 2048.0f);
+    return std::pow(std::max(0.0f, Dot3(n, H)), shininess) * (1.0f - rough) * sun;
+}
+
 PickResult DrawAndPickMesh(ImDrawList* dl, const Viewport3D& vp, MeshObject& obj,
                            int selectMode, bool editMode, bool retopoMode,
                            const MeshDrawPrefs& prefs, ImVec2 mouse, bool mouseInside,
@@ -123,18 +134,8 @@ PickResult DrawAndPickMesh(ImDrawList* dl, const Viewport3D& vp, MeshObject& obj
             float diffuse = std::max(0.0f, d) * light.sunStrength;
             float ambient = (0.5f + 0.5f * n.y) * light.worldStrength;   // sky above, ground below
             float spec = 0.0f;
-            if (shading == ShadingMode::Rendered) {
-                // Blinn-Phong highlight; roughness drives how tight it is.
-                Vec3 e = vp.CameraEye();
-                Float3 V{e.x - worldPos[i].x, e.y - worldPos[i].y, e.z - worldPos[i].z};
-                float vl = std::sqrt(Dot3(V, V)); if (vl > 1e-6f) { V.x /= vl; V.y /= vl; V.z /= vl; }
-                Float3 H{L.x + V.x, L.y + V.y, L.z + V.z};
-                float hl = std::sqrt(Dot3(H, H)); if (hl > 1e-6f) { H.x /= hl; H.y /= hl; H.z /= hl; }
-                float rough = std::clamp(obj.material.roughness, 0.03f, 1.0f);
-                float shininess = 2.0f / (rough * rough * rough * rough + 1e-4f);
-                float ndoth = std::max(0.0f, Dot3(n, H));
-                spec = std::pow(ndoth, std::min(shininess, 2048.0f)) * (1.0f - rough) * light.sunStrength;
-            }
+            if (shading == ShadingMode::Rendered)
+                spec = BlinnSpec(n, L, worldPos[i], vp.CameraEye(), obj.material.roughness, light.sunStrength);
             float v = (diffuse + ambient + spec) * light.exposure;
             proj[i].shade = 1.0f - std::exp(-std::max(0.0f, v));
 
@@ -250,15 +251,8 @@ PickResult DrawAndPickMesh(ImDrawList* dl, const Viewport3D& vp, MeshObject& obj
         float base = shadeFromNormal(n);
         if (shading == ShadingMode::Rendered) {
             // specular from the face normal, and the averaged AO of its corners
-            Vec3 e = vp.CameraEye();
             Float3 mid{(A.x + B.x + C.x) / 3, (A.y + B.y + C.y) / 3, (A.z + B.z + C.z) / 3};
-            Float3 V{e.x - mid.x, e.y - mid.y, e.z - mid.z};
-            float vl = std::sqrt(Dot3(V, V)); if (vl > 1e-6f) { V.x /= vl; V.y /= vl; V.z /= vl; }
-            Float3 H{L.x + V.x, L.y + V.y, L.z + V.z};
-            float hl = std::sqrt(Dot3(H, H)); if (hl > 1e-6f) { H.x /= hl; H.y /= hl; H.z /= hl; }
-            float rough = std::clamp(obj.material.roughness, 0.03f, 1.0f);
-            float shininess = std::min(2.0f / (rough * rough * rough * rough + 1e-4f), 2048.0f);
-            float spec = std::pow(std::max(0.0f, Dot3(n, H)), shininess) * (1.0f - rough) * light.sunStrength;
+            float spec = BlinnSpec(n, L, mid, vp.CameraEye(), obj.material.roughness, light.sunStrength);
             base = 1.0f - std::exp(-std::max(0.0f, (base + spec * light.exposure)));
             base *= (t.poly < polyAO.size()) ? polyAO[t.poly] : 1.0f;
         }
@@ -287,6 +281,46 @@ PickResult DrawAndPickMesh(ImDrawList* dl, const Viewport3D& vp, MeshObject& obj
                                     lit ? 1 : 0, mat.useTextures ? 1 : 0, mat.Has(MapSlot::BaseColor) ? 1 : 0,
                                     mesh.uvs.size(), vn, textured ? 1 : 0);
     }
+    // Normal / Roughness / Metallic / AO maps: sampled from the CPU copies at each face corner and
+    // folded into that corner's shade, which ImDrawList then interpolates across the triangle.
+    // shortcut: map detail is limited to vertex density (fine on sculpt-scale meshes, blurry on a
+    // low-poly cube); upgrade to per-pixel when the GPU fill pass replaces this one.
+    const bool pbr = lit && mat.useTextures && mesh.HasLoopUVs() &&
+        (mat.HasCpu(MapSlot::Normal) || mat.HasCpu(MapSlot::Roughness) || mat.HasCpu(MapSlot::Metallic) || mat.HasCpu(MapSlot::AO));
+    static std::vector<Float3> tanT, tanB;
+    if (pbr && mat.HasCpu(MapSlot::Normal)) ComputeLoopTangents(mesh, tanT, tanB);
+    auto pbrShade = [&](uint32_t ti, int k) {
+        const Tri& t = mesh.tris[ti];
+        const uint32_t vi = k == 0 ? t.a : k == 1 ? t.b : t.c;
+        const Float2& tc = mesh.loopUVs[ti * 3 + k];
+        Float3 n;
+        if (obj.shadeSmooth && mesh.normals.size() == vn) n = mesh.normals[vi];
+        else {
+            const Float3 &P0 = mesh.positions[t.a], &P1 = mesh.positions[t.b], &P2 = mesh.positions[t.c];
+            Float3 u{P1.x - P0.x, P1.y - P0.y, P1.z - P0.z}, v{P2.x - P0.x, P2.y - P0.y, P2.z - P0.z};
+            n = {u.y * v.z - u.z * v.y, u.z * v.x - u.x * v.z, u.x * v.y - u.y * v.x};
+        }
+        if (mat.HasCpu(MapSlot::Normal)) {
+            float c[4]; mat.cpu[(int)MapSlot::Normal].Sample(tc.u, tc.v, c);
+            float x = c[0] * 2 - 1, y = c[1] * 2 - 1, z = c[2] * 2 - 1;   // OpenGL (+Y) normal map
+            float nl = std::sqrt(Dot3(n, n)); if (nl > 1e-12f) n = {n.x / nl, n.y / nl, n.z / nl};
+            const Float3 &T = tanT[ti * 3 + k], &B = tanB[ti * 3 + k];
+            n = {T.x * x + B.x * y + n.x * z, T.y * x + B.y * y + n.y * z, T.z * x + B.z * y + n.z * z};
+        }
+        float nl = std::sqrt(Dot3(n, n)); if (nl > 1e-12f) n = {n.x / nl, n.y / nl, n.z / nl};
+        float rough = mat.HasCpu(MapSlot::Roughness) ? mat.cpu[(int)MapSlot::Roughness].SampleScalar(tc.u, tc.v) : mat.roughness;
+        float metal = mat.HasCpu(MapSlot::Metallic) ? mat.cpu[(int)MapSlot::Metallic].SampleScalar(tc.u, tc.v) : 0.0f;
+        // A metal has no diffuse; it keeps the sky reflection (ambient) and the highlight.
+        float diffuse = std::max(0.0f, Dot3(n, L)) * light.sunStrength * (1.0f - metal);
+        float ambient = (0.5f + 0.5f * n.y) * light.worldStrength;
+        float spec = shading == ShadingMode::Rendered ? BlinnSpec(n, L, worldPos[vi], vp.CameraEye(), rough, light.sunStrength) : 0.0f;
+        float sh = 1.0f - std::exp(-std::max(0.0f, (diffuse + ambient + spec) * light.exposure));
+        if (mat.HasCpu(MapSlot::AO)) sh *= mat.cpu[(int)MapSlot::AO].SampleScalar(tc.u, tc.v);
+        if (shading == ShadingMode::Rendered)
+            sh *= obj.shadeSmooth ? aoFactor[vi] : (t.poly < polyAO.size() ? polyAO[t.poly] : 1.0f);
+        return sh;
+    };
+
     if (lit) {
         baseR = (ImU32)std::clamp(mat.baseColor[0] * 255.0f, 0.0f, 255.0f);
         baseG = (ImU32)std::clamp(mat.baseColor[1] * 255.0f, 0.0f, 255.0f);
@@ -320,14 +354,15 @@ PickResult DrawAndPickMesh(ImDrawList* dl, const Viewport3D& vp, MeshObject& obj
             const ProjV &A = proj[t.a], &B = proj[t.b], &C = proj[t.c];
             unsigned int base = dl->_VtxCurrentIdx;
             const float flat = obj.shadeSmooth ? 0.0f : faceShade(t);
+            float cs[3] = {obj.shadeSmooth ? A.shade : flat, obj.shadeSmooth ? B.shade : flat, obj.shadeSmooth ? C.shade : flat};
+            if (pbr) for (int k = 0; k < 3; ++k) cs[k] = pbrShade(oi, k);
             if (textured) {
                 const Float2* luv = &mesh.loopUVs[oi * 3];
-                auto W = [&](const ProjV& P, const Float2& t2) {
-                    float sh = obj.shadeSmooth ? P.shade : flat;
+                auto W = [&](const ProjV& P, const Float2& t2, float sh) {
                     ImU32 c = IM_COL32((int)(baseR * sh), (int)(baseG * sh), (int)(baseB * sh), 255);
                     dl->PrimWriteVtx(P.s, ImVec2(t2.u, t2.v), c);
                 };
-                W(A, luv[0]); W(B, luv[1]); W(C, luv[2]);
+                W(A, luv[0], cs[0]); W(B, luv[1], cs[1]); W(C, luv[2], cs[2]);
             } else {
                 // Smooth shading needs a colour per corner so it is interpolated across the face
                 // (Gouraud). Averaging the three corners into one colour, as this used to do, just
@@ -342,14 +377,14 @@ PickResult DrawAndPickMesh(ImDrawList* dl, const Viewport3D& vp, MeshObject& obj
                         (int)std::clamp(baseB * sh + 255.0f * sss * (mat.sssRadius[2] / mx), 0.0f, 255.0f), 255);
                 };
                 if (obj.shadeSmooth) {
-                    dl->PrimWriteVtx(A.s, uv, shadeColor(A.shade, A.sss));
-                    dl->PrimWriteVtx(B.s, uv, shadeColor(B.shade, B.sss));
-                    dl->PrimWriteVtx(C.s, uv, shadeColor(C.shade, C.sss));
+                    dl->PrimWriteVtx(A.s, uv, shadeColor(cs[0], A.sss));
+                    dl->PrimWriteVtx(B.s, uv, shadeColor(cs[1], B.sss));
+                    dl->PrimWriteVtx(C.s, uv, shadeColor(cs[2], C.sss));
                 } else {
-                    ImU32 col = shadeColor(flat, (A.sss + B.sss + C.sss) / 3.0f);
-                    dl->PrimWriteVtx(A.s, uv, col);
-                    dl->PrimWriteVtx(B.s, uv, col);
-                    dl->PrimWriteVtx(C.s, uv, col);
+                    const float sss = (A.sss + B.sss + C.sss) / 3.0f;
+                    dl->PrimWriteVtx(A.s, uv, shadeColor(cs[0], sss));
+                    dl->PrimWriteVtx(B.s, uv, shadeColor(cs[1], sss));
+                    dl->PrimWriteVtx(C.s, uv, shadeColor(cs[2], sss));
                 }
             }
             dl->PrimWriteIdx((ImDrawIdx)base); dl->PrimWriteIdx((ImDrawIdx)(base + 1)); dl->PrimWriteIdx((ImDrawIdx)(base + 2));

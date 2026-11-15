@@ -4,6 +4,36 @@
 #include <unordered_map>
 #include <vector>
 
+void ComputeLoopTangents(const Mesh& mesh, std::vector<Float3>& T, std::vector<Float3>& B) {
+    T.assign(mesh.tris.size() * 3, Float3{1, 0, 0});
+    B.assign(mesh.tris.size() * 3, Float3{0, 1, 0});
+    if (!mesh.HasLoopUVs()) return;
+    auto sub = [](Float3 a, Float3 b) { return Float3{a.x - b.x, a.y - b.y, a.z - b.z}; };
+    auto dot = [](Float3 a, Float3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; };
+    auto cross = [](Float3 a, Float3 b) { return Float3{a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x}; };
+    auto norm = [&](Float3 a) { float l = std::sqrt(dot(a, a)); return l > 1e-12f ? Float3{a.x / l, a.y / l, a.z / l} : Float3{}; };
+    for (size_t ti = 0; ti < mesh.tris.size(); ++ti) {
+        const Tri& t = mesh.tris[ti];
+        const Float2* uv = &mesh.loopUVs[ti * 3];
+        Float3 e1 = sub(mesh.positions[t.b], mesh.positions[t.a]), e2 = sub(mesh.positions[t.c], mesh.positions[t.a]);
+        float du1 = uv[1].u - uv[0].u, dv1 = uv[1].v - uv[0].v, du2 = uv[2].u - uv[0].u, dv2 = uv[2].v - uv[0].v;
+        float r = du1 * dv2 - du2 * dv1;
+        Float3 dPdu = std::fabs(r) > 1e-12f ? Float3{(e1.x * dv2 - e2.x * dv1) / r, (e1.y * dv2 - e2.y * dv1) / r,
+                                                     (e1.z * dv2 - e2.z * dv1) / r} : e1;   // degenerate UVs: any edge
+        float sign = r < 0 ? -1.0f : 1.0f;
+        Float3 fn = norm(cross(e1, e2));
+        const uint32_t v[3] = {t.a, t.b, t.c};
+        for (int k = 0; k < 3; ++k) {
+            Float3 n = mesh.normals.size() == mesh.positions.size() ? norm(mesh.normals[v[k]]) : fn;
+            Float3 tg = norm(sub(dPdu, Float3{n.x * dot(n, dPdu), n.y * dot(n, dPdu), n.z * dot(n, dPdu)}));
+            if (dot(tg, tg) < 0.5f) continue;   // U runs along the normal: keep the default frame
+            Float3 bt = cross(n, tg);
+            T[ti * 3 + k] = tg;
+            B[ti * 3 + k] = Float3{bt.x * sign, bt.y * sign, bt.z * sign};
+        }
+    }
+}
+
 void Mesh::Clear() { positions.clear(); normals.clear(); uvs.clear(); loopUVs.clear(); tris.clear(); polyCount = 0; }
 
 void Mesh::ComputeBounds() {
