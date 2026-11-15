@@ -110,6 +110,29 @@ static int SelfTest() {
     check(ExportMesh(path, cube, error) && ImportMesh(path, back, error), "obj export/import");
     check(back.VertexCount() == cube.VertexCount() && back.polyCount == cube.polyCount, "obj round trip keeps quads");
     std::filesystem::remove(path);
+    // Material undo: params copy leaves textures alone, and a step round-trips through undo/redo.
+    {
+        Material live, snap;
+        live.cpu[(int)MapSlot::Normal].width = live.cpu[(int)MapSlot::Normal].height = 1;
+        live.cpu[(int)MapSlot::Normal].pixels = {1, 2, 3, 4};
+        live.paths[(int)MapSlot::Normal] = "n.png";
+        live.roughness = 0.25f;
+        CopyMaterialParams(snap, live);
+        check(snap.roughness == 0.25f && !snap.HasCpu(MapSlot::Normal) && snap.paths[(int)MapSlot::Normal].empty(),
+              "material params copy skips textures");
+        check(live.HasCpu(MapSlot::Normal) && live.paths[(int)MapSlot::Normal] == "n.png", "material params copy keeps source");
+        UndoStack stack;
+        live.roughness = 0.9f;
+        auto before = std::make_shared<Material>(), after = std::make_shared<Material>();
+        CopyMaterialParams(*before, snap);
+        CopyMaterialParams(*after, live);
+        stack.Push("Edit Roughness", [&live, before] { CopyMaterialParams(live, *before); },
+                                     [&live, after] { CopyMaterialParams(live, *after); });
+        stack.Undo();
+        check(live.roughness == 0.25f && live.HasCpu(MapSlot::Normal), "material undo restores params, keeps maps");
+        stack.Redo();
+        check(live.roughness == 0.9f, "material redo");
+    }
     std::printf(failures ? "self-test FAILED (%d)\n" : "self-test passed\n", failures);
     return failures ? 1 : 0;
 }
