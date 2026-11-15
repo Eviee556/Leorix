@@ -78,7 +78,7 @@
   #canvas-wrap{flex:1; position:relative; overflow:auto; background:
       linear-gradient(45deg, var(--check-a) 25%, transparent 25%), linear-gradient(-45deg, var(--check-a) 25%, transparent 25%),
       linear-gradient(45deg, transparent 75%, var(--check-a) 75%), linear-gradient(-45deg, transparent 75%, var(--check-a) 75%);
-    background-color:var(--check-b); background-size:22px 22px; background-position:0 0, 0 11px, 11px -11px, -11px 0px;
+    background-color:var(--check-b); background-size:44px 44px; background-position:0 0, 0 22px, 22px -22px, -22px 0px;
     display:flex; align-items:center; justify-content:center;}
   #canvas-stage{position:relative; box-shadow:0 12px 40px rgba(0,0,0,.6); flex-shrink:0;}
   #canvas-stage canvas{position:absolute; top:0; left:0; image-rendering:pixelated;}
@@ -616,6 +616,13 @@
         <div id="tool-options-body"></div>
       </div>
 
+      <div class="panel" id="bc-panel" style="display:none;">
+        <h3>Brightness / Contrast</h3>
+        <div class="row"><label>Brightness</label><input type="range" id="bc-brightness" min="-100" max="100" value="0"><span class="val" id="bc-b-val">0</span></div>
+        <div class="row"><label>Contrast</label><input type="range" id="bc-contrast" min="-100" max="100" value="0"><span class="val" id="bc-c-val">0</span></div>
+        <button class="btn" id="bc-reset" style="width:100%; margin-top:4px;">Reset</button>
+      </div>
+
       <div class="panel" id="color-panel">
         <h3>Color</h3>
         <div id="color-swatch-current"></div>
@@ -814,6 +821,22 @@
         <div class="row"><label>Angle</label><input type="range" id="d25-lightang" min="0" max="360" value="135"><span class="val" id="d25-lightang-val">135°</span></div>
         <div class="row"><label>Intensity</label><input type="range" id="d25-lightint" min="0" max="150" value="70"><span class="val" id="d25-lightint-val">70%</span></div>
         <button class="btn" id="d25-reset" style="width:100%; margin-top:4px;">Reset Camera</button>
+
+        <div class="subhead">3D Diorama</div>
+        <p class="hint" style="margin:0 0 6px;">Positions each layer as a real plane in 3D space — multiplane camera projection, like a traditional animation dolly setup — instead of the flat parallax trick above.</p>
+        <div class="uv-row"><input type="checkbox" id="dio-enable"><label for="dio-enable">Enable 3D Diorama (active layer: <span id="dio-active-layer">—</span>)</label></div>
+        <div class="row"><label>X</label><input type="range" id="dio-x" min="-5" max="5" step="0.05" value="0"><span class="val" id="dio-x-val">0</span></div>
+        <div class="row"><label>Y</label><input type="range" id="dio-y" min="-5" max="5" step="0.05" value="0"><span class="val" id="dio-y-val">0</span></div>
+        <div class="row"><label>Z (depth)</label><input type="range" id="dio-z" min="-10" max="2" step="0.05" value="0"><span class="val" id="dio-z-val">0</span></div>
+        <div class="row"><label>Scale</label><input type="range" id="dio-scale" min="0.2" max="4" step="0.05" value="1"><span class="val" id="dio-scale-val">1</span></div>
+
+        <div class="subhead">Camera Path</div>
+        <p class="hint" style="margin:0 0 6px;">Keyframe the camera on the same timeline used for rigging — scrub, place keys, and Play flies the camera through the diorama.</p>
+        <div class="uv-row"><input type="checkbox" id="camtrack-enable"><label for="camtrack-enable">Animate Camera</label></div>
+        <div class="layer-toolbar">
+          <button class="btn" id="camtrack-key" style="flex:1;">◆ Key Camera</button>
+          <button class="btn" id="camtrack-delkey">Delete Key</button>
+        </div>
       </div>
 
       <div class="panel" id="effects-panel">
@@ -998,18 +1021,6 @@ leorix.log('Added a sphere.');"></textarea>
   </div>
 </div>
 
-<div class="modal-backdrop" id="modal-bc">
-  <div class="modal">
-    <h2>Brightness / Contrast</h2>
-    <div class="row"><label>Brightness</label><input type="range" id="bc-brightness" min="-100" max="100" value="0"><span class="val" id="bc-b-val">0</span></div>
-    <div class="row"><label>Contrast</label><input type="range" id="bc-contrast" min="-100" max="100" value="0"><span class="val" id="bc-c-val">0</span></div>
-    <div class="modal-actions">
-      <button class="btn" data-action="close-modal">Cancel</button>
-      <button class="btn primary" data-action="apply-bc">Apply</button>
-    </div>
-  </div>
-</div>
-
 <div class="modal-backdrop" id="modal-resize">
   <div class="modal">
     <h2>Canvas Size</h2>
@@ -1067,6 +1078,17 @@ leorix.log('Added a sphere.');"></textarea>
     <h2>Personalize Colors</h2>
     <div class="row"><label>Preset</label>
       <select id="theme-preset-select" class="num-input"></select>
+    </div>
+    <div class="row" style="align-items:flex-start;">
+      <label style="padding-top:2px;">Wide Color Gamut</label>
+      <div>
+        <label style="display:flex; align-items:center; gap:6px; font-weight:normal;">
+          <input type="checkbox" id="pref-wide-gamut"> <span>New layers use Display P3</span>
+        </label>
+        <p class="hint" style="margin:4px 0 0;">Wide gamut (more saturated colors on a P3-capable display), not full HDR —
+          that would need a different pixel pipeline entirely. Only affects new layers going forward, and needs the app
+          restarted for the main canvas to fully switch over.</p>
+      </div>
     </div>
     <div id="theme-groups" style="max-height:360px; overflow-y:auto; padding-right:4px;"></div>
     <div class="modal-actions" style="justify-content:space-between;">
@@ -1130,6 +1152,15 @@ const Prefs3D = {
   gizmoPosZ:'#5ea86b', gizmoNegZ:'#3d5c45',
 };
 let ToolbarPanel = null, Viewport3DPanel = null, Canvas2DPanel = null;
+
+/* Opt-in, not default: switches new layer canvases to Display P3 (wide color gamut)
+   instead of standard sRGB. This is wide gamut, not full HDR — true HDR needs a
+   fundamentally different 16-bit/float pixel pipeline that this doesn't attempt.
+   Kept opt-in deliberately, since forcing it on for everyone would mean changing
+   color-space behavior across every blend mode and filter in the app without being
+   able to verify each one live. New layers pick this up immediately; the already-
+   created main display canvas only picks up a change after restarting the app. */
+let UseWideColorGamut = false;
 
 function toast(msg){
   const t = document.getElementById('toast');
@@ -1247,7 +1278,7 @@ function anyEffectsActiveOnMap(){
 /* ============================= Map / Layer helpers ============================= */
 function makeLayer(name, fill){
   const c = document.createElement('canvas'); c.width = State.width; c.height = State.height;
-  const ctx = c.getContext('2d', {willReadFrequently:true});
+  const ctx = c.getContext('2d', {willReadFrequently:true, colorSpace: UseWideColorGamut ? 'display-p3' : 'srgb'});
   if(fill && fill !== 'transparent'){ ctx.fillStyle = fill; ctx.fillRect(0,0,c.width,c.height); }
   return { id: State.nextLayerId++, name, canvas:c, ctx, visible:true, opacity:100, blend:'source-over',
     mask:null, activeTarget:'content', bgMode:'transparent', bgColor:'#ffffff',
@@ -1738,6 +1769,7 @@ function commitStroke(){
   pendingSnapshot = null;
   updateMenuStates();
   if(Viewport3D.active) Viewport3D.scheduleRefresh();
+  if(Diorama.enabled) Diorama.refreshTexture(layer);
 }
 function pushStructuralUndo(action){
   const map = CM();
@@ -2091,6 +2123,7 @@ function makeThumbDataURL(srcCanvas){
 function renderLayerPanel(){
   updateNormalBrushPanelVisibility();
   renderEffectsPanel();
+  refreshDioramaPanel();
   const map = CM();
   document.getElementById('active-map-kind-label').innerHTML =
     `<span class="map-dot${map.kind==='orm'?' orm':''}" style="${map.kind==='orm'?'':'background:'+(KINDS[map.kind]||KINDS.custom).dot}"></span>${KIND_HINTS[map.kind]||''}`;
@@ -2841,10 +2874,63 @@ function filterSharpen(){
     }
   });
 }
-function applyBrightnessContrast(brightness, contrast){
-  applyToActiveLayer(d=>{
-    const c=(contrast/100)+1, b=brightness*2.55;
-    for(let i=0;i<d.length;i+=4){ d[i]=(d[i]-128)*c+128+b; d[i+1]=(d[i+1]-128)*c+128+b; d[i+2]=(d[i+2]-128)*c+128+b; }
+/* ============================= Brightness/Contrast: live preview ============================= */
+/* Recomputes from a single baseline snapshot on every slider tick rather than
+   repeatedly reapplying the formula to already-adjusted pixels — reapplying live
+   would compound (dragging brightness from 0 to 50 one tick at a time is NOT the
+   same as applying +50 once, especially with the clamping and multiplicative
+   contrast term involved). One undo entry is committed on release, matching how a
+   brush stroke commits once rather than per intermediate paint call. */
+const BCLive = {
+  dragging:false, original:null, ctx:null,
+  begin(){
+    if(this.dragging) return;
+    this.ctx = targetCtx();
+    this.original = this.ctx.getImageData(0,0,State.width,State.height);
+    beginStroke();
+    this.dragging = true;
+  },
+  preview(brightness, contrast){
+    if(!this.dragging) this.begin();
+    const src = this.original.data;
+    const out = this.ctx.createImageData(State.width, State.height);
+    const d = out.data;
+    const c = (contrast/100)+1, b = brightness*2.55;
+    for(let i=0;i<src.length;i+=4){
+      d[i]   = (src[i]  -128)*c+128+b;
+      d[i+1] = (src[i+1]-128)*c+128+b;
+      d[i+2] = (src[i+2]-128)*c+128+b;
+      d[i+3] = src[i+3];
+    }
+    this.ctx.putImageData(out,0,0);
+    composite();
+  },
+  end(){
+    if(!this.dragging) return;
+    this.dragging = false; this.original = null; this.ctx = null;
+    commitStroke(); renderLayerPanel();
+  },
+};
+function toggleBCPanel(){
+  const panel = document.getElementById('bc-panel');
+  const willShow = panel.style.display==='none' || !panel.style.display;
+  panel.style.display = willShow ? 'block' : 'none';
+}
+function bindBCPanel(){
+  const bInput = document.getElementById('bc-brightness'), cInput = document.getElementById('bc-contrast');
+  const bVal = document.getElementById('bc-b-val'), cVal = document.getElementById('bc-c-val');
+  const onInput = ()=>{
+    bVal.textContent = bInput.value; cVal.textContent = cInput.value;
+    BCLive.preview(Number(bInput.value), Number(cInput.value));
+  };
+  for(const inp of [bInput, cInput]){
+    inp.addEventListener('pointerdown', ()=> BCLive.begin());
+    inp.addEventListener('input', onInput);
+    inp.addEventListener('pointerup', ()=> BCLive.end());
+  }
+  document.getElementById('bc-reset').addEventListener('click', ()=>{
+    if(BCLive.dragging) BCLive.end(); // shouldn't happen mid-drag, but stay safe
+    bInput.value = 0; cInput.value = 0; bVal.textContent='0'; cVal.textContent='0';
   });
 }
 function filterFlipGreen(){ applyToActiveLayer(d=>{ for(let i=0;i<d.length;i+=4) d[i+1] = 255-d[i+1]; }); }
@@ -3081,8 +3167,7 @@ document.body.addEventListener('click', (e)=>{
     case 'filter-invert': filterInvert(); break;
     case 'filter-blur': filterBlur(); break;
     case 'filter-sharpen': filterSharpen(); break;
-    case 'filter-brightness': showModal('modal-bc'); break;
-    case 'apply-bc': applyBrightnessContrast(Number(document.getElementById('bc-brightness').value), Number(document.getElementById('bc-contrast').value)); hideModal('modal-bc'); break;
+    case 'filter-brightness': toggleBCPanel(); break;
     case 'zoom-in': setZoom(State.zoom*1.25); break;
     case 'zoom-out': setZoom(State.zoom/1.25); break;
     case 'zoom-fit': zoomFit(); break;
@@ -3111,8 +3196,7 @@ document.body.addEventListener('click', (e)=>{
     case 'reset-layout': resetWindowLayout(); break;
   }
 });
-document.getElementById('bc-brightness').addEventListener('input', e=> document.getElementById('bc-b-val').textContent = e.target.value);
-document.getElementById('bc-contrast').addEventListener('input', e=> document.getElementById('bc-c-val').textContent = e.target.value);
+// (Brightness/Contrast slider wiring now lives in bindBCPanel() - see the live-preview system)
 document.getElementById('export-quality').addEventListener('input', e=> document.getElementById('export-quality-val').textContent = e.target.value+'%');
 document.getElementById('export-all-format').addEventListener('change', (e)=>{
   document.getElementById('export-quality-row').style.display = (e.target.value==='jpg') ? 'flex' : 'none';
@@ -3631,6 +3715,14 @@ const Viewport3D = {
     wrapEl.appendChild(this.renderer.domElement);
     this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true; this.controls.dampingFactor = 0.09;
+    // Permanent, not mode-specific: LEFT is reserved exclusively for selection/painting/
+    // box-select everywhere in the viewport, matching Blender's actual universal
+    // convention (Blender never binds orbit to left-click in any mode). Middle-drag
+    // orbits, right-drag pans. This used to only apply while Poly Spec was active and
+    // reverted to THREE's LEFT:ROTATE default the instant you left Edit Mode — meaning
+    // ordinary Select-mode clicking (and box-select) still fought with orbit the rest
+    // of the time, which is what was actually causing selections to clear unexpectedly.
+    this.controls.mouseButtons = { LEFT:null, MIDDLE:THREE.MOUSE.ROTATE, RIGHT:THREE.MOUSE.PAN };
     this.raycaster = new THREE.Raycaster();
 
     const key = new THREE.DirectionalLight(0xffffff, 2.1); key.position.set(3,4,2); this.scene.add(key);
@@ -3958,8 +4050,12 @@ const Viewport3D = {
           return;
         }
         if(e.button===0){
-          PolySpec.handleClick(e);
           e.preventDefault(); e.stopPropagation();
+          const rect = el.getBoundingClientRect();
+          PolySpec._clickDragStart = { x:e.clientX-rect.left, y:e.clientY-rect.top, clientX:e.clientX, clientY:e.clientY, shiftKey:e.shiftKey };
+          const box = document.getElementById('ps-boxselect');
+          box.style.left = PolySpec._clickDragStart.x+'px'; box.style.top = PolySpec._clickDragStart.y+'px';
+          box.style.width = '0px'; box.style.height = '0px'; box.style.display = 'block';
         }
         return;
       }
@@ -4064,6 +4160,17 @@ const Viewport3D = {
           const x1 = Math.max(PolySpec.boxDragStart.x, cx), y1 = Math.max(PolySpec.boxDragStart.y, cy);
           const box = document.getElementById('ps-boxselect');
           box.style.left = x0+'px'; box.style.top = y0+'px'; box.style.width = (x1-x0)+'px'; box.style.height = (y1-y0)+'px';
+          return;
+        }
+        if(PolySpec._clickDragStart){
+          const rect = el.getBoundingClientRect();
+          const cx = e.clientX-rect.left, cy = e.clientY-rect.top;
+          const start = PolySpec._clickDragStart;
+          const x0 = Math.min(start.x, cx), y0 = Math.min(start.y, cy);
+          const x1 = Math.max(start.x, cx), y1 = Math.max(start.y, cy);
+          const box = document.getElementById('ps-boxselect');
+          box.style.left = x0+'px'; box.style.top = y0+'px'; box.style.width = (x1-x0)+'px'; box.style.height = (y1-y0)+'px';
+          return;
         }
         return;
       }
@@ -4134,6 +4241,23 @@ const Viewport3D = {
         box.style.display = 'none';
         PolySpec.boxDragStart = null; PolySpec.boxSelectArmed = false;
         if(x1-x0 > 3 || y1-y0 > 3) PolySpec.boxSelectAt({x0,y0,x1,y1});
+        return;
+      }
+      if(PolySpec.active && PolySpec._clickDragStart){
+        const box = document.getElementById('ps-boxselect');
+        const x0 = parseFloat(box.style.left), y0 = parseFloat(box.style.top);
+        const w = parseFloat(box.style.width), h = parseFloat(box.style.height);
+        box.style.display = 'none';
+        const start = PolySpec._clickDragStart;
+        PolySpec._clickDragStart = null;
+        if(w < 4 && h < 4){
+          // Negligible movement — a genuine click. Use the original press position,
+          // not the release position, so a tiny accidental jitter doesn't pick the
+          // wrong element.
+          PolySpec.handleClick({ clientX:start.clientX, clientY:start.clientY, shiftKey:start.shiftKey });
+        } else {
+          PolySpec.boxSelectAt({ x0, y0, x1:x0+w, y1:y0+h });
+        }
         return;
       }
       if(this._sculpting){
@@ -4280,7 +4404,7 @@ const PolySpec = {
     this._buildOverlays();
     document.getElementById('polyspec-bar').classList.add('show');
     this._setModeButton();
-    toast('Poly Spec Mode — Vertex select. Tab to exit.');
+    toast('Poly Spec Mode — Vertex select. Middle-drag to orbit, left-drag to box-select. Tab to exit.');
   },
   exit(){
     if(!this.active) return;
@@ -4655,10 +4779,12 @@ const PolySpec = {
     const mesh = this.mesh;
     const beforeSnap = snapshotGeometry(geo);
     const oldPos = geo.attributes.position;
+    const oldUV = geo.attributes.uv;
     const oldIdx = geo.index.array;
     const oldCount = oldPos.count;
 
     const newPositions = Array.from(oldPos.array);
+    const newUVs = oldUV ? Array.from(oldUV.array) : null;
     const newIndex = Array.from(oldIdx);
     const newFaceIds = new Set();
     let nextVert = oldCount;
@@ -4670,6 +4796,14 @@ const PolySpec = {
       const c = new THREE.Vector3(oldPos.getX(ic),oldPos.getY(ic),oldPos.getZ(ic));
       const na = nextVert++, nb = nextVert++, nc = nextVert++;
       newPositions.push(a.x,a.y,a.z, b.x,b.y,b.z, c.x,c.y,c.z);
+      if(newUVs){
+        // Each duplicated vertex inherits its source vertex's UV — not texture-perfect
+        // for the new side-wall faces, but keeps the array length/alignment correct
+        // (a mismatch here previously made every extruded edge read UV as undefined,
+        // which propagates as NaN into the quad-wireframe's diagonal check and made
+        // every triangle edge in extruded areas draw as if it were a real edge).
+        newUVs.push(oldUV.getX(ia),oldUV.getY(ia), oldUV.getX(ib),oldUV.getY(ib), oldUV.getX(ic),oldUV.getY(ic));
+      }
       // Side walls, one quad (two triangles) per original edge, connecting the old ring to the new ring.
       newIndex.push(ia,ib,nb, ia,nb,na);
       newIndex.push(ib,ic,nc, ib,nc,nb);
@@ -4681,6 +4815,7 @@ const PolySpec = {
 
     const IndexArr = nextVert > 65535 ? Uint32Array : Uint16Array;
     geo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(newPositions),3));
+    if(newUVs) geo.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(newUVs),2));
     geo.setIndex(new THREE.BufferAttribute(new IndexArr(newIndex),1));
     geo.computeVertexNormals();
 
@@ -4730,15 +4865,18 @@ const PolySpec = {
     // Compact vertices: drop any that no triangle references anymore, remap the rest.
     const used = new Set(keptIdx);
     const remap = new Map(); const newPos = [];
+    const uvAttr = geo.attributes.uv, newUV = uvAttr ? [] : null;
     let n=0;
     for(let i=0;i<posAttr.count;i++){
       if(!used.has(i)) continue;
       remap.set(i, n++);
       newPos.push(posAttr.getX(i), posAttr.getY(i), posAttr.getZ(i));
+      if(newUV) newUV.push(uvAttr.getX(i), uvAttr.getY(i));
     }
     const remappedIdx = keptIdx.map(i=>remap.get(i));
     const IndexArr = n > 65535 ? Uint32Array : Uint16Array;
     geo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(newPos),3));
+    if(newUV) geo.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(newUV),2));
     geo.setIndex(new THREE.BufferAttribute(new IndexArr(remappedIdx),1));
     geo.computeVertexNormals();
 
@@ -4782,15 +4920,18 @@ const PolySpec = {
     // Compact away the now-unused merged vertices.
     const used = new Set(redirected);
     const remap = new Map(); const newPos = [];
+    const uvAttr = geo.attributes.uv, newUV = uvAttr ? [] : null;
     let n=0;
     for(let i=0;i<posAttr.count;i++){
       if(!used.has(i)) continue;
       remap.set(i, n++);
       newPos.push(posAttr.getX(i), posAttr.getY(i), posAttr.getZ(i));
+      if(newUV) newUV.push(uvAttr.getX(i), uvAttr.getY(i));
     }
     const remappedIdx = redirected.map(i=>remap.get(i));
     const IndexArr = n > 65535 ? Uint32Array : Uint16Array;
     geo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(newPos),3));
+    if(newUV) geo.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(newUV),2));
     geo.setIndex(new THREE.BufferAttribute(new IndexArr(remappedIdx),1));
     geo.computeVertexNormals();
 
@@ -5101,7 +5242,7 @@ function applyStartupMode(){
     CM().name = 'Page';
     renderMapTabs(); renderLayerPanel();
   } else if(StartupMode === '25d'){
-    Viewport3D.show(false); setComicMode(false);
+    Viewport3D.show(true); setComicMode(false);
     Scene25D.enabled = true;
     if(!State.mapOrder.some(id=>State.maps[id].kind==='normal')) createMap('normal','Normal');
     State.activeMapId = State.mapOrder[0];
@@ -5662,6 +5803,10 @@ function buildThemeModal(){
   }
 }
 function bindThemeControls(){
+  document.getElementById('pref-wide-gamut').addEventListener('change', (e)=>{
+    UseWideColorGamut = e.target.checked;
+    toast(UseWideColorGamut ? 'New layers will use Display P3.' : 'New layers will use standard sRGB.');
+  });
   const sel = document.getElementById('theme-preset-select');
   const defOpt = document.createElement('option'); defOpt.value='default'; defOpt.textContent='Ink & Brass (Default)'; sel.appendChild(defOpt);
   for(const key of Object.keys(THEME_PRESETS)){ const o=document.createElement('option'); o.value=key; o.textContent=key[0].toUpperCase()+key.slice(1); sel.appendChild(o); }
@@ -5725,7 +5870,7 @@ function bindSidebarSplitter(){
 
 /* ============================= Every sidebar panel is floatable ============================= */
 const SIDEBAR_PANEL_IDS = [
-  'tool-options-panel','color-panel','map-brush-panel','layers-panel','comic-panel',
+  'tool-options-panel','bc-panel','color-panel','map-brush-panel','layers-panel','comic-panel',
   'uv-panel','create3d-panel','sculpt-panel','hdri-panel','modifier-panel',
   'rig-panel','weight-panel','cloth-panel','rig2d-panel','scene25d-panel','effects-panel',
   'scripting-panel',
@@ -6683,8 +6828,16 @@ const Gizmo = {
     renderer.setScissorTest(true);
     renderer.setViewport(x, y, size, size);
     renderer.setScissor(x, y, size, size);
+    // render() clears color+depth by default (autoClear) within whatever scissor rect
+    // is active — that was wiping this small region to opaque black before the gizmo's
+    // spheres got drawn on top, instead of letting the already-rendered main scene show
+    // through behind them. We only actually want depth cleared (so the gizmo isn't
+    // occluded by stale depth from the main render), not color.
+    const prevAutoClear = renderer.autoClear;
+    renderer.autoClear = false;
     renderer.clearDepth();
     renderer.render(this.scene, this.camera);
+    renderer.autoClear = prevAutoClear;
     renderer.setScissorTest(false);
     renderer.setViewport(0, 0, el.width, el.height);
   },
@@ -7493,6 +7646,7 @@ const Rig = {
     this.frame = Math.max(0, Math.min(this.length, Math.round(f)));
     this.applyFrame(this.frame);
     if(Rig2D.joints.length) Rig2D.applyFrame(this.frame);
+    CameraTrack.applyFrame(this.frame);
     document.getElementById('tl-frame').textContent = `Frame ${this.frame} / ${this.length}`;
     document.getElementById('timeline-playhead').style.left = (this.frame/this.length*100)+'%';
   },
@@ -8011,7 +8165,93 @@ const Scene25D = {
   }
 };
 
-/* ============================= Rig/2.5D panel rendering ============================= */
+/* ============================= Diorama: multiplane 3D layer positioning ============================= */
+/* Each visible 2D layer becomes a real textured plane in the 3D scene, positioned
+   in true X/Y/Z space rather than the old single depth-scalar fake-parallax trick.
+   Works alongside CameraTrack below so the camera can fly through the resulting
+   layered scene along a keyframed path. */
+const Diorama = {
+  enabled:false, planes:new Map(), positions:new Map(),
+  posOf(layer){
+    if(!this.positions.has(layer.id)) this.positions.set(layer.id, {x:0,y:0,z:0,scale:1});
+    return this.positions.get(layer.id);
+  },
+  setPos(layer, axis, v){ this.posOf(layer)[axis] = v; this.updatePlaneTransform(layer); },
+  buildPlane(layer){
+    const aspect = State.width/State.height;
+    const geo = new THREE.PlaneGeometry(aspect, 1);
+    const tex = new THREE.CanvasTexture(getLayerRenderCanvas(layer));
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const mat = new THREE.MeshBasicMaterial({ map:tex, transparent:true, side:THREE.DoubleSide });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.userData.layerId = layer.id;
+    mesh.raycast = ()=>{}; // reference planes, not selectable/paintable 3D objects
+    Viewport3D.scene.add(mesh);
+    this.planes.set(layer.id, mesh);
+    this.updatePlaneTransform(layer);
+  },
+  updatePlaneTransform(layer){
+    const mesh = this.planes.get(layer.id); if(!mesh) return;
+    const p = this.posOf(layer);
+    mesh.position.set(p.x, p.y, p.z);
+    mesh.scale.setScalar(p.scale);
+  },
+  refreshTexture(layer){
+    const mesh = this.planes.get(layer.id); if(!mesh) return;
+    mesh.material.map.dispose();
+    const tex = new THREE.CanvasTexture(getLayerRenderCanvas(layer));
+    tex.colorSpace = THREE.SRGBColorSpace;
+    mesh.material.map = tex;
+    mesh.material.needsUpdate = true;
+  },
+  refreshAllTextures(){ for(const layer of CM().layers) this.refreshTexture(layer); },
+  rebuildAll(){
+    this.destroyAll();
+    if(!Viewport3D.ready) Viewport3D.init();
+    for(const layer of CM().layers){ if(layer.visible) this.buildPlane(layer); }
+  },
+  destroyAll(){
+    for(const mesh of this.planes.values()){
+      Viewport3D.scene.remove(mesh); mesh.geometry.dispose();
+      mesh.material.map.dispose(); mesh.material.dispose();
+    }
+    this.planes.clear();
+  },
+  toggle(on){
+    this.enabled = on;
+    if(on) this.rebuildAll(); else this.destroyAll();
+  },
+};
+
+/* ============================= Camera path keyframing (dolly through the diorama) ============================= */
+/* Mirrors Rig's own bone-keyframe pattern exactly (lerp position, slerp rotation,
+   same frame-interpolation search) — just applied to Viewport3D.camera instead of
+   a skeleton bone. Hooked into Rig.setFrame() so it plays back on the same timeline. */
+const CameraTrack = {
+  enabled:false, keys:{},
+  keyAt(f){
+    if(!Viewport3D.camera) return;
+    this.keys[f] = { p:Viewport3D.camera.position.toArray(), q:Viewport3D.camera.quaternion.toArray() };
+  },
+  deleteAt(f){ delete this.keys[f]; },
+  applyFrame(f){
+    if(!this.enabled || !Viewport3D.camera) return;
+    const frames = Object.keys(this.keys).map(Number).sort((a,b)=>a-b);
+    if(!frames.length) return;
+    let prev = frames[0], next = frames[frames.length-1];
+    for(const k of frames) if(k<=f) prev=k;
+    for(let i=frames.length-1;i>=0;i--) if(frames[i]>=f) next=frames[i];
+    const kp = this.keys[prev], kn = this.keys[next];
+    const t = (next===prev) ? 0 : (f-prev)/(next-prev);
+    Viewport3D.camera.position.set(
+      kp.p[0]+(kn.p[0]-kp.p[0])*t, kp.p[1]+(kn.p[1]-kp.p[1])*t, kp.p[2]+(kn.p[2]-kp.p[2])*t
+    );
+    Viewport3D.camera.quaternion.copy(new THREE.Quaternion(...kp.q).slerp(new THREE.Quaternion(...kn.q), t));
+    if(Viewport3D.controls) Viewport3D.controls.update();
+  },
+};
+
+
 function renderRigPanel(){
   const list = document.getElementById('rig-marker-list'); if(!list) return;
   list.innerHTML = '';
@@ -8053,12 +8293,48 @@ function renderRig2DList(){
 function renderTimeline(){
   const track = document.getElementById('timeline-track'); if(!track) return;
   track.querySelectorAll('.timeline-key').forEach(k=>k.remove());
-  const frames = new Set([...Object.keys(Rig.keys), ...Object.keys(Rig2D.keys)]);
+  const frames = new Set([...Object.keys(Rig.keys), ...Object.keys(Rig2D.keys), ...Object.keys(CameraTrack.keys)]);
   for(const f of frames){
     const d = document.createElement('div'); d.className='timeline-key';
     d.style.left = (Number(f)/Rig.length*100)+'%';
     track.appendChild(d);
   }
+}
+function refreshDioramaPanel(){
+  const label = document.getElementById('dio-active-layer'); if(!label) return;
+  const layer = activeLayer(); if(!layer) return;
+  label.textContent = layer.name;
+  const pos = Diorama.posOf(layer);
+  for(const [axis, id] of [['x','dio-x'],['y','dio-y'],['z','dio-z'],['scale','dio-scale']]){
+    const input = document.getElementById(id), val = document.getElementById(id+'-val');
+    if(input){ input.value = pos[axis]; val.textContent = pos[axis]; }
+  }
+}
+function bindDioramaAndCameraTrack(){
+  document.getElementById('dio-enable').addEventListener('change', (e)=>{
+    Diorama.toggle(e.target.checked);
+    toast(e.target.checked ? '3D Diorama enabled — layers placed as planes in the 3D viewport.' : '3D Diorama disabled.');
+  });
+  for(const [axis, id] of [['x','dio-x'],['y','dio-y'],['z','dio-z'],['scale','dio-scale']]){
+    document.getElementById(id).addEventListener('input', (e)=>{
+      const v = Number(e.target.value);
+      document.getElementById(id+'-val').textContent = v;
+      const layer = activeLayer(); if(!layer) return;
+      Diorama.setPos(layer, axis, v);
+    });
+  }
+  document.getElementById('camtrack-enable').addEventListener('change', (e)=>{
+    CameraTrack.enabled = e.target.checked;
+    toast(e.target.checked ? 'Camera animation enabled — key it on the timeline below.' : 'Camera animation disabled.');
+  });
+  document.getElementById('camtrack-key').addEventListener('click', ()=>{
+    CameraTrack.keyAt(Rig.frame); renderTimeline();
+    toast(`Camera keyed at frame ${Rig.frame}.`);
+  });
+  document.getElementById('camtrack-delkey').addEventListener('click', ()=>{
+    CameraTrack.deleteAt(Rig.frame); renderTimeline();
+    toast(`Camera key removed at frame ${Rig.frame}.`);
+  });
 }
 function build25DDepthStrip(){
   const strip = document.getElementById('d25-depth-strip'); if(!strip) return;
@@ -8195,7 +8471,7 @@ function init(){
   updateCanvasCursorStyle();
   bindModePicker(); buildComicPresetGrid(); bindComicControls(); bindCreationControls();
   bindRigControls(); bindModifierControls();
-  bindThemeControls(); bindSidebarSplitter(); bindBinauralControls(); bindScriptingControls();
+  bindThemeControls(); bindSidebarSplitter(); bindBinauralControls(); bindScriptingControls(); bindBCPanel(); bindDioramaAndCameraTrack();
   ToolbarPanel = makeFloatingPanel({ elId:'toolbar', handleId:'toolbar-handle', resizable:false });
   Viewport3DPanel = makeFloatingPanel({
     elId:'viewport3d', handleId:'viewport3d-bar', gripId:'viewport3d-resize-grip', resizable:true,
