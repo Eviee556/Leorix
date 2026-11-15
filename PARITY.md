@@ -85,6 +85,7 @@ from descriptions, so names and behavior may differ from the original.
 | Keyframe interpolation: Constant, Linear, Bezier + 9 easing equations (Sinusoidal, Quadratic, Cubic, Quartic, Exponential, Circular, Back, Bounce, Elastic) with Ease In / Out / In-Out | done |
 | Ctrl+Space cycles Object -> Sculpt -> Edit -> Retopology -> Pose | done |
 | **Add Armature**: from the 3D menu or the Shift+A dialog - adds a bone to the selected mesh, or creates a standalone armature object | done |
+| **Visual scripting (blocks)**: beginner node editor, 17 plain-English blocks, typed wires, cycle checks; graphs are not saved yet | done |
 
 ## Known gaps in "everything live"
 Material, Environment, Camera and Sculpt settings update the viewport immediately. Retopology
