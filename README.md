@@ -68,6 +68,7 @@ CMake `FetchContent` downloads all dependencies on the first configure.
 ## Documentation
 
 - **[How it's made](docs/ARCHITECTURE.md)**: architecture, the mesh data model, the renderer and path tracer, the file formats, and the design decisions behind them.
+- **[Procedural Generation tutorial book (Word)](docs/Leorix_Procedural_Scripting_Guide.docx)**: 51 illustrated tutorials, from visual blocks to Lua-built cities, landscapes, animation frames and generators. The scripts are in [docs/tutorials/lua](docs/tutorials/lua).
 - **[Visual scripting guide](docs/VISUAL_SCRIPTING.md)**: build models with blocks, no coding needed.
 - **[Scripting guide](docs/SCRIPTING.md)**: the Lua API reference, examples and advanced techniques.
 - **[Feature parity map](PARITY.md)**: what's done, what's partial and what's planned.
