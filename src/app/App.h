@@ -224,6 +224,10 @@ private:
     void ApplyMapsToMaterial();
     void HistoryPanel();
     void PushLayerStructureUndo(const std::string& label, MapDoc& m, std::function<void()> apply);
+    // Undo step for some state of the active object: apply(object, value) puts before/after back.
+    template <class T, class F>
+    void PushObjectUndo(const std::string& label, T before, T after, F apply, size_t bytes = 0);
+    void PushMaterialTextureUndo(const std::string& label, std::function<void()> change);
     void ToolOptionsPanel();
     void ColorPanel();
     void LayersPanel();

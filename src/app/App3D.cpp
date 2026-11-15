@@ -1880,32 +1880,90 @@ if (ImGui::SliderFloat("HDRI Strength", &hdriStrength, 0.0f, 5.0f, "%.2f")) hdri
     ImGui::End();
 }
 
+// ---------------------------------------------------------------- undo helpers
+template <class T, class F>
+void App::PushObjectUndo(const std::string& label, T before, T after, F apply, size_t bytes) {
+    int idx = scene.activeIndex;
+    auto b = std::make_shared<T>(std::move(before)), a = std::make_shared<T>(std::move(after));
+    auto run = [this, idx, apply](const std::shared_ptr<T>& v) {
+        if (idx >= 0 && idx < (int)scene.objects.size()) apply(*scene.objects[idx], *v);
+    };
+    undoStack.Push(label, [run, b] { run(b); }, [run, a] { run(a); }, bytes);
+}
+
+// Runs `change` on the active material's texture slots and records the slots it altered. Only the
+// CPU pixels are kept; the GPU copy is rebuilt from them on undo/redo.
+void App::PushMaterialTextureUndo(const std::string& label, std::function<void()> change) {
+    MeshObject* o = scene.Active();
+    if (!o) { change(); return; }
+    constexpr int N = (int)MapSlot::Count;
+    struct Slots { bool changed[N] = {}; TextureData cpu[N]; std::string paths[N]; };
+    Slots before, after;
+    for (int i = 0; i < N; ++i) { before.cpu[i] = o->material.cpu[i]; before.paths[i] = o->material.paths[i]; }
+    change();
+    size_t bytes = 0;
+    bool any = false;
+    for (int i = 0; i < N; ++i) {
+        const Material& m = o->material;
+        bool same = before.paths[i] == m.paths[i] && before.cpu[i].width == m.cpu[i].width &&
+                    before.cpu[i].height == m.cpu[i].height && before.cpu[i].pixels == m.cpu[i].pixels;
+        if (same) { before.cpu[i].Clear(); before.paths[i].clear(); continue; }
+        before.changed[i] = after.changed[i] = any = true;
+        after.cpu[i] = m.cpu[i]; after.paths[i] = m.paths[i];
+        bytes += before.cpu[i].pixels.size() + after.cpu[i].pixels.size();
+    }
+    if (!any) return;
+    PushObjectUndo(label, std::move(before), std::move(after), [this](MeshObject& obj, Slots& s) {
+        for (int i = 0; i < N; ++i) {
+            if (!s.changed[i]) continue;
+            const TextureData& t = s.cpu[i];
+            if (t.Valid()) SetMaterialMap(vk, obj.material, (MapSlot)i, t.pixels.data(), t.width, t.height, s.paths[i]);
+            else { obj.material.maps[i].Destroy(vk); obj.material.cpu[i].Clear(); obj.material.paths[i].clear(); }
+        }
+    }, bytes);
+}
+
 // ---------------------------------------------------------------- material / texture set
 void App::MaterialPanel() {
     if (!ImGui::Begin("Material", &showMaterial)) { ImGui::End(); return; }
     MeshObject* o = scene.Active();
     if (!o) { ImGui::TextDisabled("No object selected."); ImGui::End(); return; }
     Material& mat = o->material;
+    // One undo step per drag: the snapshot is taken from the state at the start of the frame the
+    // widget activated, because a slider can already change the value on that first click.
+    static std::shared_ptr<Material> dragBefore;
+    Material frameStart;
+    CopyMaterialParams(frameStart, mat);
+    auto pushParams = [&](const char* label, const Material& before) {
+        Material after;
+        CopyMaterialParams(after, mat);
+        PushObjectUndo(std::string(label), before, std::move(after),
+                       [](MeshObject& ob, Material& v) { CopyMaterialParams(ob.material, v); });
+    };
+    auto track = [&](const char* label) {
+        if (ImGui::IsItemActivated()) { dragBefore = std::make_shared<Material>(); CopyMaterialParams(*dragBefore, frameStart); }
+        if (ImGui::IsItemDeactivatedAfterEdit() && dragBefore) { pushParams(label, *dragBefore); dragBefore.reset(); }
+    };
     ImGui::TextColored(kBrass, "%s", o->name.c_str());
     ImGui::PushItemWidth(-110.0f);
-    ImGui::ColorEdit3("Base Color", mat.baseColor, ImGuiColorEditFlags_NoInputs);
-    ImGui::SliderFloat("Roughness", &mat.roughness, 0.0f, 1.0f, "%.2f");
-    ImGui::SliderFloat("Metallic", &mat.metallic, 0.0f, 1.0f, "%.2f");
-    ImGui::Checkbox("Use textures", &mat.useTextures);
+    ImGui::ColorEdit3("Base Color", mat.baseColor, ImGuiColorEditFlags_NoInputs); track("Edit Base Color");
+    ImGui::SliderFloat("Roughness", &mat.roughness, 0.0f, 1.0f, "%.2f"); track("Edit Roughness");
+    ImGui::SliderFloat("Metallic", &mat.metallic, 0.0f, 1.0f, "%.2f"); track("Edit Metallic");
+    ImGui::Checkbox("Use textures", &mat.useTextures); track("Toggle Use Textures");
     ImGui::PopItemWidth();
 
     ImGui::Spacing();
     ImGui::TextColored(kBrass, "SURFACE");
     ImGui::Separator();
     ImGui::PushItemWidth(-110.0f);
-    ImGui::SliderFloat("Specular", &mat.specular, 0.0f, 1.0f, "%.2f");
-    ImGui::SliderFloat("Opacity", &mat.opacity, 0.0f, 1.0f, "%.2f");
+    ImGui::SliderFloat("Specular", &mat.specular, 0.0f, 1.0f, "%.2f"); track("Edit Specular");
+    ImGui::SliderFloat("Opacity", &mat.opacity, 0.0f, 1.0f, "%.2f"); track("Edit Opacity");
     ImGui::PopItemWidth();
-    ImGui::Checkbox("Parallax occlusion (height map)", &mat.parallax);
+    ImGui::Checkbox("Parallax occlusion (height map)", &mat.parallax); track("Toggle Parallax");
     ImGui::BeginDisabled(!mat.parallax);
     ImGui::PushItemWidth(-110.0f);
-    ImGui::SliderFloat("Parallax Depth", &mat.parallaxScale, 0.0f, 0.2f, "%.3f");
-    ImGui::SliderInt("Parallax Steps", &mat.parallaxSteps, 4, 64);
+    ImGui::SliderFloat("Parallax Depth", &mat.parallaxScale, 0.0f, 0.2f, "%.3f"); track("Edit Parallax Depth");
+    ImGui::SliderInt("Parallax Steps", &mat.parallaxSteps, 4, 64); track("Edit Parallax Steps");
     ImGui::PopItemWidth();
     ImGui::EndDisabled();
     if (mat.parallax && !mat.HasCpu(MapSlot::Height)) ImGui::TextDisabled("Needs a Height map.");
@@ -1914,14 +1972,14 @@ void App::MaterialPanel() {
     ImGui::TextColored(kBrass, "EMISSION & TRANSMISSION");
     ImGui::Separator();
     ImGui::PushItemWidth(-110.0f);
-    ImGui::ColorEdit3("Emission Color", mat.emissionColor, ImGuiColorEditFlags_NoInputs);
-    ImGui::SliderFloat("Emission", &mat.emissiveStrengthRT, 0.0f, 20.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
+    ImGui::ColorEdit3("Emission Color", mat.emissionColor, ImGuiColorEditFlags_NoInputs); track("Edit Emission Color");
+    ImGui::SliderFloat("Emission", &mat.emissiveStrengthRT, 0.0f, 20.0f, "%.2f", ImGuiSliderFlags_Logarithmic); track("Edit Emission");
     if (mat.Has(MapSlot::Emissive)) ImGui::TextDisabled("Emissive map drives the colour.");
     else if (mat.emissionColor[0] + mat.emissionColor[1] + mat.emissionColor[2] <= 0.0f)
         ImGui::TextDisabled("Emission colour is black, so nothing is emitted yet.");
-    ImGui::SliderFloat("Transmission", &mat.transmission, 0.0f, 1.0f, "%.2f");
+    ImGui::SliderFloat("Transmission", &mat.transmission, 0.0f, 1.0f, "%.2f"); track("Edit Transmission");
     ImGui::BeginDisabled(mat.transmission <= 0.0f);
-    ImGui::SliderFloat("IOR##trans", &mat.transmissionIOR, 1.0f, 2.5f, "%.2f");
+    ImGui::SliderFloat("IOR##trans", &mat.transmissionIOR, 1.0f, 2.5f, "%.2f"); track("Edit IOR");
     ImGui::EndDisabled();
     ImGui::PopItemWidth();
     ImGui::TextDisabled("Emission and glass apply in the path tracer (F12).");
@@ -1930,14 +1988,14 @@ void App::MaterialPanel() {
     ImGui::TextColored(kBrass, "SUBSURFACE SCATTERING");
     ImGui::Separator();
     ImGui::PushItemWidth(-110.0f);
-    ImGui::SliderFloat("Weight", &mat.sssWeight, 0.0f, 1.0f, "%.3f");
+    ImGui::SliderFloat("Weight", &mat.sssWeight, 0.0f, 1.0f, "%.3f"); track("Edit Weight");
     ImGui::BeginDisabled(mat.sssWeight <= 0.0f);
     static const char* methods[] = {"Christensen-Burley", "Random Walk"};
-    ImGui::Combo("Method", &mat.sssMethod, methods, 2);
-    ImGui::ColorEdit3("Radius", mat.sssRadius, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_Float);
-    ImGui::SliderFloat("Scale", &mat.sssScale, 0.0f, 1.0f, "%.3f m", ImGuiSliderFlags_Logarithmic);
-    ImGui::SliderFloat("Anisotropy", &mat.sssAnisotropy, -1.0f, 1.0f, "%.2f");
-    ImGui::SliderFloat("IOR", &mat.sssIOR, 1.0f, 2.5f, "%.2f");
+    if (ImGui::Combo("Method", &mat.sssMethod, methods, 2)) pushParams("Edit Method", frameStart);
+    ImGui::ColorEdit3("Radius", mat.sssRadius, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_Float); track("Edit Radius");
+    ImGui::SliderFloat("Scale", &mat.sssScale, 0.0f, 1.0f, "%.3f m", ImGuiSliderFlags_Logarithmic); track("Edit Scale");
+    ImGui::SliderFloat("Anisotropy", &mat.sssAnisotropy, -1.0f, 1.0f, "%.2f"); track("Edit Anisotropy");
+    ImGui::SliderFloat("IOR", &mat.sssIOR, 1.0f, 2.5f, "%.2f"); track("Edit IOR");
     ImGui::EndDisabled();
     ImGui::PopItemWidth();
     if (mat.sssWeight > 0.0f && shading != ShadingMode::Rendered)
@@ -1979,8 +2037,12 @@ void App::MaterialPanel() {
                 if (mapIndex >= 0 && mapIndex < (int)paint.maps.size()) {
                     MapDoc& src = paint.maps[mapIndex];
                     src.Composite();
-                    if (SetMaterialMap(vk, mat, slot, src.composite.data(), src.width, src.height,
-                                       src.name + " (painted)"))
+                    bool ok = false;
+                    PushMaterialTextureUndo(std::string("Assign ") + MapSlotName(slot), [&] {
+                        ok = SetMaterialMap(vk, mat, slot, src.composite.data(), src.width, src.height,
+                                            src.name + " (painted)");
+                    });
+                    if (ok)
                         ShowStatus("Assigned " + src.name + " to " + MapSlotName(slot));
                     else ShowStatus("Could not assign that map");
                     o->mesh.EnsureUVs();
@@ -2024,6 +2086,7 @@ void App::ApplyTextureFiles(const std::vector<std::string>& files) {
     if (!o || files.empty()) return;
     int loaded = 0, skipped = 0;
     std::string firstError;
+    PushMaterialTextureUndo("Load Texture Set", [&] {
     for (const std::string& f : files) {
         MapSlot slot = GuessMapSlot(f);
         if (slot == MapSlot::Count) {
@@ -2035,6 +2098,7 @@ void App::ApplyTextureFiles(const std::vector<std::string>& files) {
         if (LoadMaterialMap(vk, o->material, slot, f, error)) ++loaded;
         else if (firstError.empty()) firstError = error;
     }
+    });
     o->mesh.EnsureUVs();
     // Jump to Material Preview so the maps are visible, unless a mode was chosen explicitly.
     if (loaded && shading == ShadingMode::Solid && !shadingChosen) shading = ShadingMode::Material;
@@ -2193,6 +2257,14 @@ void App::ArmaturePanel() {
     MeshObject* o = scene.Active();
     if (!o) { ImGui::TextDisabled("No object selected."); ImGui::End(); return; }
     Armature& arm = o->armature;
+    // Structural edits snapshot the whole armature; pose drags only the bone being dragged.
+    auto pushArm = [&](const char* label, Armature before) {
+        PushObjectUndo(std::string(label), std::move(before), arm, [this](MeshObject& ob, Armature& a) {
+            ob.armature = a;
+            if (activeBone >= (int)a.bones.size()) activeBone = -1;
+            UpdateSkinning(ob);
+        });
+    };
 
     ImGui::TextColored(kBrass, "%s", o->name.c_str());
     ImGui::TextDisabled("%zu bone%s  |  %s", arm.bones.size(), arm.bones.size() == 1 ? "" : "s",
@@ -2200,6 +2272,7 @@ void App::ArmaturePanel() {
     ImGui::Separator();
 
     if (ImGui::Button("Add Bone", ImVec2(-1, 0))) {
+        Armature before = arm;
         o->mesh.ComputeBounds();
         Float3 mn = o->mesh.bmin, mx = o->mesh.bmax;
         Float3 head{(mn.x + mx.x) * 0.5f, mn.y, (mn.z + mx.z) * 0.5f};
@@ -2213,16 +2286,23 @@ void App::ArmaturePanel() {
         }
         activeBone = arm.AddBone("Bone." + std::to_string(arm.bones.size() + 1), head, tail,
                                  activeBone >= 0 ? activeBone : -1);
+        pushArm("Add Bone", std::move(before));
         ShowStatus("Added bone (re-parent with automatic weights to bind it)");
     }
     ImGui::BeginDisabled(arm.bones.empty());
     if (ImGui::Button("Parent to Mesh with Automatic Weights", ImVec2(-1, 0))) {
+        Armature before = arm;
         arm.BindAutomaticWeights(o->mesh);
         UpdateSkinning(*o);
+        pushArm("Automatic Weights", std::move(before));
         ShowStatus("Bound " + std::to_string(arm.bones.size()) + " bones to " + std::to_string(o->mesh.VertexCount()) + " vertices");
     }
     ImGui::EndDisabled();
-    ImGui::Checkbox("Enable deformation", &arm.enabled);
+    if (ImGui::Checkbox("Enable deformation", &arm.enabled)) {
+        Armature before = arm;
+        before.enabled = !arm.enabled;
+        pushArm("Toggle Deformation", std::move(before));
+    }
 
     ImGui::Spacing(); ImGui::TextColored(kBrass, "BONES"); ImGui::Separator();
     int removeBone = -1;
@@ -2237,15 +2317,37 @@ void App::ArmaturePanel() {
         if (ImGui::Selectable(label, activeBone == i)) activeBone = i;
         if (ImGui::BeginPopupContextItem("##bonectx")) {
             if (ImGui::MenuItem("Delete")) removeBone = i;
-            ImGui::MenuItem("Deform", nullptr, &b.deform);
+            if (ImGui::MenuItem("Deform", nullptr, &b.deform)) {
+                Armature before = arm;
+                before.bones[i].deform = !b.deform;
+                pushArm("Toggle Bone Deform", std::move(before));
+            }
             ImGui::EndPopup();
         }
         ImGui::PopID();
     }
-    if (removeBone >= 0) { arm.Remove(removeBone); activeBone = -1; UpdateSkinning(*o); }
+    if (removeBone >= 0) {
+        Armature before = arm;
+        arm.Remove(removeBone); activeBone = -1; UpdateSkinning(*o);
+        pushArm("Delete Bone", std::move(before));
+    }
 
     if (activeBone >= 0 && activeBone < (int)arm.bones.size()) {
         Bone& b = arm.bones[activeBone];
+        static std::shared_ptr<Bone> dragBefore;
+        const Bone frameStart = b;     // state before this frame's edit (sliders change on the first click)
+        auto pushBone = [&](const char* label, Bone before) {
+            int bi = activeBone;
+            PushObjectUndo(std::string(label), std::move(before), b, [this, bi](MeshObject& ob, Bone& v) {
+                if (bi < 0 || bi >= (int)ob.armature.bones.size()) return;
+                ob.armature.bones[bi] = v;
+                UpdateSkinning(ob);
+            });
+        };
+        auto track = [&](const char* label) {
+            if (ImGui::IsItemActivated()) dragBefore = std::make_shared<Bone>(frameStart);
+            if (ImGui::IsItemDeactivatedAfterEdit() && dragBefore) { pushBone(label, *dragBefore); dragBefore.reset(); }
+        };
         ImGui::Spacing(); ImGui::TextColored(kBrass, "POSE  -  %s", b.name.c_str()); ImGui::Separator();
         ImGui::PushItemWidth(-90.0f);
         bool changed = false;
@@ -2254,14 +2356,19 @@ void App::ArmaturePanel() {
             b.poseRotation = {deg.x / 57.2957795f, deg.y / 57.2957795f, deg.z / 57.2957795f};
             changed = true;
         }
+        track("Rotate Bone");
         changed |= ImGui::DragFloat3("Location", &b.poseLocation.x, 0.01f, 0, 0, "%.3f m");
+        track("Move Bone");
         changed |= ImGui::DragFloat3("Scale", &b.poseScale.x, 0.01f, 0.01f, 100.0f, "%.3f");
+        track("Scale Bone");
         changed |= ImGui::SliderFloat("Envelope", &b.envelope, 0.05f, 8.0f, "%.2f");
+        track("Edit Envelope");
         ImGui::PopItemWidth();
         if (changed) UpdateSkinning(*o);      // deformation updates while you drag
         if (ImGui::Button("Reset Pose")) {
             b.poseRotation = {0, 0, 0}; b.poseLocation = {0, 0, 0}; b.poseScale = {1, 1, 1};
             UpdateSkinning(*o);
+            pushBone("Reset Pose", frameStart);
         }
         ImGui::SameLine();
         if (ImGui::Button("Insert Keyframe  (I)")) InsertKeyframes(true, true, true);
@@ -2304,6 +2411,7 @@ void App::InsertKeyframes(bool location, bool rotation, bool scale) {
     bool onBone = mode3D == Mode3D::Pose && activeBone >= 0 && activeBone < (int)o->armature.bones.size();
     ChannelTarget target = onBone ? ChannelTarget::Bone : ChannelTarget::Object;
     int bone = onBone ? activeBone : -1;
+    Action before = o->action;
 
     auto key = [&](ChannelProp prop, const Float3& v) {
         for (int axis = 0; axis < 3; ++axis)
@@ -2319,6 +2427,7 @@ void App::InsertKeyframes(bool location, bool rotation, bool scale) {
         if (rotation) key(ChannelProp::Rotation, o->transform.rotation);
         if (scale)    key(ChannelProp::Scale, o->transform.scale);
     }
+    PushObjectUndo("Insert Keyframe", std::move(before), o->action, [](MeshObject& ob, Action& a) { ob.action = a; });
     showTimeline = true;
     char msg[96];
     std::snprintf(msg, sizeof(msg), "Keyframed %s at frame %d", onBone ? o->armature.bones[bone].name.c_str() : o->name.c_str(), f);
@@ -2349,6 +2458,7 @@ void App::BakeAnimation() {
             baked.Find(c.target, c.boneIndex, c.prop, c.axis).Insert(f, v, Interp::Linear);
         }
     }
+    PushObjectUndo("Bake Animation", o->action, baked, [](MeshObject& ob, Action& a) { ob.action = a; });
     o->action = baked;
     playback.frame = saved;
     ApplyAnimation(playback.frame);
@@ -2391,7 +2501,9 @@ void App::TimelinePanel() {
         ImGui::SameLine();
         if (ImGui::Button("Delete Key")) {
             int cur = (int)std::lround(playback.frame);
+            Action before = *act;
             for (auto& c : act->channels) c.RemoveAt(cur);
+            PushObjectUndo("Delete Keyframe", std::move(before), *act, [](MeshObject& ob, Action& a) { ob.action = a; });
             ShowStatus("Deleted keys at frame " + std::to_string(cur));
         }
         ImGui::SameLine();
@@ -2414,11 +2526,13 @@ void App::TimelinePanel() {
         if (ImGui::Button("Set Interpolation")) {
             int cur = (int)std::lround(playback.frame);
             int touched = 0;
+            Action before = *act;
             for (auto& c : act->channels)
                 for (auto& k : c.keys)
                     if (k.frame == cur) { k.interp = (Interp)interpSel; k.easing = (Easing)easeSel; ++touched; }
             if (touched == 0)      // nothing on this frame: apply to the whole action
                 for (auto& c : act->channels) c.SetInterp((Interp)interpSel, (Easing)easeSel);
+            PushObjectUndo("Set Interpolation", std::move(before), *act, [](MeshObject& ob, Action& a) { ob.action = a; });
             char msg[128];
             std::snprintf(msg, sizeof(msg), "%s%s%s applied to %s", InterpName((Interp)interpSel),
                           needsEasing ? " / " : "", needsEasing ? EasingName((Easing)easeSel) : "",
@@ -2499,9 +2613,10 @@ void App::ApplyMapsToMaterial() {
     if (!o) return;
     for (MapDoc& m : paint.maps) {
         if (m.kind != MapKind::Albedo || !m.texture.Valid()) continue;
-        o->material.maps[(int)MapSlot::BaseColor].Destroy(vk);
-        o->material.maps[(int)MapSlot::BaseColor].Create(vk, m.composite.data(), m.width, m.height);
-        o->material.paths[(int)MapSlot::BaseColor] = m.name + " (painted)";
+        // SetMaterialMap also fills the CPU copy, which undo restores from and the path tracer samples.
+        PushMaterialTextureUndo("Apply Base Color", [&] {
+            SetMaterialMap(vk, o->material, MapSlot::BaseColor, m.composite.data(), m.width, m.height, m.name + " (painted)");
+        });
         o->mesh.EnsureUVs();
         ShowStatus("Applied " + m.name + " to " + o->name);
         return;
@@ -2601,7 +2716,22 @@ void App::MapsPanel() {
                                                       m.layers.size(), m.layers.size() == 1 ? "" : "s");
         ImGui::PopID();
     }
-    if (removeIndex >= 0) paint.RemoveMap(removeIndex, vk);
+    if (removeIndex >= 0) {
+        // The snapshot drops the GPU handle (RemoveMap destroys it); SyncMapTexture recreates it.
+        auto snap = std::make_shared<MapDoc>(paint.maps[removeIndex]);
+        snap->texture = GpuTexture{};
+        snap->textureDirty = true;
+        size_t bytes = snap->composite.size();
+        for (const auto& l : snap->layers) bytes += l.pixels.size();
+        paint.RemoveMap(removeIndex, vk);
+        undoStack.Push("Delete " + snap->name + " map",
+            [this, snap, removeIndex] {
+                int at = std::min(removeIndex, (int)paint.maps.size());
+                paint.maps.insert(paint.maps.begin() + at, *snap);
+                paint.activeMap = at;
+            },
+            [this, removeIndex] { paint.RemoveMap(removeIndex, vk); }, bytes);
+    }
 
     ImGui::Spacing();
     static int newKind = 1;

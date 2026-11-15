@@ -98,6 +98,10 @@ struct Material {
     }
 };
 
+// Copies every setting of src into dst except the textures (maps, cpu pixels, paths), which stay
+// as they were in dst. Undo snapshots use it so a slider drag never copies hundreds of MB.
+void CopyMaterialParams(Material& dst, Material& src);
+
 // Node Wrangler style: work out which slot a file belongs in from its name
 // ("rock_Normal_DX.png" -> Normal). Returns MapSlot::Count when nothing matches.
 MapSlot GuessMapSlot(const std::string& filename);

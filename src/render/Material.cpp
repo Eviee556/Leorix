@@ -63,3 +63,23 @@ bool SetMaterialMap(VulkanContext& vk, Material& mat, MapSlot slot, const unsign
     mat.paths[(int)slot] = label;
     return true;
 }
+
+void CopyMaterialParams(Material& dst, Material& src) {
+    constexpr int N = (int)MapSlot::Count;
+    TextureData srcCpu[N], dstCpu[N];
+    std::string dstPaths[N];
+    GpuTexture dstMaps[N];
+    for (int i = 0; i < N; ++i) {
+        std::swap(srcCpu[i], src.cpu[i]);   // moved out so the assignment below stays cheap
+        std::swap(dstCpu[i], dst.cpu[i]);
+        std::swap(dstPaths[i], dst.paths[i]);
+        dstMaps[i] = dst.maps[i];
+    }
+    dst = src;
+    for (int i = 0; i < N; ++i) {
+        std::swap(srcCpu[i], src.cpu[i]);
+        dst.cpu[i] = std::move(dstCpu[i]);
+        dst.paths[i] = std::move(dstPaths[i]);
+        dst.maps[i] = dstMaps[i];
+    }
+}
