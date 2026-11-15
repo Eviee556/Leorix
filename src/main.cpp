@@ -4,6 +4,8 @@
 #include "mesh/IO.h"
 #include "mesh/Primitives.h"
 #include "tools/Script.h"
+#include "tools/Sculpt.h"
+#include <cmath>
 #include "gpu/VulkanContext.h"
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
@@ -110,6 +112,38 @@ static int SelfTest() {
     check(ExportMesh(path, cube, error) && ImportMesh(path, back, error), "obj export/import");
     check(back.VertexCount() == cube.VertexCount() && back.polyCount == cube.polyCount, "obj round trip keeps quads");
     std::filesystem::remove(path);
+    // Sculpt: a Draw dab moves verts inside the radius and nothing outside; Smooth flattens the bump.
+    {
+        Mesh g = BuildPrimitive(Primitive::Grid, pp);
+        g.ComputeNormals();
+        const std::vector<Float3> flat = g.positions;
+        const Float3 c = flat[flat.size() / 2];
+        const float radius = 0.5f;
+        SculptSettings ss;
+        SculptDab dab; dab.center = c; dab.radius = radius; dab.strength = 0.5f;
+        size_t moved = ApplySculptDab(g, nullptr, ss, Icon::SculptDraw, dab, nullptr);
+        auto dist = [](Float3 a, Float3 b) { return std::sqrt((a.x-b.x)*(a.x-b.x) + (a.y-b.y)*(a.y-b.y) + (a.z-b.z)*(a.z-b.z)); };
+        bool insideMoved = true, outsideStill = true;
+        for (size_t i = 0; i < flat.size(); ++i) {
+            float d = dist(flat[i], c), m = dist(flat[i], g.positions[i]);
+            if (d < radius * 0.9f && m < 1e-6f) insideMoved = false;
+            if (d > radius && m != 0.0f) outsideStill = false;
+        }
+        std::printf("  sculpt draw moved=%zu\n", moved);
+        check(moved > 0 && insideMoved, "sculpt draw moves verts inside the radius");
+        check(outsideStill, "sculpt draw leaves verts outside the radius alone");
+        size_t centre = flat.size() / 2;
+        float peak = dist(g.positions[centre], flat[centre]);
+        g.ComputeNormals();
+        SculptDab sm = dab; sm.strength = 1.0f; sm.smooth = true;
+        for (int i = 0; i < 3; ++i) ApplySculptDab(g, nullptr, ss, Icon::SculptSmooth, sm, nullptr);
+        float after = dist(g.positions[centre], flat[centre]);
+        std::printf("  sculpt smooth peak %.4f -> %.4f\n", peak, after);
+        check(after < peak * 0.9f, "sculpt smooth reduces displacement");
+        Mesh u = BuildPrimitive(Primitive::Grid, pp);
+        check(ApplySculptDab(u, nullptr, ss, Icon::SculptMask, dab, nullptr) == 0 && dist(u.positions[centre], flat[centre]) == 0.0f,
+              "unsupported sculpt brush leaves mesh untouched");
+    }
     std::printf(failures ? "self-test FAILED (%d)\n" : "self-test passed\n", failures);
     return failures ? 1 : 0;
 }

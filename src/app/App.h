@@ -255,6 +255,10 @@ private:
     void RefreshModifiers(MeshObject& o);
     void AddCurve(int kind);      // 0 Bezier line, 1 circle, 2 spiral
     void SculptStroke(bool begin);        // deforms multires displacement, or the mesh directly
+    void SculptStrokeEnd();               // pushes the stroke as one undo step
+    std::vector<Float3> sculptBefore;     // positions or displacement at stroke start
+    int   sculptUndoIndex = -1;
+    bool  sculptUndoMulti = false;
     void MultiresPanel();
     void JoinMeshes();
     void DuplicateSelected();     // Shift+D: copy the selection and start moving it
