@@ -27,7 +27,7 @@ from descriptions, so names and behavior may differ from the original.
 | **Environment panel**: sky gradient, world colour + strength, sun elevation/rotation/colour/strength, exposure | done (drives the viewport) |
 | **Shift+T texture setup** (Node Wrangler style, slot guessed from file name) | done |
 | Material panel: base colour, roughness, metallic, 7 map slots with thumbnails | done |
-| Sculpt/Edit/Retopo tool catalogs and settings (Blender + Maya/RetopoFlow parity) | UI only |
+| Sculpt/Edit/Retopo tool catalogs and settings (Blender + Maya/RetopoFlow parity) | Sculpt: 23 of 31 brushes and most settings live; Retopo UI only |
 | Custom image sculpt brush, shown in the 2D viewport | done |
 | Leorix Scripting (Lua) mesh building | done |
 | Cursor feedback in 2D and 3D viewports | done |
@@ -59,7 +59,7 @@ from descriptions, so names and behavior may differ from the original.
 | Armature, automatic weights, linear blend skinning, Pose Mode | done |
 | Keyframes (object + bone loc/rot/scale), Timeline, playback, Bake | done |
 | `.leorix` project save/load (ENGINE_SPEC container) | done, lossless round trip |
-| Undo/redo: paint tiles, layer structure, 3D transforms, add/delete | done |
+| Undo/redo: paint tiles, layer structure, 3D transforms, add/delete, edit ops, sculpt strokes, materials, maps, armatures, keyframes | done |
 | **Join Meshes (Ctrl+J)**: merges selected objects into the active one, transforming into its local space; UVs, seam and sharp flags and polygon ids all carry over; undoable | done |
 | **Normals are consistent automatically**: every import runs a topological orientation pass (walk the shells, flip disagreeing neighbours, orient each shell outward by signed volume). There is no "Recalculate Normals" button because there is nothing to recalculate | done |
 | **Face Orientation overlay**: front faces blue, flipped faces red, depth-tested so the far side does not bleed through. In the 3D menu and the Edit overlays | done |
@@ -87,9 +87,9 @@ from descriptions, so names and behavior may differ from the original.
 | **Add Armature**: from the 3D menu or the Shift+A dialog - adds a bone to the selected mesh, or creates a standalone armature object | done |
 
 ## Known gaps in "everything live"
-Material, Environment and Camera settings update the viewport immediately. Sculpt, Edit and
-Retopology settings do **not** change geometry, because those tool engines do not exist yet -
-the panels store values for when they do. 2D tool settings likewise have no engine behind them.
+Material, Environment, Camera and Sculpt settings update the viewport immediately. Retopology
+settings and some sculpt brushes (Rotate, Slide Relax, Boundary, Pose, Cloth, Mask, Face Sets,
+Paint, Smear, Wrinkle, Noise, Simplify) have no engine yet. 2D tool settings likewise have no engine behind them.
 
 ## From ENGINE_SPEC v1.0
 | Area | State |
@@ -109,7 +109,7 @@ the panels store values for when they do. 2D tool settings likewise have no engi
 | Layer structure: add, duplicate, delete, reorder (whole-stack snapshot, as Leorix does) | done |
 | 3D: move/rotate/scale, add primitive, delete object | done |
 | History capped by memory budget and step count; oldest steps drop first | done |
-| Not covered yet: map add/remove, material and texture changes, armature edits, keyframes | open |
+| Map add/remove, material params (one step per drag), texture loads, armature edits, keyframes | done |
 
 ## UV editor
 | Area | State |
@@ -140,24 +140,20 @@ confirms these, with implementation notes for anything non-obvious):
 `effects-panel` (8 layer effects: Drop Shadow, Inner Shadow, Outer/Inner Glow, Stroke, Color
 Overlay, Gradient Overlay, Bevel & Emboss), layer masks, selections (Marquee/Lasso/Selection
 Mask), `bc-panel` (Brightness/Contrast - snapshots the layer once at drag-start, not on every
-tick, or the formula compounds), `map-brush-panel`, `modifier-panel` (8 modifiers: Mirror,
-Subdivision Surface, Solidify, Array, Smooth, Decimate, Displace, Weld), `hdri-panel` (5 procedural
-presets + custom equirect), `cloth-panel` (PBD, 22x22, no self-collision), `weight-panel`
+tick, or the formula compounds), `map-brush-panel` (the modifier stack - 13 modifiers - and HDRI presets
+are already ported natively, see `src/mesh/Modifier.*` and `src/render/HdriPresets.*`), `cloth-panel` (PBD, 22x22, no self-collision), `weight-panel`
 (inverse-distance falloff painting), `rig-panel` (17-marker humanoid, 21 bones, UE5/Unity/
 Mixamo/Godot/Plain naming presets, two-bone IK), `rig2d-panel`, `scene25d-panel` (flat parallax
 + 3D diorama + keyframeable camera path), `comic-panel`, `create3d-panel`, Channel Packer,
 Normal-from-Height (Sobel), ORM packing, custom EXR export (16-bit half-float).
 
-## Poly Spec (Blender-style edit mode) operators still missing
-My Edit Mode has vertex/edge/face select and Mark Seam/Sharp, but not yet the operators
-themselves: **Extrude, Delete, Merge at Center, box-select** (the toolbar button exists but isn't
-wired to anything - it's a listed tool with no implementation behind it yet), and the transform
-axis-lock behavior their version has for G/R/S. Their handoff flags a real gotcha for whenever
-these get built: any operation that changes vertex or triangle count (extrude, delete, merge,
-subdivide) must rebuild `loopUVs` in the same loop, at the same indices, as it rebuilds
-`positions`/`tris` - skipping this desyncs the UV-seam and wireframe code silently (reads
-past the end, compares against garbage, everything looks like a seam). I don't have these
-operators yet, so the bug can't exist yet either, but this is the rule to follow when I add them.
+## Poly Spec (Blender-style edit mode) operators
+**Extrude (E), Delete (X), Merge at Center (M)** and box-select are done (`src/mesh/EditOps.*`), each one
+undo step and covered by `--selftest`. Still missing: extruding bare edges/verts, UVs on extruded side faces
+(stretched for now), and the G/R/S axis-lock behavior of the Electron version. The rule all of them follow:
+any operation that changes vertex or triangle count must rebuild `loopUVs` in the same loop, at the same
+indices, as it rebuilds `positions`/`tris` - otherwise the UV-seam and wireframe code silently reads garbage.
+Ops refuse to run while an armature is bound or multires is active (both store per-vertex data).
 
 ## Already better than the Electron version
 Two things their handoff calls out as deliberate scope limits are already solved in the native
@@ -177,11 +173,9 @@ app because of how it's structured differently:
 | PBR map set, blend modes, masks, layer effects, selections | maps/layers/blend modes done; masks, effects, selections not yet |
 | 2.5D flat parallax + 3D diorama + camera path | not started |
 | Webcomic: panel grids, balloons, page guides, bleed/safe area | not started |
-| Poly Spec operators: Extrude, Delete, Merge | not started - box select is done |
 | Shift+D in Edit Mode (duplicate geometry) | not started - Shift+D duplicates objects |
 | Separate (P) - the inverse of Join | not started |
 | Cross-object armature parenting (one armature deforming several meshes) | not started - an armature currently belongs to the object it deforms |
-| Sculpt brushes actually deforming geometry | not started - settings exist, no engine behind them |
 | Multires level switching is nearest-neighbour resampled, not a true displacement hierarchy | open - detail survives a level change but is approximated when the level moves |
 | Snapping for rotate and scale, and face/edge snap targets | not started - move snapping works |
 | Curve editing: moving control points in the viewport, handle types, bevel/taper | not started - curves are created from presets and used as deform targets |
@@ -200,11 +194,11 @@ app because of how it's structured differently:
 | GPU (Vulkan RT) rendering | the tracer runs on the CPU; the GPU backend is detected but unused |
 | Viewport "Rendered" shading is still the raster preview, not the path tracer | open |
 | Volumetrics, caustics-specific sampling, light portals, MIS | not started |
-| Next-event estimation for emissive surfaces - they light the scene only through random bounces, so area lights are dim and noisy compared to the sun | open |
-| Maps in the viewport: only Base Color shows in Material/Rendered shading; the other nine apply in F12 renders | open |
-| Normal maps are stored and sampled but not yet applied as a tangent-space perturbation | open |
+| Next-event estimation for emissive surfaces | done - area sampling + MIS for the diffuse lobe; glossy/glass and textured emitters still rely on BSDF hits |
+| Maps in the viewport: Normal/Roughness/Metallic/AO now shade Material/Rendered modes | done per vertex - per-pixel needs a GPU fill pass |
+| Tangent-space normal maps (viewport and path tracer, OpenGL green-up convention) | done |
 | HDRI as the viewport background (it lights renders, the viewport still draws the gradient) | open |
-| Normal / Roughness / Metallic / AO / Height maps affecting 3D shading | load, display and are kept; only Base Color shades |
+| Height maps affecting 3D shading | open - Normal/Roughness/Metallic/AO now shade |
 
 ## To close the gap
 Both `index.html` and the project handoff doc have now been provided and read. The remaining
