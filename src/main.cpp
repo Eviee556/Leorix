@@ -149,6 +149,7 @@ static int SelfTest() {
             ok = std::fabs(tn) < 1e-4f && std::fabs(T[i].x - (mirror ? -1.0f : 1.0f)) < 1e-4f && std::fabs(B[i].y - 1.0f) < 1e-4f;
         }
         check(ok, mirror ? "loop tangents (mirrored U)" : "loop tangents orthogonal to normal, along +U");
+    }
 
     // Path tracer: a floor lit only by a small emissive quad. Light sampling (NEE+MIS) must agree
     // with brute-force BSDF sampling, with far less noise at the same sample count.
