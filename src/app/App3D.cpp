@@ -9,6 +9,7 @@
 #include "mesh/EditOps.h"
 #include "mesh/Axes.h"
 #include "tools/Script.h"
+#include "tools/Sculpt.h"
 #include <SDL3/SDL.h>
 #include <cfloat>
 #include <functional>
@@ -251,7 +252,7 @@ void App::EditModePick(bool viewportHovered) {
         } else if (sculpting && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
             SculptStroke(false);
         }
-        if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) sculpting = false;
+        if (sculpting && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) { sculpting = false; SculptStrokeEnd(); }
         ImGui::SetMouseCursor(ImGuiMouseCursor_None);
         float r = sculpt.radiusPx;
         bool onSurface = lastPick.hit;
@@ -3440,13 +3441,23 @@ void App::RequestHdriImport() {
 void App::SculptStroke(bool begin) {
     MeshObject* o = scene.Active();
     if (!o || !lastPick.hit) return;
+    const auto& brush = kSculptBrushes[sculpt.brush];
+    const bool smoothing = ImGui::GetIO().KeyShift || brush.icon == Icon::SculptSmooth;   // Shift smooths with any brush
+    if (!smoothing && !SculptBrushSupported(brush.icon)) {
+        if (begin) ShowStatus(std::string(brush.name) + " brush is not implemented yet");
+        return;
+    }
 
     const bool multi = o->multires.valid && o->multires.levels > 0;
     Mesh& target = multi ? o->multires.cage : o->mesh;
     std::vector<Float3>* disp = multi ? &o->multires.displacement : nullptr;
     if (target.positions.empty()) return;
-    if (target.normals.size() != target.positions.size()) target.ComputeNormals();
-    if (disp && disp->size() != target.positions.size()) disp->assign(target.positions.size(), Float3{0, 0, 0});
+    if (begin || sculptBefore.empty()) {   // also covers Shift pressed mid-stroke on an unsupported brush
+        sculptUndoIndex = scene.activeIndex;
+        sculptUndoMulti = multi;
+        if (disp && disp->size() != target.positions.size()) disp->assign(target.positions.size(), Float3{0, 0, 0});
+        sculptBefore = disp ? *disp : target.positions;
+    }
 
     // The brush radius is in screen pixels, so convert it to world units at the hit depth.
     Vec3 eye = viewport.CameraEye();
@@ -3454,91 +3465,20 @@ void App::SculptStroke(bool begin) {
     float depth = std::max(0.2f, (hp.x - eye.x) * viewport.CameraForward().x +
                                  (hp.y - eye.y) * viewport.CameraForward().y +
                                  (hp.z - eye.z) * viewport.CameraForward().z);
-    float radius = sculpt.radiusPx * viewport.WorldPerPixel(depth);
-    float r2 = radius * radius;
-    if (radius < 1e-5f) return;
+    float radius = sculpt.radiusInSceneUnits ? sculpt.radiusPx : sculpt.radiusPx * viewport.WorldPerPixel(depth);
+    // shortcut: non-uniform object scale uses the largest axis for the radius; exact would need an ellipsoid test.
+    const Float3& sc = o->transform.scale;
+    float maxScale = std::max({std::fabs(sc.x), std::fabs(sc.y), std::fabs(sc.z), 1e-6f});
 
-    const auto& brush = kSculptBrushes[sculpt.brush];
-    float strength = sculpt.strength * (sculpt.subtract || ImGui::GetIO().KeyCtrl ? -1.0f : 1.0f);
-    // Shift is the smooth modifier in every sculpt app
-    bool smoothing = ImGui::GetIO().KeyShift || brush.icon == Icon::SculptSmooth;
-
-    Float3 dragDir{hp.x - lastSculptPoint.x, hp.y - lastSculptPoint.y, hp.z - lastSculptPoint.z};
-    if (begin) dragDir = {0, 0, 0};
-
-    // average normal under the brush, for Draw and Flatten
-    Float3 avgN{0, 0, 0}, avgP{0, 0, 0};
-    int inRange = 0;
-    for (size_t i = 0; i < target.positions.size(); ++i) {
-        Float3 p = target.positions[i];
-        if (disp) { p.x += (*disp)[i].x; p.y += (*disp)[i].y; p.z += (*disp)[i].z; }
-        Float3 w = o->transform.Apply(p);
-        float d2 = (w.x - hp.x) * (w.x - hp.x) + (w.y - hp.y) * (w.y - hp.y) + (w.z - hp.z) * (w.z - hp.z);
-        if (d2 > r2) continue;
-        avgN.x += target.normals[i].x; avgN.y += target.normals[i].y; avgN.z += target.normals[i].z;
-        avgP.x += w.x; avgP.y += w.y; avgP.z += w.z;
-        ++inRange;
-    }
-    if (!inRange) return;
-    float inv = 1.0f / inRange;
-    avgP = {avgP.x * inv, avgP.y * inv, avgP.z * inv};
-    float nl = std::sqrt(avgN.x * avgN.x + avgN.y * avgN.y + avgN.z * avgN.z);
-    if (nl > 1e-6f) avgN = {avgN.x / nl, avgN.y / nl, avgN.z / nl};
-
-    for (size_t i = 0; i < target.positions.size(); ++i) {
-        Float3 local = target.positions[i];
-        if (disp) { local.x += (*disp)[i].x; local.y += (*disp)[i].y; local.z += (*disp)[i].z; }
-        Float3 w = o->transform.Apply(local);
-        float d2 = (w.x - hp.x) * (w.x - hp.x) + (w.y - hp.y) * (w.y - hp.y) + (w.z - hp.z) * (w.z - hp.z);
-        if (d2 > r2) continue;
-
-        float d = std::sqrt(d2) / radius;
-        float fall = 1.0f - d;                        // smooth falloff
-        fall = fall * fall * (3.0f - 2.0f * fall);
-        float amount = fall * std::fabs(strength) * radius * 0.25f;
-        Float3 delta{0, 0, 0};
-
-        if (smoothing) {
-            // relax toward the average position under the brush
-            delta = {(avgP.x - w.x) * fall * sculpt.strength * 0.5f,
-                     (avgP.y - w.y) * fall * sculpt.strength * 0.5f,
-                     (avgP.z - w.z) * fall * sculpt.strength * 0.5f};
-        } else if (brush.icon == Icon::SculptInflate) {
-            const Float3& n = target.normals[i];
-            delta = {n.x * amount * (strength < 0 ? -1 : 1), n.y * amount * (strength < 0 ? -1 : 1), n.z * amount * (strength < 0 ? -1 : 1)};
-        } else if (brush.icon == Icon::SculptGrab || brush.icon == Icon::SculptSnakeHook) {
-            delta = {dragDir.x * fall, dragDir.y * fall, dragDir.z * fall};
-        } else if (brush.icon == Icon::SculptFlatten) {
-            float toPlane = (avgP.x - w.x) * avgN.x + (avgP.y - w.y) * avgN.y + (avgP.z - w.z) * avgN.z;
-            delta = {avgN.x * toPlane * fall * sculpt.strength, avgN.y * toPlane * fall * sculpt.strength,
-                     avgN.z * toPlane * fall * sculpt.strength};
-        } else {
-            // Draw / Clay and friends: push along the averaged normal
-            delta = {avgN.x * amount * (strength < 0 ? -1 : 1), avgN.y * amount * (strength < 0 ? -1 : 1),
-                     avgN.z * amount * (strength < 0 ? -1 : 1)};
-        }
-
-        if (disp) {
-            (*disp)[i].x += delta.x; (*disp)[i].y += delta.y; (*disp)[i].z += delta.z;
-        } else {
-            target.positions[i].x += delta.x; target.positions[i].y += delta.y; target.positions[i].z += delta.z;
-        }
-
-        // X symmetry, mirroring the stroke across the object's YZ plane
-        if (sculpt.symX) {
-            Float3 mirrorHit{-hp.x, hp.y, hp.z};
-            float md2 = (w.x - mirrorHit.x) * (w.x - mirrorHit.x) + (w.y - mirrorHit.y) * (w.y - mirrorHit.y) +
-                        (w.z - mirrorHit.z) * (w.z - mirrorHit.z);
-            if (md2 <= r2) {
-                float mf = 1.0f - std::sqrt(md2) / radius;
-                mf = mf * mf * (3.0f - 2.0f * mf);
-                Float3 md{-delta.x * mf / std::max(0.001f, fall), delta.y * mf / std::max(0.001f, fall),
-                          delta.z * mf / std::max(0.001f, fall)};
-                if (disp) { (*disp)[i].x += md.x; (*disp)[i].y += md.y; (*disp)[i].z += md.z; }
-                else { target.positions[i].x += md.x; target.positions[i].y += md.y; target.positions[i].z += md.z; }
-            }
-        }
-    }
+    SculptDab dab;
+    dab.center = o->transform.InverseApply(hp);
+    Float3 last = o->transform.InverseApply(lastSculptPoint);
+    if (!begin) dab.drag = {dab.center.x - last.x, dab.center.y - last.y, dab.center.z - last.z};
+    dab.radius = radius / maxScale;
+    dab.strength = sculpt.strength * (sculpt.subtract || ImGui::GetIO().KeyCtrl ? -1.0f : 1.0f);
+    dab.smooth = smoothing;
+    const BrushImage* stamp = brush.icon == Icon::SculptCustomImage && brushImage.Loaded() ? &brushImage : nullptr;
+    ApplySculptDab(target, disp, sculpt, brush.icon, dab, stamp);
 
     if (multi) {
         o->displayMesh = o->multires.Evaluate();
@@ -3551,6 +3491,38 @@ void App::SculptStroke(bool begin) {
     }
     uvLayout.valid = false;        // seams and islands move with the surface
     lastSculptPoint = hp;
+}
+
+// One undo step per stroke: the positions (or multires displacement) before and after.
+void App::SculptStrokeEnd() {
+    if (sculptBefore.empty() || sculptUndoIndex < 0 || sculptUndoIndex >= (int)scene.objects.size()) return;
+    MeshObject* o = scene.objects[sculptUndoIndex].get();
+    const bool multi = sculptUndoMulti;
+    auto before = std::make_shared<std::vector<Float3>>(std::move(sculptBefore));
+    auto after = std::make_shared<std::vector<Float3>>(multi ? o->multires.displacement : o->mesh.positions);
+    sculptBefore.clear();
+    if (before->size() != after->size()) return;
+    int idx = sculptUndoIndex;
+    auto apply = [this, idx, multi](const std::vector<Float3>& v) {
+        if (idx >= (int)scene.objects.size()) return;
+        MeshObject* t = scene.objects[idx].get();
+        if (multi) {
+            if (t->multires.displacement.size() != v.size()) return;
+            t->multires.displacement = v;
+            t->displayMesh = t->multires.Evaluate();
+            t->hasDisplay = true;
+        } else {
+            if (t->mesh.positions.size() != v.size()) return;
+            t->mesh.positions = v;
+            t->mesh.ComputeNormals();
+            t->MarkTopoDirty();
+            t->stackDirty = true;
+        }
+        uvLayout.valid = false;
+    };
+    undoStack.Push(std::string("Sculpt ") + kSculptBrushes[sculpt.brush].name,
+        [apply, before] { apply(*before); }, [apply, after] { apply(*after); },
+        (before->size() + after->size()) * sizeof(Float3));
 }
 
 void App::MultiresPanel() {

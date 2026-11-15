@@ -118,6 +118,7 @@ add_executable(leorix
   src/gpu/Texture.cpp
   src/tools/BrushImage.cpp
   src/tools/Script.cpp
+  src/tools/Sculpt.cpp
   src/mesh/Mesh.cpp
   src/mesh/EditOps.cpp
   src/mesh/Primitives.cpp
