@@ -61,6 +61,11 @@ struct Mesh {
     }
 };
 
+// Tangent frame per face corner (3 per triangle, same indexing as loopUVs), for tangent-space
+// normal maps: T follows +U, B follows +V, both orthogonal to the corner's vertex normal
+// (the face normal when the mesh has none). Mirrored UVs flip B. Needs HasLoopUVs().
+void ComputeLoopTangents(const Mesh& mesh, std::vector<Float3>& tangents, std::vector<Float3>& bitangents);
+
 // A picking result in the viewport: which element and where in the world.
 struct PickResult {
     bool     hit = false;

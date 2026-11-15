@@ -127,6 +127,26 @@ static int SelfTest() {
     for (const Mesh* m : {&ex, &del, &mg})
         for (const Tri& t : m->tris) inRange &= t.a < m->VertexCount() && t.b < m->VertexCount() && t.c < m->VertexCount() && t.poly < m->polyCount;
     check(inRange, "edit ops keep indices in range");
+    // Normal-map tangents: on a +Z plane with u = x, v = y, T must be +X and B +Y; mirroring U
+    // flips T but B must still follow +V.
+    for (int mirror = 0; mirror < 2; ++mirror) {
+        Mesh p;
+        p.positions = {{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0}};
+        p.tris = {{0, 1, 2, 0}, {0, 2, 3, 0}};
+        p.polyCount = 1;
+        auto uvOf = [&](uint32_t i) { return Float2{mirror ? 1 - p.positions[i].x : p.positions[i].x, p.positions[i].y}; };
+        for (const Tri& t : p.tris) for (uint32_t i : {t.a, t.b, t.c}) p.loopUVs.push_back(uvOf(i));
+        p.ComputeNormals();
+        std::vector<Float3> T, B;
+        ComputeLoopTangents(p, T, B);
+        bool ok = T.size() == 6;
+        for (size_t i = 0; ok && i < T.size(); ++i) {
+            const Float3& n = p.normals[i < 3 ? p.tris[0].a : p.tris[1].a];
+            float tn = T[i].x * n.x + T[i].y * n.y + T[i].z * n.z;
+            ok = std::fabs(tn) < 1e-4f && std::fabs(T[i].x - (mirror ? -1.0f : 1.0f)) < 1e-4f && std::fabs(B[i].y - 1.0f) < 1e-4f;
+        }
+        check(ok, mirror ? "loop tangents (mirrored U)" : "loop tangents orthogonal to normal, along +U");
+    }
     std::printf(failures ? "self-test FAILED (%d)\n" : "self-test passed\n", failures);
     return failures ? 1 : 0;
 }
