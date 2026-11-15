@@ -110,6 +110,30 @@ static int SelfTest() {
     ScriptResult r = RunMeshScript(DefaultScriptExample());
     std::printf("  script ok=%d meshes=%zu\n", r.ok ? 1 : 0, r.meshes.size());
     check(r.ok, "script");
+    {   // scripting guards: bad face indices, runaway loops, memory cap, UV-preserving merge
+        auto fails = [](const std::string& code, const char* text) {
+            ScriptResult s = RunMeshScript(code);
+            return !s.ok && s.output.find(text) != std::string::npos;
+        };
+        const std::string tri = "local m = mesh(); m:vert(0,0,0); m:vert(1,0,0); m:vert(0,1,0)\n";
+        check(fails(tri + "m:face(0, 1, 99)", "does not exist"), "script face index out of range");
+        check(fails(tri + "m:face(0, 1, -1)", "does not exist"), "script face negative index");
+        check(fails(tri + "m:face(0, 1, 1)", "3 different vertices"), "script face duplicate index");
+        auto t0 = std::chrono::steady_clock::now();
+        bool stopped = fails("while true do end", "took too long");
+        double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+        std::printf("  script runaway loop stopped=%d in %.2fs\n", stopped ? 1 : 0, secs);
+        check(stopped && secs < 10.0, "script instruction limit");
+        check(fails("local s = string.rep('x', 600 * 1024 * 1024)", "out of memory"), "script memory limit");
+        ScriptResult u = RunMeshScript("plane()\n" + tri + "m:face(0, 1, 2); m:build()");
+        Mesh plane = BuildPrimitive(Primitive::Plane, pp);
+        plane.EnsureUVs();
+        Mesh merged = MergeScriptMeshes(u.meshes);
+        bool keptPlaneUVs = merged.HasLoopUVs() && plane.HasLoopUVs();
+        for (size_t i = 0; keptPlaneUVs && i < plane.loopUVs.size(); ++i)
+            keptPlaneUVs = merged.loopUVs[i].u == plane.loopUVs[i].u && merged.loopUVs[i].v == plane.loopUVs[i].v;
+        check(u.ok && u.meshes.size() == 2 && keptPlaneUVs && merged.VertexCount() == 7, "script merge keeps per-mesh UVs");
+    }
     // OBJ round trip must keep quads (README "Mesh formats").
     Mesh cube = BuildPrimitive(Primitive::Cube, pp), back; std::string error;
     std::string path = (std::filesystem::temp_directory_path() / "leorix_selftest.obj").string();
