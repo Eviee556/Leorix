@@ -217,6 +217,7 @@ private:
     void BakeUVToLayer(bool seamsOnly);
     void MarkEdges(bool seam, bool set);     // seam/sharp, mark or clear, on the edge selection
     void UnwrapSelected();
+    void RunEditOp(char op);                 // Edit Mode: 'E' extrude, 'X' delete, 'M' merge at center
     bool EdgeOpsAvailable() const;           // edit mode + edge select + something selected
     void PaintStroke(ImVec2 canvasPos, bool begin);
     void SyncMapTexture(MapDoc& m);

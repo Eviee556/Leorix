@@ -6,6 +6,7 @@
 #include "mesh/IO.h"
 #include "mesh/Primitives.h"
 #include "mesh/Unwrap.h"
+#include "mesh/EditOps.h"
 #include "mesh/Axes.h"
 #include "tools/Script.h"
 #include <SDL3/SDL.h>
@@ -372,6 +373,9 @@ void App::HandleShortcuts3D(bool hoveredViewport) {
     }
     if (mode3D == Mode3D::Edit) {
         if (ImGui::IsKeyPressed(ImGuiKey_U, false) && !io.KeyCtrl) { UnwrapSelected(); return; }
+        if (!io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_E, false)) { RunEditOp('E'); return; }
+        if (!io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_X, false)) { RunEditOp('X'); return; }
+        if (!io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_M, false)) { RunEditOp('M'); return; }
     }
     if (io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_T, false) && scene.Active()) {
         RequestTextureSetImport();   // Node Wrangler style texture setup
@@ -2850,6 +2854,40 @@ void App::UnwrapSelected() {
         ShowStatus(r.message + " - no seams marked, so the whole mesh was flattened in one piece");
     else
         ShowStatus(r.message);
+}
+
+// Topology-changing Edit Mode operators. The whole mesh is snapshotted for undo, since vertex and
+// triangle counts change.
+void App::RunEditOp(char op) {
+    MeshObject* o = scene.Active();
+    if (!o || o->isCurve) { ShowStatus("No mesh selected"); return; }
+    // weights and multires detail are indexed by vertex, so a new vertex count would break them
+    if (o->armature.Bound() || o->multires.valid) { ShowStatus("Apply or clear the armature/multires first"); return; }
+    EditSelection sel{o->selVerts, o->selEdges, o->selFaces};
+    auto before = std::make_shared<Mesh>(o->mesh);
+    EditOpResult r = op == 'E' ? ExtrudeFaces(o->mesh, sel) : op == 'X' ? DeleteSelected(o->mesh, sel) : MergeAtCenter(o->mesh, sel);
+    ShowStatus(r.message);
+    if (!r.ok) return;
+    o->selVerts = r.sel.verts; o->selEdges = r.sel.edges; o->selFaces = r.sel.faces;
+    o->MarkTopoDirty();
+    o->stackDirty = true;
+    uvLayout.valid = false;
+    auto after = std::make_shared<Mesh>(o->mesh);
+    int idx = scene.activeIndex;
+    auto apply = [this, idx](std::shared_ptr<Mesh> m) {
+        if (idx < 0 || idx >= (int)scene.objects.size()) return;
+        MeshObject& ob = *scene.objects[idx];
+        ob.mesh = *m;
+        ob.selVerts.clear(); ob.selEdges.clear(); ob.selFaces.clear();   // old indices may not exist
+        ob.MarkTopoDirty();
+        ob.stackDirty = true;
+        uvLayout.valid = false;
+    };
+    undoStack.Push(op == 'E' ? "Extrude" : op == 'X' ? "Delete" : "Merge at Center",
+                   [apply, before] { apply(before); }, [apply, after] { apply(after); },
+                   (before->positions.size() + after->positions.size()) * sizeof(Float3) +
+                   (before->tris.size() + after->tris.size()) * sizeof(Tri));
+    if (op == 'E') BeginTransform(0);   // as in Blender, the extruded region follows the mouse
 }
 
 // ---------------------------------------------------------------- .leorix projects

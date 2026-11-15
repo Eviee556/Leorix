@@ -2,6 +2,7 @@
 #include "app/App.h"
 #include "app/Theme.h"
 #include "mesh/IO.h"
+#include "mesh/EditOps.h"
 #include "mesh/Primitives.h"
 #include "tools/Script.h"
 #include "gpu/VulkanContext.h"
@@ -110,6 +111,22 @@ static int SelfTest() {
     check(ExportMesh(path, cube, error) && ImportMesh(path, back, error), "obj export/import");
     check(back.VertexCount() == cube.VertexCount() && back.polyCount == cube.polyCount, "obj round trip keeps quads");
     std::filesystem::remove(path);
+    // Edit Mode operators: counts match Blender, and loopUVs stays one-per-corner (PARITY.md rule).
+    auto uvOk = [](const Mesh& m) { return m.HasLoopUVs(); };
+    Mesh ex = BuildPrimitive(Primitive::Cube, pp); ex.EnsureUVs();
+    EditSelection one; one.faces.insert(0);
+    check(ExtrudeFaces(ex, one).ok && ex.VertexCount() == 12 && ex.polyCount == 10 && uvOk(ex), "extrude one cube face");
+    Mesh del = BuildPrimitive(Primitive::Cube, pp); del.EnsureUVs();
+    check(DeleteSelected(del, one).ok && del.VertexCount() == 8 && del.polyCount == 5 && uvOk(del), "delete one cube face");
+    Mesh mg = BuildPrimitive(Primitive::Cube, pp); mg.EnsureUVs();
+    EditSelection face0verts;
+    for (const Tri& t : mg.tris) if (t.poly == 0) face0verts.verts.insert({t.a, t.b, t.c});
+    EditOpResult mr = MergeAtCenter(mg, face0verts);
+    check(mr.ok && mg.VertexCount() == 5 && mg.polyCount == 5 && uvOk(mg) && mr.sel.verts.size() == 1, "merge cube face to a point");
+    bool inRange = true;
+    for (const Mesh* m : {&ex, &del, &mg})
+        for (const Tri& t : m->tris) inRange &= t.a < m->VertexCount() && t.b < m->VertexCount() && t.c < m->VertexCount() && t.poly < m->polyCount;
+    check(inRange, "edit ops keep indices in range");
     std::printf(failures ? "self-test FAILED (%d)\n" : "self-test passed\n", failures);
     return failures ? 1 : 0;
 }
