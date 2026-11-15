@@ -5,12 +5,15 @@
 #include "mesh/EditOps.h"
 #include "mesh/Primitives.h"
 #include "tools/Script.h"
+#include "render/PathTracer.h"
 #include "gpu/VulkanContext.h"
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
 #include "imgui_impl_vulkan.h"
 #include <SDL3/SDL.h>
 #include <filesystem>
+#include <chrono>
+#include <thread>
 #include <SDL3/SDL_main.h>
 #include <SDL3/SDL_vulkan.h>
 #include <cstdlib>
@@ -146,6 +149,59 @@ static int SelfTest() {
             ok = std::fabs(tn) < 1e-4f && std::fabs(T[i].x - (mirror ? -1.0f : 1.0f)) < 1e-4f && std::fabs(B[i].y - 1.0f) < 1e-4f;
         }
         check(ok, mirror ? "loop tangents (mirrored U)" : "loop tangents orthogonal to normal, along +U");
+
+    // Path tracer: a floor lit only by a small emissive quad. Light sampling (NEE+MIS) must agree
+    // with brute-force BSDF sampling, with far less noise at the same sample count.
+    {
+        Scene scene;
+        MeshObject* floorObj = scene.AddMesh(BuildPrimitive(Primitive::Plane, pp), "Floor");
+        floorObj->transform.scale = {4, 1, 4};
+        MeshObject* lamp = scene.AddMesh(BuildPrimitive(Primitive::Plane, pp), "Lamp");
+        lamp->transform.position = {0, 1.5f, 0};
+        lamp->transform.scale = {0.3f, 1, 0.3f};
+        lamp->material.emissionColor[0] = lamp->material.emissionColor[1] = lamp->material.emissionColor[2] = 1.0f;
+        lamp->material.emissiveStrengthRT = 12.0f;
+        RayTraceWorld world;
+        world.sunStrength = 0.0f; world.skyStrength = 0.0f;
+        auto render = [&](int spp, bool nee, int seed) {
+            RayTraceSettings st;
+            st.width = 48; st.height = 32; st.samples = spp; st.maxBounces = 2;
+            st.denoise = false; st.clampEnabled = false; st.lightSampling = nee; st.seed = seed;
+            st.threads = 1;   // shortcut: Start's completion check can fire before other workers finish their last row
+            PathTracer pt;
+            pt.Start(scene, scene.Camera(), 0.0f, 1.2f, 5.0f, {0, 0, 0}, false, st, world);
+            while (pt.Running()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            std::vector<float> v;
+            for (size_t i = 0; i < pt.Pixels().size(); i += 4) v.push_back(pt.Pixels()[i]);
+            return v;
+        };
+        auto mean = [](const std::vector<float>& v) { double s = 0; for (float x : v) s += x; return s / v.size(); };
+        auto noise = [](const std::vector<float>& a, const std::vector<float>& b) {
+            double s = 0; for (size_t i = 0; i < a.size(); ++i) s += (a[i] - b[i]) * (a[i] - b[i]); return s / a.size();
+        };
+        auto t0 = std::chrono::steady_clock::now();
+        auto ref = render(1024, false, 1);
+        auto neeA = render(16, true, 2), neeB = render(16, true, 3);
+        auto bfA = render(16, false, 2), bfB = render(16, false, 3);
+        double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+        double mRef = mean(ref), mNee = mean(neeA), nNee = noise(neeA, neeB), nBf = noise(bfA, bfB);
+        std::printf("  tracer mean ref=%.2f nee=%.2f  noise nee=%.2f brute=%.2f  (%.2fs)\n", mRef, mNee, nNee, nBf, secs);
+        check(mRef > 5.0 && std::fabs(mNee - mRef) < 0.03 * mRef, "NEE mean matches brute-force reference");
+        check(nNee < 0.5 * nBf, "NEE lowers noise");
+
+        // Normal maps: a flat map must change nothing, a tilted one must change the shading.
+        auto setNormalMap = [&](uint8_t r, uint8_t g, uint8_t b) {
+            TextureData& tex = floorObj->material.cpu[(int)MapSlot::Normal];
+            tex.width = tex.height = 1; tex.pixels = {r, g, b, 255};
+        };
+        auto flatOff = render(64, true, 4);
+        setNormalMap(128, 128, 255);
+        auto flatOn = render(64, true, 4);
+        setNormalMap(230, 128, 160);
+        auto tilted = render(64, true, 4);
+        std::printf("  normal map mean none=%.2f flat=%.2f tilted=%.2f\n", mean(flatOff), mean(flatOn), mean(tilted));
+        check(std::fabs(mean(flatOn) - mean(flatOff)) < 0.02 * mean(flatOff), "flat normal map is neutral");
+        check(std::fabs(mean(tilted) - mean(flatOff)) > 0.05 * mean(flatOff), "tilted normal map changes shading");
     }
     std::printf(failures ? "self-test FAILED (%d)\n" : "self-test passed\n", failures);
     return failures ? 1 : 0;

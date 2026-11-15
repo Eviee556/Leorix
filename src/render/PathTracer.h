@@ -15,6 +15,7 @@ struct RayTraceSettings {
     bool  denoise = true;              // edge-aware blur over the result
     float denoiseStrength = 1.0f;
     bool  emissiveLights = true;       // emissive surfaces contribute light
+    bool  lightSampling = true;        // next-event estimation toward emissive triangles (MIS)
     int   width = 960, height = 540;
     int   samples = 64;                 // paths per pixel
     int   maxBounces = 6;
