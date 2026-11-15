@@ -70,6 +70,9 @@ struct RTTri {
     float transmission = 0.0f, ior = 1.45f;
     float sss = 0.0f;
     V3 sssTint{1, 1, 1};
+    V3 tu, tv;                 // dP/du, dP/dv: the tangent frame normal maps perturb in
+    V3 gn;                     // geometric normal
+    bool light = false;        // in the NEE light list, so BSDF hits on it are MIS-weighted
 };
 
 struct Hit {
@@ -85,6 +88,18 @@ struct BVH {
     std::vector<RTTri> tris;
     std::vector<int> index;
     std::vector<Node> nodes;
+    std::vector<int> lights;          // emissive triangles, sampled by area
+    std::vector<float> lightCdf;      // running area sum, parallel to lights
+    float lightArea = 0.0f;
+
+    void BuildLights() {
+        for (int i = 0; i < (int)tris.size(); ++i) {
+            if (!tris[i].light) continue;
+            lightArea += 0.5f * Len(Cross(tris[i].b - tris[i].a, tris[i].c - tris[i].a));
+            lights.push_back(i);
+            lightCdf.push_back(lightArea);
+        }
+    }
 
     void Build() {
         index.resize(tris.size());
@@ -269,11 +284,26 @@ bool PathTracer::Start(const Scene& scene, const SceneCamera& camera, float view
             r.emission = V3{m.emissionColor[0], m.emissionColor[1], m.emissionColor[2]} * m.emissiveStrengthRT;
             r.transmission = m.transmission;
             r.ior = m.transmissionIOR;
+            r.gn = gn;
+            {
+                V3 e1 = r.b - r.a, e2 = r.c - r.a;
+                float du1 = r.ub - r.ua, dv1 = r.vb - r.va, du2 = r.uc - r.ua, dv2 = r.vc - r.va;
+                float det = du1 * dv2 - du2 * dv1;
+                if (std::fabs(det) > 1e-12f) {
+                    r.tu = (e1 * dv2 - e2 * dv1) * (1.0f / det);
+                    r.tv = (e2 * du1 - e1 * du2) * (1.0f / det);
+                }
+            }
+            // Only constant emitters with no cutouts are light-sampled; anything mapped stays
+            // BSDF-only, which is still unbiased (its hits are just not MIS-weighted).
+            r.light = (r.emission.x + r.emission.y + r.emission.z) > 0.0f && m.opacity >= 0.999f &&
+                      !m.HasCpu(MapSlot::Emissive) && !m.HasCpu(MapSlot::Opacity) && !m.HasCpu(MapSlot::BaseColor);
             bvh->tris.push_back(r);
         }
     }
     if (bvh->tris.empty()) return false;
     bvh->Build();
+    if (st.emissiveLights && st.lightSampling) bvh->BuildLights();
     stats.triangles = bvh->tris.size();
 
     // ---- camera basis
@@ -315,6 +345,8 @@ bool PathTracer::Start(const Scene& scene, const SceneCamera& camera, float view
                         V3 dir = Norm(forward + right * (px * tanHalf * aspect) + up * (py * tanHalf));
                         V3 origin = eye;
                         V3 throughput{1, 1, 1}, radiance{0, 0, 0};
+                        bool misPrev = false;   // last bounce was the diffuse lobe, which NEE also covers
+                        float pdfPrev = 0.0f;   // its solid-angle pdf
 
                         for (int bounce = 0; bounce <= settings.maxBounces; ++bounce) {
                             Hit hit;
@@ -380,13 +412,30 @@ bool PathTracer::Start(const Scene& scene, const SceneCamera& camera, float view
                             // Opacity: let the ray pass straight through the transparent parts.
                             if (alpha < 0.999f && rng() > alpha) {
                                 origin = origin + dir * (hit.t + 1e-3f);
+                                misPrev = false;   // shadow rays treat cutouts as opaque, so NEE missed this light path
                                 continue;
                             }
 
-                            if (settings.emissiveLights && (emissive.x + emissive.y + emissive.z) > 0.0f)
-                                radiance = radiance + throughput * emissive;
+                            if (settings.emissiveLights && (emissive.x + emissive.y + emissive.z) > 0.0f) {
+                                float weight = 1.0f;
+                                if (misPrev && t.light && !bvh->lights.empty()) {
+                                    float cosL = std::max(std::fabs(Dot(t.gn, dir)), 1e-6f);
+                                    float pdfL = hit.t * hit.t / (cosL * bvh->lightArea);
+                                    weight = pdfPrev * pdfPrev / (pdfPrev * pdfPrev + pdfL * pdfL);
+                                }
+                                radiance = radiance + throughput * emissive * weight;
+                            }
                             V3 n = Norm(t.na * w0 + t.nb * hit.u + t.nc * hit.v);
-                            if (Dot(n, dir) > 0) n = n * -1.0f;
+                            bool backFace = Dot(n, dir) > 0;
+                            if (t.mat && t.mat->HasCpu(MapSlot::Normal) && Dot(t.tu, t.tu) > 0.0f) {
+                                // shortcut: assumes OpenGL (+Y) normal maps; DirectX ones need green flipped.
+                                float c4[4]; t.mat->cpu[(int)MapSlot::Normal].Sample(uvU, uvV, c4);
+                                V3 T = Norm(t.tu - n * Dot(n, t.tu));
+                                V3 B = Cross(n, T);
+                                if (Dot(B, t.tv) < 0) B = B * -1.0f;   // mirrored UVs
+                                n = Norm(T * (c4[0] * 2 - 1) + B * (c4[1] * 2 - 1) + n * (c4[2] * 2 - 1));
+                            }
+                            if (backFace) n = n * -1.0f;
                             V3 p = origin + dir * hit.t;
 
                             // direct sun, with a soft disc for penumbra
@@ -407,8 +456,34 @@ bool PathTracer::Start(const Scene& scene, const SceneCamera& camera, float view
                             }
 
                             if (bounce == settings.maxBounces) break;
+                            float specChance = std::clamp(metal + (1.0f - metal) * specular * 0.08f, 0.0f, 1.0f);
+                            // Probability of the diffuse lobe below, so its BRDF is albedo * pDiffuse / pi.
+                            float pDiffuse = (1.0f - (t.transmission > 0.001f ? t.transmission : 0.0f)) * (1.0f - specChance);
+
+                            // Next-event estimation: one emissive triangle picked by area, MIS-weighted
+                            // against the diffuse lobe hitting it (power heuristic).
+                            if (!bvh->lights.empty() && pDiffuse > 0.0f) {
+                                float pick = rng() * bvh->lightArea;
+                                size_t li = std::min(bvh->lights.size() - 1,
+                                    (size_t)(std::upper_bound(bvh->lightCdf.begin(), bvh->lightCdf.end(), pick) - bvh->lightCdf.begin()));
+                                const RTTri& L = bvh->tris[bvh->lights[li]];
+                                float r1 = std::sqrt(rng()), r2 = rng();
+                                V3 q = L.a * (1 - r1) + L.b * (r1 * (1 - r2)) + L.c * (r1 * r2);
+                                V3 wi = q - p;
+                                float d2 = Dot(wi, wi), dist = std::sqrt(d2);
+                                wi = wi * (1.0f / std::max(dist, 1e-8f));
+                                float cosS = Dot(n, wi), cosL = std::fabs(Dot(L.gn, wi));
+                                if (cosS > 0 && cosL > 1e-6f && !bvh->Occluded(p + n * 1e-3f, wi, dist * 0.999f - 1e-3f)) {
+                                    float pdfL = d2 / (cosL * bvh->lightArea);
+                                    float pdfB = pDiffuse * cosS / 3.14159265f;
+                                    float w = pdfL * pdfL / (pdfL * pdfL + pdfB * pdfB);
+                                    radiance = radiance + throughput * albedo * L.emission * (pDiffuse / 3.14159265f * cosS / pdfL * w);
+                                }
+                            }
+
                             // next direction: cosine diffuse, or a rough mirror for metal/glossy
                             V3 next;
+                            misPrev = false;
                             if (t.transmission > 0.001f && rng() < t.transmission) {
                                 // refraction with Schlick reflectance; total internal reflection falls back to a mirror
                                 bool entering = Dot(dir, n) < 0;
@@ -425,7 +500,6 @@ bool PathTracer::Start(const Scene& scene, const SceneCamera& camera, float view
                                 dir = next;
                                 continue;
                             }
-                            float specChance = std::clamp(metal + (1.0f - metal) * specular * 0.08f, 0.0f, 1.0f);
                             if (rng() < specChance) {
                                 V3 refl = dir - n * (2.0f * Dot(dir, n));
                                 next = Norm(refl + CosineHemisphere(n, rng) * (rough * rough));
@@ -434,6 +508,8 @@ bool PathTracer::Start(const Scene& scene, const SceneCamera& camera, float view
                             } else {
                                 next = CosineHemisphere(n, rng);
                                 throughput = throughput * albedo;
+                                misPrev = true;
+                                pdfPrev = pDiffuse * std::max(Dot(n, next), 1e-6f) / 3.14159265f;
                             }
                             if (settings.clampEnabled) {
                                 throughput.x = std::min(throughput.x, settings.clampIndirect);
