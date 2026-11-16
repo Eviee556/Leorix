@@ -33,6 +33,7 @@ void App::RebuildCurveMesh(MeshObject& o) {
     o.selVerts.clear(); o.selEdges.clear(); o.selFaces.clear();
     o.MarkTopoDirty();
     o.stackDirty = true;
+    scene.MarkCurveDependentsDirty();
 }
 
 void App::PushCurveUndo(const std::string& label, MeshObject* o, const CurvePath& beforeCurve, const Mesh& beforeMesh, bool beforeIsCurve) {
@@ -46,6 +47,7 @@ void App::PushCurveUndo(const std::string& label, MeshObject* o, const CurvePath
         o->curveSel.clear(); o->selVerts.clear(); o->selEdges.clear(); o->selFaces.clear();
         o->MarkTopoDirty();
         o->stackDirty = true;
+        scene.MarkCurveDependentsDirty();
     };
     size_t bytes = (before->c.points.size() + after->c.points.size()) * sizeof(Float3) * 4 +
                    (before->m.positions.size() + after->m.positions.size()) * sizeof(Float3) +

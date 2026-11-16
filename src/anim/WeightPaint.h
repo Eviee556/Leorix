@@ -25,8 +25,10 @@ void  SetBoneWeight(VertexWeights& vw, int bone, float w);
 // LeftArm <-> RightArm), or `bone` itself when there is none.
 int   MirrorBone(const Armature& arm, int bone);
 // `pos` are the positions the brush is measured on (skinned when posed), one per weight.
+// `rest` (optional, same size) are the unposed positions the X mirror twin is looked up on, since
+// a posed mesh is rarely symmetric.
 size_t ApplyWeightDab(Armature& arm, const std::vector<Float3>& pos, const std::vector<Tri>& tris,
-                      const SculptSettings& falloff, const WeightDab& dab);
+                      const SculptSettings& falloff, const WeightDab& dab, const std::vector<Float3>* rest = nullptr);
 size_t NormalizeAllWeights(Armature& arm);
 // Drops influences below `threshold` (keeping each vertex's strongest one) and renormalizes.
 size_t CleanWeights(Armature& arm, float threshold = 0.01f);

@@ -139,6 +139,15 @@ struct Scene {
         objects.insert(objects.begin() + index, std::move(obj));
         SelectOnly(index);
     }
+    // A curve changed: re-evaluate every stack that bends along a curve.
+    // shortcut: marks all Curve Deform users rather than only those targeting this curve; fine for small scenes.
+    int MarkCurveDependentsDirty() {
+        int n = 0;
+        for (auto& o : objects)
+            for (const Modifier& m : o->modifiers)
+                if (m.enabled && m.type == ModifierType::CurveDeform) { o->stackDirty = true; ++n; break; }
+        return n;
+    }
     int IndexOf(const MeshObject* obj) const {
         for (int i = 0; i < (int)objects.size(); ++i) if (objects[i].get() == obj) return i;
         return -1;

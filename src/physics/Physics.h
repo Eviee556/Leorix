@@ -13,6 +13,7 @@ struct PhysicsSettings {
 // Simulates every enabled rigid body from its rest transform (the current transform, or the rest
 // saved by an earlier bake) and fills the caches. Returns how many active (moving) bodies were baked.
 int BakeRigidBodies(Scene& scene, const PhysicsSettings& s);
+constexpr int kMaxBakeFrames = 10000;   // longer bakes would freeze the UI thread
 // Puts every baked object at its cached transform for `frame` (clamped to the baked range).
 void ApplyRigidBodyCache(Scene& scene, float frame);
 // Drops every cache and puts the objects back where they started.

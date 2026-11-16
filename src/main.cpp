@@ -974,6 +974,24 @@ static int SelfTest() {
         ApplyWeightDab(m, mp, {}, fall, md);
         check(std::fabs(BoneWeight(m.weights[0], 0) - 0.8f) < 1e-5f && std::fabs(BoneWeight(m.weights[1], 1) - 0.8f) < 1e-5f,
               "weight paint: X mirror paints the twin bone on the mirrored vertex");
+        {   // posed (asymmetric) brush positions: the twin is still found on the rest positions
+            m.weights = {both(0.5f), both(0.5f)};
+            std::vector<Float3> posed = {{1.7f, 0.5f, 0.1f}, {-1.2f, 0.1f, 0}};
+            WeightDab pd = md; pd.center = posed[0];
+            ApplyWeightDab(m, posed, {}, fall, pd, &mp);
+            check(std::fabs(BoneWeight(m.weights[1], 1) - 0.8f) < 1e-5f, "weight paint: X mirror finds the twin while posed");
+        }
+        {   // a vertex on the centre line is its own mirror and keeps the painted bone
+            Armature cl;
+            cl.AddBone("arm.L", {1, 0, 0}, {2, 0, 0});
+            cl.AddBone("arm.R", {-1, 0, 0}, {-2, 0, 0});
+            std::vector<Float3> cp = {{0, 0.2f, 0}};
+            cl.restPositions = cp;
+            cl.weights = {both(0.5f)};
+            WeightDab cd = md; cd.center = cp[0]; cd.mode = WeightBrush::Replace; cd.value = 1;
+            ApplyWeightDab(cl, cp, {}, fall, cd);
+            check(std::fabs(BoneWeight(cl.weights[0], 0) - 1) < 1e-5f, "weight paint: centre-line vertex keeps the active bone under X mirror");
+        }
 
         Armature c;
         c.AddBone("a", {0, 0, 0}, {0, 1, 0});
@@ -1008,6 +1026,21 @@ static int SelfTest() {
         Scene sc; ground(sc);
         MeshObject* ball = ballAt(sc, 0);
         check(BakeRigidBodies(sc, ps) == 1 && ball->rigidBody.cache.size() == 480 * 3, "physics: bake fills one entry per frame");
+        {   // a huge frame range is capped so a bake can't freeze the app
+            Scene sl; ground(sl);
+            MeshObject* lb = ballAt(sl, 0);
+            PhysicsSettings pl; pl.fps = 24; pl.frameStart = 1; pl.frameEnd = 1000000;
+            BakeRigidBodies(sl, pl);
+            check(lb->rigidBody.cache.size() == (size_t)kMaxBakeFrames, "physics: bake range is capped");
+        }
+        {   // curve edits re-evaluate the meshes bent along a curve
+            Scene cs;
+            MeshObject* bent = cs.AddMesh(BuildPrimitive(Primitive::Cube, DefaultParams(Primitive::Cube)), "Bent");
+            MeshObject* plain = cs.AddMesh(BuildPrimitive(Primitive::Cube, DefaultParams(Primitive::Cube)), "Plain");
+            Modifier cd; cd.type = ModifierType::CurveDeform; bent->modifiers.push_back(cd);
+            bent->stackDirty = plain->stackDirty = false;
+            check(cs.MarkCurveDependentsDirty() == 1 && bent->stackDirty && !plain->stackDirty, "curves: edits mark Curve Deform users dirty");
+        }
         const auto& c = ball->rigidBody.cache;
         int land = landing(c, 0);
         float tWant = std::sqrt(2 * 2 / 9.81f);

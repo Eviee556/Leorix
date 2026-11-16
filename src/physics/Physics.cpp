@@ -407,7 +407,10 @@ int BakeRigidBodies(Scene& scene, const PhysicsSettings& s) {
     const int fps = std::clamp(s.fps, 1, 1000);
     const int sub = std::max(1, (int)std::lround(240.0 / fps));   // about 240 steps per second
     const float dt = 1.0f / (float)(fps * sub);
-    const int frames = std::clamp(s.frameEnd - s.frameStart + 1, 1, 100000);
+    int frames = std::clamp(s.frameEnd - s.frameStart + 1, 1, kMaxBakeFrames);
+    // Guard total work (steps x body pairs) so many convex hulls can't hang the app for minutes.
+    const double pairs = std::max<double>(1.0, (double)bodies.size() * (double)bodies.size());
+    frames = (int)std::max(1.0, std::min<double>(frames, 4e9 / (pairs * sub)));
     const V g = ToV(s.gravity);
     for (Body& b : bodies) if (b.dynamic) b.obj->rigidBody.cache.reserve(frames);
     auto record = [&] { for (const Body& b : bodies) if (b.dynamic) b.obj->rigidBody.cache.push_back(Pose(b)); };

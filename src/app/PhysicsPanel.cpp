@@ -73,7 +73,7 @@ void App::PhysicsPanel() {
     }
 
     ImGui::Spacing(); ImGui::TextColored(kBrass, "SIMULATION (whole scene)"); ImGui::Separator();
-    ImGui::DragIntRange2("Frames", &physics.frameStart, &physics.frameEnd, 1, 1, 100000);
+    ImGui::DragIntRange2("Frames", &physics.frameStart, &physics.frameEnd, 1, 1, kMaxBakeFrames);
     physics.frameEnd = std::max(physics.frameEnd, physics.frameStart);
     ImGui::DragFloat3("Gravity", &physics.gravity.x, 0.05f, -100, 100, "%.2f");
     physics.fps = playback.fps;

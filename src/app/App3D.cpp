@@ -1827,6 +1827,7 @@ void App::UpdateTransform(bool) {
         o->MarkTopoDirty();
         static const char* names[] = {"Move", "Rotate", "Scale"};
         int objIndex = xform.objectIndex;
+        bool bakeCleared = false;
         if (xform.curve) {
             Mesh beforeMesh = CurveToMesh(xform.savedCurve);
             beforeMesh.name = o->name;
@@ -1848,13 +1849,14 @@ void App::UpdateTransform(bool) {
                            [apply, before] { apply(before); }, [apply, after] { apply(after); },
                            verts->size() * sizeof(Float3) * 2);
         } else {
+            if (o->rigidBody.Baked()) { o->rigidBody.cache.clear(); bakeCleared = true; }
             Transform before = xform.savedTransform, after = o->transform;
             undoStack.Push(names[xform.mode],
                 [this, objIndex, before] { if (objIndex < (int)scene.objects.size()) scene.objects[objIndex]->transform = before; },
                 [this, objIndex, after] { if (objIndex < (int)scene.objects.size()) scene.objects[objIndex]->transform = after; });
         }
         xform = TransformOp{};
-        ShowStatus("Transform applied");
+        ShowStatus(bakeCleared ? "Moved a baked object: its bake was cleared, bake again" : "Transform applied");
     }
 }
 
@@ -3251,6 +3253,8 @@ void App::QueueProjectPath(const std::string& path, bool saving) {
 void App::JoinMeshes() {
     MeshObject* target = scene.Active();
     if (!target) { ShowStatus("Nothing selected"); return; }
+    // joined geometry would be wiped the next time the curve rebuilds its tube
+    if (target->isCurve) { ShowStatus("Convert the curve to a mesh before joining into it"); return; }
 
     // everything selected except the active object, which everything merges into
     std::vector<int> sources;
@@ -3776,6 +3780,8 @@ void App::RequestHdriImport() {
 void App::SculptStroke(bool begin) {
     MeshObject* o = scene.Active();
     if (!o || !lastPick.hit) return;
+    // the tube is rebuilt from the curve on every curve change, which would wipe the strokes
+    if (o->isCurve) { if (begin) ShowStatus("Convert the curve to a mesh before sculpting it"); return; }
     const auto& brush = kSculptBrushes[sculpt.brush];
     const bool smoothing = ImGui::GetIO().KeyShift || brush.icon == Icon::SculptSmooth;   // Shift smooths with any brush
     if (!smoothing && !SculptBrushSupported(brush.icon)) {
@@ -4095,6 +4101,7 @@ void App::DuplicateSelected() {
     for (int i : picked) {
         auto copy = std::make_unique<MeshObject>(*scene.objects[i]);
         copy->name = scene.UniqueName(scene.objects[i]->name);
+        copy->rigidBody.cache.clear();   // a copy must not replay the original's baked path
         copy->selected = true;
         copy->active = false;
         scene.objects.push_back(std::move(copy));

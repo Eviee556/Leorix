@@ -47,7 +47,7 @@ int MirrorBone(const Armature& arm, int bone) {
 }
 
 size_t ApplyWeightDab(Armature& arm, const std::vector<Float3>& pos, const std::vector<Tri>& tris,
-                      const SculptSettings& falloff, const WeightDab& dab) {
+                      const SculptSettings& falloff, const WeightDab& dab, const std::vector<Float3>* rest) {
     if (!arm.Bound() || pos.size() != arm.weights.size() || dab.bone < 0 || dab.bone >= (int)arm.bones.size() ||
         !(dab.radius > 0))
         return 0;
@@ -89,7 +89,8 @@ size_t ApplyWeightDab(Armature& arm, const std::vector<Float3>& pos, const std::
         long long x = std::llround(p.x / q), y = std::llround(p.y / q), z = std::llround(p.z / q);
         return (x * 73856093LL) ^ (y * 19349663LL) ^ (z * 83492791LL);
     };
-    if (dab.mirrorX) for (size_t i = 0; i < n; ++i) grid.emplace(key(pos[i]), uint32_t(i));
+    const std::vector<Float3>& mp = rest && rest->size() == n ? *rest : pos;
+    if (dab.mirrorX) for (size_t i = 0; i < n; ++i) grid.emplace(key(mp[i]), uint32_t(i));
 
     std::vector<float> next(idx.size());
     for (size_t k = 0; k < idx.size(); ++k) {
@@ -105,10 +106,10 @@ size_t ApplyWeightDab(Armature& arm, const std::vector<Float3>& pos, const std::
         const uint32_t v = idx[k];
         SetBoneWeight(arm.weights[v], dab.bone, next[k]);
         if (!dab.mirrorX) continue;
-        auto it = grid.find(key({-pos[v].x, pos[v].y, pos[v].z}));
-        if (it == grid.end() || (it->second == v && mbone == dab.bone)) continue;
-        const Float3& m = pos[it->second];
-        if (std::fabs(m.x + pos[v].x) + std::fabs(m.y - pos[v].y) + std::fabs(m.z - pos[v].z) > 4 * q) continue;   // hash collision
+        auto it = grid.find(key({-mp[v].x, mp[v].y, mp[v].z}));
+        if (it == grid.end() || it->second == v) continue;   // a centre-line vertex keeps the painted bone
+        const Float3& m = mp[it->second];
+        if (std::fabs(m.x + mp[v].x) + std::fabs(m.y - mp[v].y) + std::fabs(m.z - mp[v].z) > 4 * q) continue;   // hash collision
         SetBoneWeight(arm.weights[it->second], mbone, next[k]);
     }
     return idx.size();

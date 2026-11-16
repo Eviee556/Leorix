@@ -60,7 +60,7 @@ void App::WeightStroke(bool begin) {
              : (WeightBrush)weightPaint.mode;
     dab.bone = activeBone;
     dab.mirrorX = weightPaint.mirrorX;
-    if (ApplyWeightDab(arm, BrushPositions(*o), o->mesh.tris, weightPaint.brush, dab)) UpdateSkinning(*o);
+    if (ApplyWeightDab(arm, BrushPositions(*o), o->mesh.tris, weightPaint.brush, dab, &o->mesh.positions)) UpdateSkinning(*o);
 }
 
 void App::WeightStrokeEnd() {
