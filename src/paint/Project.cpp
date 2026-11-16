@@ -364,7 +364,9 @@ json SaveScene(mz_zip_archive& zip, const Scene& scene, const PlaybackState* pla
                         {"isCurve", o.isCurve},
                         {"curve", {{"points", curvePts}, {"handleL", curveL}, {"handleR", curveR}, {"handleType", curveT}, {"radius", curveRad},
                                    {"cyclic", o.curve.cyclic}, {"resolution", o.curve.resolution},
-                                   {"bevelDepth", o.curve.bevelDepth}, {"bevelResolution", o.curve.bevelResolution}}},
+                                   {"bevelDepth", o.curve.bevelDepth}, {"bevelResolution", o.curve.bevelResolution},
+                                   {"bevelObject", o.curve.bevelObject}, {"nurbs", cv.nurbs}, {"order", cv.order},
+                                   {"endpoint", cv.endpoint}, {"weight", cv.weight}, {"knots", cv.knots}}},
                         {"multires", {{"levels", o.multires.valid ? o.multires.levels : 0}, {"viewLevel", o.multires.viewLevel}}},
                         {"armature", SaveArmature(o.armature)}, {"action", SaveAction(o.action)},
                         {"rigidBody", {{"enabled", o.rigidBody.enabled}, {"passive", o.rigidBody.passive},
@@ -442,6 +444,10 @@ bool LoadObject(mz_zip_archive& zip, const json& x, MeshObject& o, std::string& 
     o.curve.resolution = I(jc, "resolution", o.curve.resolution, 1, 256);
     o.curve.bevelDepth = F(jc, "bevelDepth", 0.0f, 0.0f, 1000.0f);
     o.curve.bevelResolution = I(jc, "bevelResolution", o.curve.bevelResolution, 0, 32);
+    o.curve.bevelObject = I(jc, "bevelObject", -1, -1, 1 << 20);   // checked against the scene when used
+    o.curve.nurbs = B(jc, "nurbs", false);
+    o.curve.order = I(jc, "order", 4, 2, 6);
+    o.curve.endpoint = B(jc, "endpoint", true);
     {
         // Handles, types and radii are optional (older projects); each array is used only when complete.
         const size_t n = o.curve.points.size();
@@ -459,6 +465,11 @@ bool LoadObject(mz_zip_archive& zip, const json& x, MeshObject& o, std::string& 
         const json& rd = Arr(jc, "radius");
         if (rd.size() == n)
             for (const json& v : rd) { json w = {{"r", v}}; o.curve.radius.push_back(F(w, "r", 1.0f, 0.0f, 1000.0f)); }
+        const json& wt = Arr(jc, "weight");
+        if (wt.size() == n)
+            for (const json& v : wt) { json w = {{"w", v}}; o.curve.weight.push_back(F(w, "w", 1.0f, 1e-4f, 1e4f)); }
+        for (const json& v : Arr(jc, "knots"))   // only used when the count and order check out
+            if (o.curve.knots.size() < n + 6) { json w = {{"k", v}}; o.curve.knots.push_back(F(w, "k", 0.0f)); }
         o.curve.Sync();
     }
 

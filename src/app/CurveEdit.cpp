@@ -25,14 +25,33 @@ std::set<int> SelectedPoints(const MeshObject& o) {
 }
 } // namespace
 
+const CurvePath* App::CurveProfile(const MeshObject& o) const {
+    int b = o.curve.bevelObject;
+    if (b < 0 || b >= (int)scene.objects.size() || scene.objects[b].get() == &o || !scene.objects[b]->isCurve) return nullptr;
+    return &scene.objects[b]->curve;
+}
+
+void App::RebuildProfileUsers(const MeshObject& profile) {
+    // one level only, so two curves that use each other as profiles can't recurse
+    for (auto& up : scene.objects) {
+        MeshObject& u = *up;
+        if (&u == &profile || !u.isCurve || CurveProfile(u) != &profile.curve) continue;
+        u.mesh = CurveToMesh(u.curve, &profile.curve);
+        u.mesh.name = u.name;
+        u.MarkTopoDirty();
+        u.stackDirty = true;
+    }
+}
+
 void App::RebuildCurveMesh(MeshObject& o) {
     o.curve.Sync();
     if (!o.isCurve) return;
-    o.mesh = CurveToMesh(o.curve);
+    o.mesh = CurveToMesh(o.curve, CurveProfile(o));
     o.mesh.name = o.name;
     o.selVerts.clear(); o.selEdges.clear(); o.selFaces.clear();
     o.MarkTopoDirty();
     o.stackDirty = true;
+    RebuildProfileUsers(o);
     scene.MarkCurveDependentsDirty();
 }
 
@@ -47,6 +66,7 @@ void App::PushCurveUndo(const std::string& label, MeshObject* o, const CurvePath
         o->curveSel.clear(); o->selVerts.clear(); o->selEdges.clear(); o->selFaces.clear();
         o->MarkTopoDirty();
         o->stackDirty = true;
+        RebuildProfileUsers(*o);
         scene.MarkCurveDependentsDirty();
     };
     size_t bytes = (before->c.points.size() + after->c.points.size()) * sizeof(Float3) * 4 +
@@ -57,11 +77,21 @@ void App::PushCurveUndo(const std::string& label, MeshObject* o, const CurvePath
 
 void App::CurveEditOverlay(ImDrawList* dl, MeshObject& c) {
     const CurvePath& cv = c.curve;
+    if (cv.nurbs) {
+        // the control polygon: NURBS points sit off the curve, so show what they pull on
+        const int n = (int)cv.points.size();
+        for (int i = 0; i + 1 < n || (cv.cyclic && i < n && n > 2); ++i) {
+            float z; ImVec2 a, b;
+            if (viewport.ProjectPoint(c.transform.Apply(cv.points[i]), z, a) &&
+                viewport.ProjectPoint(c.transform.Apply(cv.points[(i + 1) % n]), z, b))
+                dl->AddLine(a, b, IM_COL32(150, 150, 150, 160), 1.0f);
+        }
+    }
     for (int i = 0; i < (int)cv.points.size(); ++i) {
         float z; ImVec2 sp, sl, sr;
         if (!viewport.ProjectPoint(c.transform.Apply(cv.points[i]), z, sp)) continue;
         HandleType t = i < (int)cv.handleType.size() ? cv.handleType[i] : HandleType::Auto;
-        for (int k = 1; k <= 2; ++k) {
+        for (int k = 1; k <= 2 && !cv.nurbs; ++k) {
             ImVec2& hs = k == 1 ? sl : sr;
             if (!viewport.ProjectPoint(c.transform.Apply(cv.Elem(i * 3 + k)), z, hs)) continue;
             dl->AddLine(sp, hs, HandleColor(t), 1.2f);
@@ -81,6 +111,7 @@ void App::CurveEditClick() {
     int best = -1;
     float bestD = 10.0f;   // pixels
     for (int e = 0; e < o->curve.ElemCount(); ++e) {
+        if (o->curve.nurbs && e % 3 != 0) continue;   // NURBS points have no handles
         float z; ImVec2 sp;
         if (!viewport.ProjectPoint(o->transform.Apply(o->curve.Elem(e)), z, sp)) continue;
         float d = std::hypot(sp.x - m.x, sp.y - m.y) - (e % 3 == 0 ? 1.5f : 0.0f);   // points win ties
@@ -90,6 +121,9 @@ void App::CurveEditClick() {
     if (!shift) o->curveSel.clear();
     if (best >= 0) {
         if (shift && o->curveSel.count(best)) o->curveSel.erase(best); else o->curveSel.insert(best);
+    } else {
+        boxArmed = true;                 // a click on empty space may become a box select
+        boxStart = m;
     }
 }
 
@@ -139,10 +173,64 @@ void App::CurveSettingsUI() {
     track("Bevel Depth", ImGui::DragFloat("Bevel Depth", &o->curve.bevelDepth, 0.005f, 0.0f, 10.0f, "%.3f"));
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Radius of the tube swept along the curve; 0 shows only the path");
     track("Bevel Resolution", ImGui::SliderInt("Bevel Resolution", &o->curve.bevelResolution, 0, 16));
+    {
+        // Bevel profile: another curve's shape (its X/Z plane) swept along this one
+        const CurvePath* prof = CurveProfile(*o);
+        const char* cur = prof ? scene.objects[o->curve.bevelObject]->name.c_str() : "Round";
+        if (ImGui::BeginCombo("Bevel Profile", cur)) {
+            int pick = -2;
+            if (ImGui::Selectable("Round", !prof)) pick = -1;
+            for (int i = 0; i < (int)scene.objects.size(); ++i) {
+                const MeshObject& c = *scene.objects[i];
+                if (&c == o || !c.isCurve) continue;
+                ImGui::PushID(i);
+                if (ImGui::Selectable(c.name.c_str(), prof == &c.curve)) pick = i;
+                ImGui::PopID();
+            }
+            ImGui::EndCombo();
+            if (pick != -2) {
+                CurvePath bc = o->curve; Mesh bm = o->mesh;
+                o->curve.bevelObject = pick;
+                RebuildCurveMesh(*o);
+                PushCurveUndo("Bevel Profile", o, bc, bm, true);
+            }
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Sweep another curve's shape (seen from above) instead of a round tube");
+    }
 
     std::set<int> pts = SelectedPoints(*o);
-    ImGui::TextDisabled(pts.empty() ? "Handles (all points)" : "Handles (%d selected point%s)", (int)pts.size(), pts.size() == 1 ? "" : "s");
-    for (int t = 0; t < 4; ++t) {
+    {
+        int type = o->curve.nurbs ? 1 : 0;
+        if (ImGui::Combo("Type", &type, "Bezier\0NURBS\0")) {
+            CurvePath bc = o->curve; Mesh bm = o->mesh;
+            o->curve.nurbs = type == 1;
+            o->curveSel.clear();
+            RebuildCurveMesh(*o);
+            PushCurveUndo(type ? "Make NURBS" : "Make Bezier", o, bc, bm, true);
+        }
+    }
+    if (o->curve.nurbs) {
+        track("NURBS Order", ImGui::SliderInt("Order", &o->curve.order, 2, 6));
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("2 = straight lines between points; higher = smoother and further from the points");
+        bool ep = o->curve.endpoint;
+        if (ImGui::Checkbox("Endpoint", &ep)) {
+            CurvePath bc = o->curve; Mesh bm = o->mesh;
+            o->curve.endpoint = ep;
+            o->curve.knots.clear();
+            RebuildCurveMesh(*o);
+            PushCurveUndo("NURBS Endpoint", o, bc, bm, true);
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Make an open curve start and end exactly on its first and last points");
+        if (!pts.empty()) {
+            float w = o->curve.WeightAt(*pts.begin());
+            bool changed = ImGui::DragFloat("Weight", &w, 0.01f, 0.01f, 100.0f, "%.3f");
+            if (changed) for (int i : pts) o->curve.weight[i] = std::max(w, 0.01f);
+            track("NURBS Weight", changed);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("How strongly the selected points pull the curve towards them");
+        }
+    }
+    if (!o->curve.nurbs) ImGui::TextDisabled(pts.empty() ? "Handles (all points)" : "Handles (%d selected point%s)", (int)pts.size(), pts.size() == 1 ? "" : "s");
+    for (int t = 0; t < 4 && !o->curve.nurbs; ++t) {
         if (t) ImGui::SameLine();
         if (ImGui::Button(HandleTypeName((HandleType)t))) {
             CurvePath bc = o->curve; Mesh bm = o->mesh;
@@ -158,9 +246,9 @@ void App::CurveSettingsUI() {
         if (changed) for (int i : pts) o->curve.radius[i] = r;
         track("Curve Radius", changed);
     }
-    ImGui::TextDisabled("Edit Mode: click points/handles, G move, E extrude an end, X delete");
+    ImGui::TextDisabled("Edit Mode: click or drag a box over points, G move, E extrude an end, X delete");
     if (ImGui::Button("Convert to Mesh")) {
-        if (o->curve.bevelDepth <= 0) ShowStatus("Set a Bevel Depth first - the tube is what becomes the mesh");
+        if (o->mesh.positions.empty()) ShowStatus("Set a Bevel Depth or Bevel Profile first - the tube is what becomes the mesh");
         else {
             CurvePath bc = o->curve; Mesh bm = o->mesh;
             o->isCurve = false;

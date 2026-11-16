@@ -185,7 +185,7 @@ app because of how it's structured differently:
 | Cloth simulation | not started |
 | Weight painting (manual, on top of automatic weights): Weight Paint mode, Add/Subtract/Replace/Smooth, falloff curves, X mirror with .L/.R twin bones, blue-red heatmap, Normalize All, Clean, one undo step per stroke | done |
 | Rigid body / physics simulation: Active/Passive bodies, Box/Sphere/Convex Hull shapes, mass, friction, bounciness, gravity; baked per frame so scrubbing is deterministic; Bake, Free Bake, Apply Transform; undoable; settings saved in projects | done - no edge-edge contacts, no constraints/joints, passive bodies do not follow keyframes |
-| NURBS curves, box select for curve points, bevel profile objects | not started - Bezier, path and circle curves with round bevels are done |
+| NURBS curves (order 2-6, per-point weights, endpoint/uniform knots, cyclic, exact NURBS Circle), box select for curve points and handles, bevel profile objects (sweep another curve's shape) | done |
 | Control rig presets and export for Unreal / Unity / Godot | partial - humanoid rig, UE5/Unity/Mixamo/Godot naming and skinned glTF/GLB export exist; control rigs don't |
 | Gyro-style control rig widgets (control objects driving bones) | not started - constraints exist now, the widgets do not |
 | Texture painting directly onto the 3D model: Sculpt Mode Paint brush paints the active layer through the model's UVs, brush sized to the viewport ring, seam-aware, dirty-tile undo, assigned material slots refresh live | done |

@@ -298,9 +298,11 @@ private:
     void HierarchyPanel();
     void ModifierPanel();
     void RefreshModifiers(MeshObject& o);
-    void AddCurve(int kind);      // 0 Bezier line, 1 circle, 2 spiral, 3 path
+    void AddCurve(int kind);      // 0 Bezier line, 1 circle, 2 spiral, 3 path, 4 NURBS curve, 5 NURBS circle
     // curve Edit Mode (CurveEdit.cpp)
     void RebuildCurveMesh(MeshObject& o);              // Sync handles, rebuild the bevel tube
+    const CurvePath* CurveProfile(const MeshObject& o) const;   // its bevel profile curve, if valid
+    void RebuildProfileUsers(const MeshObject& profile);        // curves that use this one as their bevel
     void PushCurveUndo(const std::string& label, MeshObject* o, const CurvePath& beforeCurve, const Mesh& beforeMesh, bool beforeIsCurve);
     void CurveEditOverlay(ImDrawList* dl, MeshObject& c);   // points, handles, selection
     void CurveEditClick();                             // click / Shift+click picks a point or handle

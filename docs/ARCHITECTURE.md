@@ -527,6 +527,16 @@ each ring (taper), open ends get n-gon caps, and face-corner UVs run around and 
 The tube is the curve object's mesh, so it draws, picks and renders like any mesh, and
 Convert to Mesh just clears `isCurve`.
 
+A curve can also be **NURBS** (`CurvePath::nurbs`): the points are control points with a weight
+each, and the curve is a rational B-spline of order 2-6 evaluated with de Boor's algorithm in
+homogeneous coordinates (the taper radius rides along as a fifth coordinate). Knots are clamped
+("Endpoint", so an open curve reaches its first and last points) or uniform; a cyclic NURBS wraps
+its first `order - 1` points onto uniform knots. Explicit knots are kept when their count and
+order check out, which is how the NURBS Circle preset is exact: order 3, nine points with corner
+weights of sqrt(1/2) and doubled interior knots. A curve whose ends meet is swept as a closed loop.
+Instead of a round bevel, `bevelObject` can name another curve whose X/Z shape becomes the
+cross-section, scaled by the taper; editing that profile rebuilds every curve that uses it.
+
 **Keyframes** (`anim/Animation.*`). Each channel animates one scalar (object or bone ×
 location/rotation/scale × axis), like Blender's F-curves. There are 12 interpolation modes
 (Constant, Linear, Bezier, and Sine through Elastic) with In/Out/InOut easing.
