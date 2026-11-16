@@ -72,6 +72,9 @@ struct Material {
     float emissiveStrengthRT = 1.0f;
     float transmission = 0.0f;         // 1 = glass
     float transmissionIOR = 1.45f;
+    // Off: the surface still glows, but the tracer doesn't aim shadow rays at it. For large, dim
+    // emitters (sky cards, distant clouds) that would otherwise take samples from the real lights.
+    bool  sampleAsLight = true;
 
     float sssWeight = 0.0f;                       // 0 = off
     float sssRadius[3] = {1.0f, 0.2f, 0.1f};      // per-channel mean free path, Blender's skin default

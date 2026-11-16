@@ -298,6 +298,39 @@ static int SelfTest() {
         check(std::fabs(mean(flatOn) - mean(flatOff)) < 0.02 * mean(flatOff), "flat normal map is neutral");
         check(std::fabs(mean(tilted) - mean(flatOff)) > 0.05 * mean(flatOff), "tilted normal map changes shading");
     }
+    // Lights are picked by power: a huge dim emitter next to a small bright lamp must not bias the
+    // result, and a material that opts out of light sampling must still add its glow by BSDF hits.
+    {
+        Scene scene;
+        MeshObject* fl = scene.AddMesh(BuildPrimitive(Primitive::Plane, pp), "Floor");
+        fl->transform.scale = {4, 1, 4};
+        MeshObject* lamp = scene.AddMesh(BuildPrimitive(Primitive::Plane, pp), "Lamp");
+        lamp->transform.position = {0, 1.5f, 0};
+        lamp->transform.scale = {0.2f, 1, 0.2f};
+        for (int c = 0; c < 3; ++c) lamp->material.emissionColor[c] = 1.0f;
+        lamp->material.emissiveStrengthRT = 30.0f;
+        MeshObject* card = scene.AddMesh(BuildPrimitive(Primitive::Plane, pp), "Card");
+        card->transform.position = {0, 6.0f, 0};
+        card->transform.scale = {12, 1, 12};
+        for (int c = 0; c < 3; ++c) card->material.emissionColor[c] = 0.05f;
+        RayTraceWorld world; world.sunStrength = 0.0f; world.skyStrength = 0.0f;
+        auto render = [&](int spp, bool nee, int seed) {
+            RayTraceSettings st;
+            st.width = 40; st.height = 24; st.samples = spp; st.maxBounces = 2;
+            st.denoise = false; st.clampEnabled = false; st.lightSampling = nee; st.seed = seed; st.threads = 4;
+            PathTracer pt;
+            pt.Start(scene, scene.Camera(), 0.0f, 1.2f, 5.0f, {0, 0, 0}, false, st, world);
+            while (pt.Running()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            double sum = 0; for (size_t i = 0; i < pt.Pixels().size(); i += 4) sum += pt.Pixels()[i];
+            return sum / (pt.Pixels().size() / 4);
+        };
+        double ref = render(2048, false, 1), nee = render(64, true, 2);
+        card->material.sampleAsLight = false;
+        double optOut = render(256, true, 3);
+        std::printf("  power-sampled lights mean ref=%.2f nee=%.2f card-not-sampled=%.2f\n", ref, nee, optOut);
+        check(std::fabs(nee - ref) < 0.04 * ref, "light sampling by power matches the reference");
+        check(std::fabs(optOut - ref) < 0.04 * ref, "a light opted out of sampling still lights by BSDF hits");
+    }
     // Sculpt: a Draw dab moves verts inside the radius and nothing outside; Smooth flattens the bump.
     {
         Mesh g = BuildPrimitive(Primitive::Grid, pp);
@@ -1485,6 +1518,7 @@ static bool SceneFromScript(const std::string& code, Scene& scene, RayTraceWorld
         m.roughness = sm.roughness; m.metallic = sm.metallic;
         m.emissiveStrengthRT = sm.strength;
         m.transmission = sm.transmission; m.transmissionIOR = sm.ior;
+        m.sampleAsLight = sm.sampleLight;
         o->shadeSmooth = sm.smooth;
         o->selected = false;
     }
@@ -1516,7 +1550,7 @@ static bool SceneFromScript(const std::string& code, Scene& scene, RayTraceWorld
     return true;
 }
 
-// leorix --headless-render scene.lua|scene.leorix out.png [--width W --height H --spp N --save p.leorix]
+// leorix --headless-render scene.lua|scene.leorix out.png [--width W --height H --spp N --denoise S --save p.leorix]
 // Path-traces without opening a window or touching the GPU.
 static int HeadlessRender(int argc, char** argv, const std::string& in, const std::string& out) {
     RayTraceSettings st;
@@ -1528,6 +1562,7 @@ static int HeadlessRender(int argc, char** argv, const std::string& in, const st
         if (a == "--height") st.height = std::clamp(std::atoi(argv[i + 1]), 16, 8192);
         if (a == "--spp") st.samples = std::clamp(std::atoi(argv[i + 1]), 1, 100000);
         if (a == "--save") savePath = argv[i + 1];
+        if (a == "--denoise") { float d = (float)std::atof(argv[i + 1]); st.denoise = d > 0; st.denoiseStrength = std::clamp(d, 0.0f, 4.0f); }
     }
     Scene scene; RayTraceWorld w; HdriImage hdri;
     PaintProject pp; pp.New(16, 16); BrushSettings br; PlaybackState pb;

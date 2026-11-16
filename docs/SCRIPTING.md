@@ -201,26 +201,30 @@ A script can also describe how its scene looks. These calls are used when the sc
 headless; the **Scripting** panel builds the geometry only.
 
 ```text
-material{color={r,g,b}, roughness=, metallic=, emission={r,g,b}, strength=, glass=ior, smooth=true}
+material{color={r,g,b}, roughness=, metallic=, emission={r,g,b}, strength=, glass=ior, smooth=true,
+         sample_light=false}
 curve({{x,y,z}, ...}, {radius=, sides=, cyclic=, nurbs=, taper={...}, resolution=})
 camera{eye={x,y,z}, target={x,y,z}, lens=mm, fstop=, focus=}
-world{preset="Night", strength=, rotation=deg, sun_elevation=, sun_azimuth=, sun_strength=,
+world{preset="Dusk", strength=, rotation=deg, sun_elevation=, sun_azimuth=, sun_strength=,
       sun_color={r,g,b}, sky_color={r,g,b}, horizon_color={r,g,b}, sky_strength=, exposure=}
 ```
 
 - `material{}` applies to every mesh made after it, until the next `material{}`. Fields you leave
   out go back to the defaults. `glass=1.5` makes a clear glass with that index of refraction;
-  `emission` and `strength` make the mesh a light.
+  `emission` and `strength` make the mesh a light. `sample_light=false` keeps the glow but stops the
+  tracer aiming shadow rays at it, which is right for big, dim emitters such as clouds or a glowing
+  waterfall: they would otherwise take light samples away from small bright lamps.
 - `curve()` sweeps a round tube along a smooth curve through the points, using the same curve code
   as curve objects. `taper` gives a radius scale per point.
 - `world{}` presets are `StudioSoftbox`, `NoonSky`, `GoldenHour`, `Overcast`, `Night`,
-  `InteriorWindow`, `Warehouse` and `ForestClearing`. Without a preset, the sky is a gradient from
+  `InteriorWindow`, `Warehouse`, `ForestClearing` and `Dusk`. A preset's sunset or sun sits on +X;
+  turn it with `rotation`. Without a preset, the sky is a gradient from
   `horizon_color` to `sky_color`.
 
 Render a scene script without opening the app:
 
 ```sh
-leorix.exe --headless-render scene.lua out.png --width 1920 --height 1080 --spp 512
+leorix.exe --headless-render scene.lua out.png --width 1920 --height 1080 --spp 512 --denoise 1
 ```
 
 The [showcase scene](showcase/lantern_isle.lua) behind the README image uses all of these.

@@ -106,7 +106,7 @@ json SaveMaterial(const Material& m) {
     return {{"baseColor", json::array({m.baseColor[0], m.baseColor[1], m.baseColor[2]})},
             {"roughness", m.roughness}, {"metallic", m.metallic}, {"emissiveStrength", m.emissiveStrength},
             {"emissionColor", json::array({m.emissionColor[0], m.emissionColor[1], m.emissionColor[2]})},
-            {"emissiveStrengthRT", m.emissiveStrengthRT}, {"transmission", m.transmission}, {"transmissionIOR", m.transmissionIOR},
+            {"emissiveStrengthRT", m.emissiveStrengthRT}, {"transmission", m.transmission}, {"transmissionIOR", m.transmissionIOR}, {"sampleAsLight", m.sampleAsLight},
             {"sssWeight", m.sssWeight}, {"sssRadius", json::array({m.sssRadius[0], m.sssRadius[1], m.sssRadius[2]})},
             {"sssScale", m.sssScale}, {"sssAnisotropy", m.sssAnisotropy}, {"sssIOR", m.sssIOR}, {"sssMethod", m.sssMethod},
             {"useTextures", m.useTextures}, {"parallax", m.parallax}, {"parallaxScale", m.parallaxScale},
@@ -121,6 +121,7 @@ void LoadMaterial(const json& j, Material& m) {
     m.emissiveStrengthRT = F(j, "emissiveStrengthRT", m.emissiveStrengthRT, 0, 1e6f);
     m.transmission = F(j, "transmission", m.transmission, 0, 1);
     m.transmissionIOR = F(j, "transmissionIOR", m.transmissionIOR, 1, 4);
+    m.sampleAsLight = B(j, "sampleAsLight", m.sampleAsLight);
     m.sssWeight = F(j, "sssWeight", m.sssWeight, 0, 1);
     Arr3(j, "sssRadius", m.sssRadius);
     m.sssScale = F(j, "sssScale", m.sssScale, 0, 100);

@@ -51,6 +51,7 @@ const char* HdriPresetName(HdriPreset p) {
         case HdriPreset::InteriorWindow: return "Interior Window";
         case HdriPreset::Warehouse:      return "Warehouse";
         case HdriPreset::ForestClearing: return "Forest Clearing";
+        case HdriPreset::Dusk:           return "Dusk";
         default: return "";
     }
 }
@@ -65,6 +66,7 @@ const char* HdriPresetHint(HdriPreset p) {
         case HdriPreset::InteriorWindow: return "Dark room lit by one large window - strong directional falloff";
         case HdriPreset::Warehouse:      return "Grey interior with ceiling strip lights";
         case HdriPreset::ForestClearing: return "Green bounce from below, dappled light from above";
+        case HdriPreset::Dusk:           return "Navy zenith, teal sky, a sunset glow on the horizon and the first stars";
         default: return "";
     }
 }
@@ -147,6 +149,31 @@ void GenerateHdri(HdriPreset preset, HdriImage& out, int width) {
                     for (auto& g : gaps) {
                         float len = std::sqrt(g[0] * g[0] + g[1] * g[1] + g[2] * g[2]);
                         c = c + Col{7.0f, 6.6f, 5.4f} * Disc(dx, dy, dz, g[0] / len, g[1] / len, g[2] / len, 0.994f, 0.006f);
+                    }
+                    break;
+                }
+                case HdriPreset::Dusk: {
+                    // vertical: haze at the horizon -> teal -> navy, and a dark blue haze below
+                    Col zenith{0.008f, 0.014f, 0.070f}, teal{0.025f, 0.150f, 0.190f}, haze{0.20f, 0.15f, 0.22f};
+                    float h = std::max(dy, 0.0f);
+                    Col sky = h < 0.09f ? Mix(haze, teal, std::pow(h / 0.09f, 0.8f))
+                                        : Mix(teal, zenith, std::min(1.0f, std::pow((h - 0.09f) / 0.3f, 0.7f)));
+                    c = dy >= 0 ? sky : Mix(haze, Col{0.035f, 0.045f, 0.10f}, std::clamp(-dy * 2.5f, 0.0f, 1.0f));
+                    // the sunset glow, around +X and hugging the horizon: a hot core and a wide pink skirt
+                    float hl = std::sqrt(dx * dx + dz * dz) + 1e-6f;
+                    float toward = (dx / hl + 1.0f) * 0.5f;                     // 1 facing the glow, 0 opposite
+                    float band = std::exp(-std::fabs(dy) * 14.0f);
+                    float wide = std::exp(-std::fabs(dy) * 9.0f);
+                    c = c + Col{2.4f, 0.85f, 0.30f} * (std::pow(toward, 14.0f) * band);
+                    c = c + Col{0.40f, 0.14f, 0.20f} * (std::pow(toward, 6.0f) * wide);
+                    // the sun itself, just above the horizon (the tracer's sun light does the actual lighting)
+                    c = c + Col{4.0f, 1.9f, 0.8f} * Disc(dx, dy, dz, 0.99995f, 0.0100f, 0.0f, 0.99993f, 0.00015f);   // kept dim: a tiny hot disc only adds fireflies
+                    // stars, only where the sky is already dark
+                    uint32_t hs = (uint32_t)(x * 73856093u) ^ (uint32_t)(y * 19349663u);
+                    hs ^= hs >> 13; hs *= 1274126177u; hs ^= hs >> 16;
+                    if (dy > 0.2f && (hs & 511u) == 0u) {
+                        float s = (0.4f + (hs >> 10 & 15) * 0.12f) * std::min(1.0f, (dy - 0.2f) * 5.0f);
+                        c = c + Col{s, s, s * 1.1f};
                     }
                     break;
                 }

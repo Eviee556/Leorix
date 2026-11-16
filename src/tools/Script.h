@@ -15,6 +15,7 @@ struct ScriptMaterial {
     float strength = 1.0f;
     float transmission = 0.0f, ior = 1.45f;
     bool  smooth = false;
+    bool  sampleLight = true;      // false: glows, but isn't light-sampled
 };
 struct ScriptView {
     bool  hasCamera = false;
@@ -50,10 +51,11 @@ struct ScriptResult {
 //   -- helpers: print(...), PI, math.*
 //   -- timeline: frame (current frame, starts at 1), fps, time (seconds since frame 1)
 //   -- look (used by --headless-render; the panel builds geometry only)
-//   material{color={r,g,b}, roughness=, metallic=, emission={r,g,b}, strength=, glass=ior, smooth=true}
+//   material{color={r,g,b}, roughness=, metallic=, emission={r,g,b}, strength=, glass=ior, smooth=true,
+//            sample_light=false}
 //   curve({{x,y,z}, ...}, {radius=, cyclic=, nurbs=, sides=, taper={...}})   -- a swept tube
 //   camera{eye={x,y,z}, target={x,y,z}, lens=mm, fstop=, focus=}
-//   world{preset="GoldenHour", strength=, rotation=deg, sun_elevation=, sun_azimuth=, sun_strength=,
+//   world{preset="Dusk", strength=, rotation=deg, sun_elevation=, sun_azimuth=, sun_strength=,
 //         sun_color={r,g,b}, sky_color={r,g,b}, horizon_color={r,g,b}, sky_strength=, exposure=}
 // Limits: ~100M Lua instructions and 512 MB of Lua memory per run; exceeding either fails the run.
 ScriptResult RunMeshScript(const std::string& code, float frame = 1.0f, int fps = 24);

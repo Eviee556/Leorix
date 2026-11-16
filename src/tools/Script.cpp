@@ -144,6 +144,7 @@ int l_material(lua_State* L) {
     m.strength = Num(L, 1, "strength", m.strength, 0, 1000);
     if (Has(L, 1, "glass")) { m.transmission = 1.0f; m.ior = Num(L, 1, "glass", 1.45f, 1.0f, 3.0f); }
     lua_getfield(L, 1, "smooth"); m.smooth = lua_toboolean(L, -1); lua_pop(L, 1);
+    lua_getfield(L, 1, "sample_light"); m.sampleLight = lua_isnil(L, -1) || lua_toboolean(L, -1); lua_pop(L, 1);
     Ctx(L)->material = m;
     return 0;
 }
@@ -164,15 +165,15 @@ int l_world(lua_State* L) {
     luaL_checktype(L, 1, LUA_TTABLE);
     ScriptView& v = Ctx(L)->result->view;
     static const char* names[] = {"StudioSoftbox", "NoonSky", "GoldenHour", "Overcast", "Night",
-                                  "InteriorWindow", "Warehouse", "ForestClearing"};
+                                  "InteriorWindow", "Warehouse", "ForestClearing", "Dusk"};
     lua_getfield(L, 1, "preset");
     if (lua_type(L, -1) == LUA_TSTRING) {
         const char* n = lua_tostring(L, -1);
         v.hdriPreset = -1;
-        for (int i = 0; i < 8; ++i) if (std::strcmp(n, names[i]) == 0) v.hdriPreset = i;
+        for (int i = 0; i < 9; ++i) if (std::strcmp(n, names[i]) == 0) v.hdriPreset = i;
         if (v.hdriPreset < 0) return luaL_error(L, "world(): unknown preset '%s'", n);
     } else if (lua_isnumber(L, -1)) {
-        v.hdriPreset = (int)std::fmin(std::fmax(lua_tonumber(L, -1), -1), 7);
+        v.hdriPreset = (int)std::fmin(std::fmax(lua_tonumber(L, -1), -1), 8);
     }
     lua_pop(L, 1);
     v.hdriStrength = Num(L, 1, "strength", v.hdriStrength, 0, 100);

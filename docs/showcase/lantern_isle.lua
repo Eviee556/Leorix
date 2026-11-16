@@ -1,5 +1,5 @@
--- Lantern Isle: a floating island at golden hour, built entirely from this script.
--- Render it headless:  leorix --headless-render docs/showcase/lantern_isle.lua hero.png --width 1920 --height 1080 --spp 512
+-- Lantern Isle: a floating island at dusk, built entirely from this script.
+-- Render it headless:  leorix --headless-render docs/showcase/lantern_isle.lua hero.png --width 1920 --height 1080 --spp 2048 --denoise 1.5
 -- Every mesh takes the material() that was set before it was made.
 
 -- ---------------------------------------------------------------- helpers
@@ -211,7 +211,7 @@ end
 material{color={0.45, 0.40, 0.38}, roughness=0.9}
 do local x, z = local2world(0.55, -0.35); box(x, gy + 2.15, z, 0.14, 0.45, 0.14, rot) end
 -- warm glowing windows and door (the light source that sells the dusk)
-material{color={1, 0.8, 0.5}, emission={1.0, 0.62, 0.28}, strength=16}
+material{color={1, 0.8, 0.5}, emission={1.0, 0.60, 0.25}, strength=26}
 for _, lx in ipairs({-0.62, 0.62}) do
   local x, z = local2world(lx, 0.705)
   box(x, gy + 0.98, z, 0.17, 0.2, 0.02, rot)
@@ -239,7 +239,7 @@ for i = 1, #posts - 1 do      -- sagging cable swept with Leorix's curve tube
   curve(pts, {radius=0.012, sides=1})
 end
 -- glowing lanterns on the posts and hanging from the cables
-material{color={1, 0.85, 0.55}, emission={1.0, 0.66, 0.30}, strength=24, smooth=true}
+material{color={1, 0.85, 0.55}, emission={1.0, 0.64, 0.28}, strength=40, smooth=true}
 for _, p in ipairs(posts) do ball(p[1], p[2] + 0.08, p[3], 0.09, 16) end
 for i = 1, #posts - 1 do
   local a, b = posts[i], posts[i + 1]
@@ -258,26 +258,41 @@ for k = 0, 22 do
   blob(px, groundY(px, pz) + 0.01, pz, rr(0.11, 0.17), 0.035, rr(0.1, 0.15), 10)
 end
 
--- ---------------------------------------------------------------- trees: tapered trunks and puffy canopies
-local function tree(x, z, s, tint)
-  local y = groundY(x, z)
-  material{color={0.30, 0.20, 0.12}, roughness=0.9}
+-- ---------------------------------------------------------------- trees: round broadleaf, tall pines and one in blossom
+local function trunk(x, y, z, s)
+  material{color={0.26, 0.17, 0.11}, roughness=0.9}
   frustum(x, y - 0.05, z, 0.09 * s, y + 1.1 * s, 0.05 * s, 8)
-  material{color=tint, roughness=0.8, smooth=true}
-  for k = 1, 4 do
-    local ox, oy, oz = rr(-0.35, 0.35) * s, (1.1 + rr(0, 0.65)) * s, rr(-0.35, 0.35) * s
-    local r = rr(0.38, 0.55) * s
-    blob(x + ox, y + oy, z + oz, r, r * 0.9, r, 18, function(dx, dy, dz)
-      return 0.85 + 0.3 * fbm(dx * 2 + x, dy * 2 + k, dz * 2 + z, 3) end)
+end
+local function roundTree(x, z, s, tint, puffs)
+  local y = groundY(x, z)
+  trunk(x, y, z, s)
+  for k = 1, puffs do
+    local ox, oy, oz = rr(-0.38, 0.38) * s, (1.05 + rr(0, 0.75)) * s, rr(-0.38, 0.38) * s
+    local r = rr(0.3, 0.55) * s
+    local shade = rr(0.85, 1.15)          -- each puff a slightly different green
+    material{color={tint[1] * shade, tint[2] * shade, tint[3] * shade}, roughness=0.8, smooth=true}
+    blob(x + ox, y + oy, z + oz, r, r * 0.88, r, 20, function(dx, dy, dz)
+      return 0.82 + 0.34 * fbm(dx * 2.4 + x, dy * 2.4 + k, dz * 2.4 + z, 3) end)
   end
 end
-tree(-2.6, -0.2, 1.15, {0.22, 0.42, 0.14})
-tree(-2.1, 1.4, 0.9, {0.30, 0.48, 0.16})
-tree(1.6, -2.1, 1.25, {0.20, 0.38, 0.13})
-tree(2.8, -0.6, 0.85, {0.34, 0.50, 0.18})
-tree(-1.0, -2.9, 0.95, {0.25, 0.44, 0.15})
--- one autumn tree for a colour accent
-tree(-3.0, 0.7, 0.8, {0.78, 0.40, 0.12})
+local function pine(x, z, s, tint)
+  local y = groundY(x, z)
+  trunk(x, y, z, s * 0.8)
+  material{color=tint, roughness=0.85}
+  for k = 0, 3 do
+    local base = y + (0.45 + k * 0.42) * s
+    frustum(x, base, z, (0.62 - k * 0.12) * s, base + 0.62 * s, 0.0, 12)
+  end
+end
+roundTree(-2.6, -0.2, 1.15, {0.20, 0.40, 0.13}, 5)
+roundTree(-2.1, 1.5, 0.9, {0.27, 0.45, 0.15}, 4)
+roundTree(2.8, -0.6, 0.85, {0.30, 0.47, 0.16}, 4)
+roundTree(-3.0, 0.7, 0.75, {0.80, 0.42, 0.13}, 4)              -- autumn accent
+roundTree(0.6, -2.7, 0.8, {0.95, 0.62, 0.72}, 5)               -- blossom
+pine(1.7, -2.0, 1.3, {0.12, 0.30, 0.17})
+pine(2.4, -1.4, 0.95, {0.14, 0.33, 0.19})
+pine(-1.1, -3.0, 1.15, {0.11, 0.28, 0.16})
+pine(-3.3, -1.4, 0.9, {0.13, 0.31, 0.18})
 
 -- ---------------------------------------------------------------- the glass orb on a stone plinth (secondary focal point)
 local ox, oz = 0.9, 0.2
@@ -286,10 +301,10 @@ material{color={0.58, 0.55, 0.50}, roughness=0.75}
 frustum(ox, oy - 0.05, oz, 0.26, oy + 0.18, 0.22, 16)
 frustum(ox, oy + 0.18, oz, 0.13, oy + 0.62, 0.11, 16)
 frustum(ox, oy + 0.62, oz, 0.2, oy + 0.7, 0.2, 16)
-material{color={0.92, 0.97, 1.0}, roughness=0.02, glass=1.5, smooth=true}
+material{color={0.92, 0.97, 1.0}, roughness=0.02, glass=1.5, emission={0.2, 0.55, 0.75}, strength=0.6, smooth=true, sample_light=false}
 ball(ox, oy + 0.98, oz, 0.28, 48)
 -- a tiny glowing seed inside the orb
-material{color={0.6, 0.9, 1}, emission={0.35, 0.8, 1.0}, strength=18, smooth=true}
+material{color={0.6, 0.9, 1}, emission={0.35, 0.8, 1.0}, strength=6, smooth=true}
 ball(ox, oy + 0.98, oz, 0.06, 16)
 
 -- ---------------------------------------------------------------- crates and barrels by the door
@@ -322,47 +337,98 @@ for _ = 1, 14 do
   blob(x, groundY(x, z) + s * 0.3, z, s, s * 0.7, s * 1.2, 12, function(dx, dy, dz)
     return 0.75 + 0.5 * fbm(dx * 3 + x, dy * 3, dz * 3 + z, 2) end)
 end
-local petals = {{0.95, 0.85, 0.35}, {0.95, 0.55, 0.65}, {0.98, 0.95, 0.92}}
-for i = 1, 3 do
-  material{color=petals[i], roughness=0.6, smooth=true}
-  for _ = 1, 26 do
-    local a, d = rr(0, 2 * PI), rr(0.8, 3.7)
-    local x, z = cos(a) * d, sin(a) * d
-    ball(x, groundY(x, z) + 0.04, z, 0.035, 6)
+-- flowers: little clusters in strong colours, each on a short stem
+local petals = {{0.95, 0.80, 0.20}, {0.92, 0.25, 0.35}, {0.62, 0.35, 0.90}, {0.98, 0.95, 0.92}, {0.98, 0.50, 0.20}}
+for i = 1, #petals do
+  for _ = 1, 9 do
+    local a, d = rr(0, 2 * PI), rr(0.9, 3.7)
+    local cx, cz = cos(a) * d, sin(a) * d
+    for _ = 1, 5 do
+      local x, z = cx + rr(-0.22, 0.22), cz + rr(-0.22, 0.22)
+      local y = groundY(x, z)
+      local h = rr(0.08, 0.16)
+      material{color={0.20, 0.40, 0.14}, roughness=0.8}
+      frustum(x, y, z, 0.006, y + h, 0.004, 4)
+      material{color=petals[i], roughness=0.55, smooth=true}
+      ball(x, y + h + 0.02, z, rr(0.028, 0.042), 8)
+    end
   end
 end
 
--- ---------------------------------------------------------------- a waterfall curtain pouring off the right edge
-material{color={0.62, 0.78, 0.92}, roughness=0.25, emission={0.25, 0.45, 0.65}, strength=0.18, smooth=true}
+-- grass: darker and yellower patches over the lawn, and tufts of blades
+local patches = {{0.20, 0.36, 0.12}, {0.36, 0.48, 0.16}, {0.24, 0.42, 0.20}}
+for i = 1, 3 do
+  material{color=patches[i], roughness=0.9, smooth=true}
+  for _ = 1, 10 do
+    local a, d = rr(0, 2 * PI), rr(0.5, 3.4)
+    local x, z = cos(a) * d, sin(a) * d
+    local r = rr(0.35, 0.8)
+    local m = mesh()
+    local c = m:vert(x, groundY(x, z) + 0.012, z)
+    local ring = {}
+    for k = 0, 13 do
+      local t = 2 * PI * k / 14
+      local rk = r * (0.7 + 0.5 * fbm(cos(t) * 2 + x, 0, sin(t) * 2 + z, 2))
+      local px, pz = x + cos(t) * rk, z + sin(t) * rk
+      ring[k] = m:vert(px, groundY(px, pz) + 0.008, pz)
+    end
+    for k = 0, 13 do m:face(c, ring[(k + 1) % 14], ring[k]) end
+    m:build()
+  end
+end
+for t = 1, 3 do
+  material{color={0.22 + 0.08 * t, 0.42 + 0.04 * t, 0.13}, roughness=0.8}
+  local m = mesh()
+  for _ = 1, 90 do
+    local a, d = rr(0, 2 * PI), rr(0.4, 3.9)
+    local x, z = cos(a) * d, sin(a) * d
+    local y = groundY(x, z)
+    for _ = 1, 6 do                         -- each blade a thin leaning triangle
+      local ba = rr(0, 2 * PI)
+      local bx, bz = x + cos(ba) * 0.03, z + sin(ba) * 0.03
+      local h, lean = rr(0.08, 0.2), rr(0.02, 0.06)
+      local w = 0.012
+      local a1 = m:vert(bx - sin(ba) * w, y, bz + cos(ba) * w)
+      local a2 = m:vert(bx + sin(ba) * w, y, bz - cos(ba) * w)
+      local tip = m:vert(bx + cos(ba) * lean, y + h, bz + sin(ba) * lean)
+      m:face(a1, a2, tip)
+      m:face(a2, a1, tip)
+    end
+  end
+  m:build()
+end
+
+-- ---------------------------------------------------------------- a waterfall pouring off the right edge
 do
   local a = 0.12                       -- angle on the rim
   local nx, nz = cos(a), sin(a)        -- outward
   local tx, tz = -nz, nx               -- along the rim
   local er = edgeR(a) * 0.98
   local ex, ez = nx * er, nz * er
-  local top = groundY(ex, ez) - 0.03
+  local top = groundY(ex, ez) - 0.02
+  -- the curtain: wide at the lip, narrowing as it falls, pale and faintly glowing
+  material{color={0.88, 0.95, 1.0}, roughness=0.2, emission={0.55, 0.75, 0.95}, strength=0.5, smooth=true, sample_light=false}
   local m = mesh()
-  local cols, rows = 8, 24
+  local cols, rows = 10, 30
   local v = {}
   for r = 0, rows do
     local t = r / rows
     v[r] = {}
-    local out = 0.55 * sqrt(t) + 0.2 * t   -- arcs outward, then drops
-    local half = 0.32 + 0.25 * t           -- widens as it falls
+    local out = 0.6 * sqrt(t) + 0.25 * t
+    local half = 0.55 * (1 - 0.6 * t)
     for c = 0, cols do
       local u = c / cols * 2 - 1
-      local wob = 0.05 * (fbm(u * 3, t * 6, 1, 2) - 0.5)
-      local x = ex + nx * (out + wob) + tx * u * half
-      local z = ez + nz * (out + wob) + tz * u * half
-      v[r][c] = m:vert(x, top - 5.0 * t * t - 0.05 * u * u, z)
+      local wob = 0.06 * (fbm(u * 3, t * 7, 1, 2) - 0.5)
+      v[r][c] = m:vert(ex + nx * (out + wob) + tx * u * half, top - 4.6 * t * t - 0.08 * u * u,
+                       ez + nz * (out + wob) + tz * u * half)
     end
   end
   for r = 0, rows - 1 do
     for c = 0, cols - 1 do m:face(v[r][c], v[r][c + 1], v[r + 1][c + 1], v[r + 1][c]) end
   end
   m:build()
-  -- a narrow stream on the grass feeding it
-  material{color={0.55, 0.75, 0.9}, roughness=0.08, metallic=0.2, smooth=true}
+  -- the stream feeding it
+  material{color={0.45, 0.62, 0.78}, roughness=0.06, metallic=0.3, smooth=true}
   local pts = {}
   for k = 0, 5 do
     local t = k / 5
@@ -371,24 +437,116 @@ do
     local px, pz = cos(aa) * d, sin(aa) * d
     pts[#pts + 1] = {px, groundY(px, pz) + 0.005, pz}
   end
-  curve(pts, {radius=0.11, sides=2})
-  -- mist where it breaks up below
-  material{color={0.70, 0.76, 0.88}, roughness=1}
-  for k = 1, 9 do
+  curve(pts, {radius=0.13, sides=2})
+  -- white foam at the lip and spray where it breaks up below
+  material{color={0.95, 0.97, 1}, roughness=1, emission={0.6, 0.7, 0.85}, strength=0.35, smooth=true, sample_light=false}
+  for k = 1, 7 do
     local u = rr(-1, 1)
-    blob(ex + nx * 0.9 + tx * u * 0.5, top - 5.1 + rr(-0.2, 0.2), ez + nz * 0.9 + tz * u * 0.5,
-         rr(0.18, 0.32), rr(0.12, 0.2), rr(0.18, 0.32), 10)
+    ball(ex + nx * 0.05 + tx * u * 0.5, top + 0.02, ez + nz * 0.05 + tz * u * 0.5, rr(0.05, 0.09), 10)
+  end
+  local bx, by, bz = ex + nx * 0.85, top - 4.6, ez + nz * 0.85
+  for k = 1, 18 do
+    local u, s = rr(-1, 1), rr(0.12, 0.3)
+    blob(bx + tx * u * 0.4 + nx * rr(-0.2, 0.3), by + rr(-0.25, 0.25), bz + tz * u * 0.4 + nz * rr(-0.2, 0.3),
+         s, s * 0.8, s, 12, function(dx, dy, dz) return 0.8 + 0.4 * fbm(dx * 3 + k, dy * 3, dz * 3, 2) end)
   end
 end
 
--- ---------------------------------------------------------------- a sea of clouds far below
-material{color={0.34, 0.40, 0.58}, roughness=1, smooth=true}
-for k = 1, 140 do
-  local a, d = rr(0, 2 * PI), 22 + 70 * sqrt(rand())
-  local x, z = cos(a) * d, sin(a) * d
-  local s = rr(4.0, 9.0)
-  blob(x, -26 + rr(-1.5, 1.5), z, s * 1.6, s * 0.32, s, 14, function(dx, dy, dz)
-    return 0.8 + 0.4 * fbm(dx * 1.5 + x, dy * 1.5, dz * 1.5 + z, 3) end)
+-- ---------------------------------------------------------------- the underside: glowing crystals and hanging roots
+local function undersideAt(a, t)       -- a point on the rock underside at angle a, depth t (0 rim .. 1 tip)
+  local base = edgeR(a)
+  local rad = base * (1 - t) ^ 1.35 * 0.92
+  local x0, z0 = cos(a), sin(a)
+  return x0 * rad, groundY(x0 * base, z0 * base) - 0.02 - t * 5.2, z0 * rad
+end
+local function crystal(x, y, z, dx, dy, dz, len, w)
+  -- a six-sided spike from (x, y, z) along (dx, dy, dz)
+  local l = sqrt(dx * dx + dy * dy + dz * dz); dx, dy, dz = dx / l, dy / l, dz / l
+  local ux, uy, uz = 0, 1, 0
+  if abs(dy) > 0.9 then ux, uy, uz = 1, 0, 0 end
+  local px, py, pz = dy * uz - dz * uy, dz * ux - dx * uz, dx * uy - dy * ux
+  local pl = sqrt(px * px + py * py + pz * pz); px, py, pz = px / pl, py / pl, pz / pl
+  local qx, qy, qz = dy * pz - dz * py, dz * px - dx * pz, dx * py - dy * px
+  local m = mesh()
+  local ring = {}
+  for k = 0, 5 do
+    local t = 2 * PI * k / 6
+    local c, sn = cos(t) * w, sin(t) * w
+    local mx, my, mz = x + dx * len * 0.25, y + dy * len * 0.25, z + dz * len * 0.25
+    ring[k] = m:vert(mx + px * c + qx * sn, my + py * c + qy * sn, mz + pz * c + qz * sn)
+  end
+  local root = m:vert(x - dx * 0.05, y - dy * 0.05, z - dz * 0.05)
+  local tip = m:vert(x + dx * len, y + dy * len, z + dz * len)
+  for k = 0, 5 do
+    local k2 = (k + 1) % 6
+    m:face(ring[k], ring[k2], tip)
+    m:face(ring[k2], ring[k], root)
+  end
+  m:build()
+end
+local glows = {{0.35, 0.85, 1.0}, {0.70, 0.45, 1.0}}
+for g = 1, 2 do
+  material{color=glows[g], roughness=0.15, emission=glows[g], strength=7}
+  for _ = 1, 5 do
+    local a, t = rr(-1.2, 2.4), rr(0.15, 0.55)
+    local x, y, z = undersideAt(a, t)
+    for _ = 1, 4 do
+      local ox, oz = rr(-0.15, 0.15), rr(-0.15, 0.15)
+      crystal(x + ox, y + rr(-0.1, 0.1), z + oz, cos(a) + rr(-0.4, 0.4), rr(-1.2, -0.3), sin(a) + rr(-0.4, 0.4),
+              rr(0.25, 0.6), rr(0.04, 0.08))
+    end
+  end
+end
+material{color={0.22, 0.15, 0.10}, roughness=0.9}
+for _ = 1, 22 do
+  local a, t = rr(0, 2 * PI), rr(0.03, 0.3)
+  local x, y, z = undersideAt(a, t)
+  local pts, taper = {}, {}
+  local len, sway = rr(0.8, 2.6), rr(0, 2 * PI)
+  for k = 0, 6 do
+    local f = k / 6
+    pts[#pts + 1] = {x + cos(a) * 0.15 * f + 0.12 * sin(f * 5 + sway), y - len * f, z + sin(a) * 0.15 * f + 0.12 * cos(f * 4 + sway)}
+    taper[#taper + 1] = 1 - 0.85 * f
+  end
+  curve(pts, {radius=rr(0.018, 0.035), sides=1, taper=taper})
+end
+material{color={0.20, 0.42, 0.16}, roughness=0.85}
+for _ = 1, 14 do                          -- a few green vines with leaves at the rim
+  local a = rr(0, 2 * PI)
+  local x, y, z = undersideAt(a, 0.02)
+  local pts = {}
+  local len = rr(0.5, 1.5)
+  for k = 0, 5 do
+    local f = k / 5
+    pts[#pts + 1] = {x + cos(a) * 0.1 * f, y - len * f, z + sin(a) * 0.1 * f + 0.05 * sin(f * 6)}
+  end
+  curve(pts, {radius=0.012, sides=1})
+  for k = 1, 4 do
+    local p = pts[k + 1]
+    blob(p[1] + rr(-0.04, 0.04), p[2], p[3] + rr(-0.04, 0.04), 0.05, 0.02, 0.035, 8)
+  end
+end
+
+-- ---------------------------------------------------------------- cumulus far below, lit from the sunset side
+for k = 1, 64 do
+  local a, d = rr(0, 2 * PI), 45 + 120 * sqrt(rand())
+  local cx, cz = cos(a) * d, sin(a) * d
+  local cy = -42 + rr(-3, 3)
+  local size = rr(5.0, 11.0)
+  local lit = 0.5 + 0.5 * max(0, (-cos(a) * 0.93 - sin(a) * 0.36))   -- facing the sun side
+  for j = 1, 9 do                         -- a heap of puffs: big at the base, smaller on top
+    local ox, oz = rr(-1.6, 1.6) * size, rr(-1.0, 1.0) * size
+    local up = rr(0, 1)
+    local r = size * (0.75 - 0.35 * up) * rr(0.7, 1.1)
+    local tone = 0.55 + 0.45 * up
+    -- the glow fakes sunset light scattering through the cloud; too dim and far to be worth light-sampling
+    material{color={0.62 * tone + 0.3 * lit * up, 0.56 * tone + 0.1 * lit * up, 0.72 * tone}, roughness=1, smooth=true,
+             emission={0.30 + 0.45 * lit * up, 0.18 + 0.14 * lit * up, 0.32}, strength=0.24, sample_light=false}
+    blob(cx + ox, cy + up * size * 0.9, cz + oz, r, r * 0.8, r, 12, function(dx, dy, dz)
+      local k2 = 0.82 + 0.3 * fbm(dx * 2 + cx, dy * 2 + j, dz * 2 + cz, 2)
+      if dy < -0.2 then k2 = k2 * (1 + dy * 0.5) end   -- flatter bottoms
+      return k2 end)
+  end
 end
 
 -- ---------------------------------------------------------------- little floating rocks around the island
@@ -408,14 +566,15 @@ end
 
 -- ---------------------------------------------------------------- fireflies drifting over the grass
 material{color={1, 0.95, 0.6}, emission={1.0, 0.85, 0.35}, strength=40, smooth=true}
-for _ = 1, 46 do
-  local a, d = rr(0, 2 * PI), rr(0.6, 3.9)
+for _ = 1, 26 do
+  local a, d = rr(0, 2 * PI), rr(2.2, 4.2)       -- out over the lawn and the rim, clear of the cottage walls
   local x, z = cos(a) * d, sin(a) * d
-  ball(x, groundY(x, z) + rr(0.25, 1.9), z, rr(0.012, 0.02), 6)
+  ball(x, groundY(x, z) + rr(0.3, 1.6), z, rr(0.016, 0.024), 6)
 end
 
 -- ---------------------------------------------------------------- camera and light
--- Night: cool moonlight from the upper left, a starry sky, and the cottage, lanterns and orb glowing warm.
-camera{eye={11.4, 2.1, 10.7}, target={0.15, -0.7, 0.0}, lens=36, fstop=8, focus=15.6}
-world{preset="Night", strength=4.0, rotation=40, sun_elevation=38, sun_azimuth=-35, sun_strength=0.55,
-      sun_color={0.62, 0.72, 1.0}, exposure=1.5}
+-- Dusk: the sun has just set behind the island, on the left. A warm low key light rims the roof,
+-- trees and rock edge; the sky does very little fill, so the windows and lanterns pool the light.
+camera{eye={10.8, 0.9, 11.6}, target={-1.1, 0.1, 1.3}, lens=30, fstop=6, focus=15.2}
+world{preset="Dusk", strength=0.55, rotation=159, sun_elevation=7, sun_azimuth=-111, sun_strength=2.6,
+      sun_color={1.0, 0.55, 0.28}, exposure=0.9}

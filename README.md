@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/hero.png" alt="Lantern Isle: a floating island at night with a glowing cottage, lanterns, a glass orb and a waterfall above a sea of clouds" width="900"><br>
+  <img src="docs/images/hero.png" alt="Lantern Isle: a floating island at dusk with a glowing cottage, lanterns, a glass orb, glowing crystals and a waterfall above a sea of clouds" width="900"><br>
   <sub>Rendered in Leorix Native's path tracer from a procedural Lua scene. See <a href="docs/showcase">docs/showcase</a>.</sub>
 </p>
 
@@ -123,7 +123,7 @@ leorix.exe --brush stamp.png                load a custom sculpt brush image
 leorix.exe --convert in.fbx out.glb         headless format conversion
 leorix.exe --open model.obj --hdri env.hdr --render out.png
                                             open, path-trace to PNG, then quit
-leorix.exe --headless-render scene.lua out.png [--width W --height H --spp N --save p.leorix]
+leorix.exe --headless-render scene.lua out.png [--width W --height H --spp N --denoise S --save p.leorix]
                                             path-trace a Lua scene or .leorix project to PNG,
                                             with no window and no GPU
 leorix.exe --selftest                       run the headless self-test suite

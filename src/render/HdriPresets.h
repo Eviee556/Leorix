@@ -6,7 +6,7 @@
 
 enum class HdriPreset {
     StudioSoftbox, NoonSky, GoldenHour, Overcast, Night,
-    InteriorWindow, Warehouse, ForestClearing, Count
+    InteriorWindow, Warehouse, ForestClearing, Dusk, Count
 };
 
 const char* HdriPresetName(HdriPreset p);

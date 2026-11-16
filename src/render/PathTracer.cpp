@@ -88,18 +88,22 @@ struct BVH {
     std::vector<RTTri> tris;
     std::vector<int> index;
     std::vector<Node> nodes;
-    std::vector<int> lights;          // emissive triangles, sampled by area
-    std::vector<float> lightCdf;      // running area sum, parallel to lights
-    float lightArea = 0.0f;
+    std::vector<int> lights;          // emissive triangles, sampled by power (area x brightness)
+    std::vector<float> lightCdf;      // running power sum, parallel to lights
+    float lightPower = 0.0f;
+    // Brightness used to share samples between lights, so a huge dim emitter can't starve small bright ones.
+    static float Power(const V3& e) { return 0.2126f * e.x + 0.7152f * e.y + 0.0722f * e.z; }
     // Private copies of what the workers sample, so texture edits during a render can't free them.
     std::vector<std::unique_ptr<Material>> materials;
 
     void BuildLights() {
         for (int i = 0; i < (int)tris.size(); ++i) {
             if (!tris[i].light) continue;
-            lightArea += 0.5f * Len(Cross(tris[i].b - tris[i].a, tris[i].c - tris[i].a));
+            float area = 0.5f * Len(Cross(tris[i].b - tris[i].a, tris[i].c - tris[i].a));
+            if (area <= 0.0f || Power(tris[i].emission) <= 0.0f) continue;
+            lightPower += area * Power(tris[i].emission);
             lights.push_back(i);
-            lightCdf.push_back(lightArea);
+            lightCdf.push_back(lightPower);
         }
     }
 
@@ -308,7 +312,7 @@ bool PathTracer::Start(const Scene& scene, const SceneCamera& camera, float view
             }
             // Only constant emitters with no cutouts are light-sampled; anything mapped stays
             // BSDF-only, which is still unbiased (its hits are just not MIS-weighted).
-            r.light = (r.emission.x + r.emission.y + r.emission.z) > 0.0f && m.opacity >= 0.999f &&
+            r.light = (r.emission.x + r.emission.y + r.emission.z) > 0.0f && m.opacity >= 0.999f && m.sampleAsLight &&
                       !m.HasCpu(MapSlot::Emissive) && !m.HasCpu(MapSlot::Opacity) && !m.HasCpu(MapSlot::BaseColor);
             bvh->tris.push_back(r);
         }
@@ -433,7 +437,8 @@ bool PathTracer::Start(const Scene& scene, const SceneCamera& camera, float view
                                 float weight = 1.0f;
                                 if (misPrev && t.light && !bvh->lights.empty()) {
                                     float cosL = std::max(std::fabs(Dot(t.gn, dir)), 1e-6f);
-                                    float pdfL = hit.t * hit.t / (cosL * bvh->lightArea);
+                                    // solid-angle pdf of picking this triangle by power, then a uniform point on it
+                                    float pdfL = hit.t * hit.t * BVH::Power(t.emission) / (cosL * bvh->lightPower);
                                     weight = pdfPrev * pdfPrev / (pdfPrev * pdfPrev + pdfL * pdfL);
                                 }
                                 radiance = radiance + throughput * emissive * weight;
@@ -473,10 +478,10 @@ bool PathTracer::Start(const Scene& scene, const SceneCamera& camera, float view
                             // Probability of the diffuse lobe below, so its BRDF is albedo * pDiffuse / pi.
                             float pDiffuse = (1.0f - (t.transmission > 0.001f ? t.transmission : 0.0f)) * (1.0f - specChance);
 
-                            // Next-event estimation: one emissive triangle picked by area, MIS-weighted
+                            // Next-event estimation: one emissive triangle picked by power, MIS-weighted
                             // against the diffuse lobe hitting it (power heuristic).
                             if (!bvh->lights.empty() && pDiffuse > 0.0f) {
-                                float pick = rng() * bvh->lightArea;
+                                float pick = rng() * bvh->lightPower;
                                 size_t li = std::min(bvh->lights.size() - 1,
                                     (size_t)(std::upper_bound(bvh->lightCdf.begin(), bvh->lightCdf.end(), pick) - bvh->lightCdf.begin()));
                                 const RTTri& L = bvh->tris[bvh->lights[li]];
@@ -487,7 +492,7 @@ bool PathTracer::Start(const Scene& scene, const SceneCamera& camera, float view
                                 wi = wi * (1.0f / std::max(dist, 1e-8f));
                                 float cosS = Dot(n, wi), cosL = std::fabs(Dot(L.gn, wi));
                                 if (cosS > 0 && cosL > 1e-6f && !bvh->Occluded(p + n * 1e-3f, wi, dist * 0.999f - 1e-3f)) {
-                                    float pdfL = d2 / (cosL * bvh->lightArea);
+                                    float pdfL = d2 * BVH::Power(L.emission) / (cosL * bvh->lightPower);
                                     float pdfB = pDiffuse * cosS / 3.14159265f;
                                     float w = pdfL * pdfL / (pdfL * pdfL + pdfB * pdfB);
                                     radiance = radiance + throughput * albedo * L.emission * (pDiffuse / 3.14159265f * cosS / pdfL * w);
