@@ -4,6 +4,23 @@ All notable changes to Leorix Native are listed here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] - 2026-11-16
+
+### Added
+- Cloth simulation: XPBD fabric with stretch and bend stiffness, damping, friction and thickness, pinned vertices (Pin Top Edge or the Edit Mode selection), and collisions with rigid bodies, including baked falling ones. It is baked to the timeline alongside rigid bodies, with Free Bake and Apply as Shape. Cloth settings and pins are saved in projects.
+- NURBS curves: order 2 to 6, per-point weights, Endpoint or uniform knots, cyclic, and an exact NURBS Circle preset.
+- Box select for curve points and handles in curve Edit Mode.
+- Bevel profile curves: sweep any curve's shape along another curve instead of a round tube.
+- One armature can deform several meshes, each with its own weights (Bind Selected Meshes, or Deformed by on the mesh). Weight Paint and rigged glTF/GLB export work on bound meshes.
+- Add Control Rig for humanoid rigs: hand and foot IK controls with elbow and knee poles, plus hip and chest controls, moved in Object Mode.
+- Bone constraints can target any scene object.
+- Live Unwrap: re-unwraps automatically when seams are marked or cleared.
+
+### Changed
+- Paint undo tiles are compressed with deflate, so long painting sessions keep more history within the undo memory cap.
+- Objects have stable ids, so Curve Deform and Shrinkwrap targets survive deleting and joining other objects.
+- Undoing a move, rotate or scale on a physics-baked object brings its bake back.
+
 ## [0.5.0] - 2026-11-16
 
 ### Added
@@ -93,6 +110,7 @@ All notable changes to Leorix Native are listed here. The format follows
 ### Changed
 - TransformOp and New Project state moved out of `App`.
 
+[0.6.0]: https://github.com/Eviee556/Leorix/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Eviee556/Leorix/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Eviee556/Leorix/releases/tag/v0.4.0
 [0.3.0]: https://github.com/Eviee556/Leorix/releases/tag/v0.3.0

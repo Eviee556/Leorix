@@ -29,14 +29,14 @@ texture painter and a sandboxed Lua scripting API.
 - **Blender-style editing.** Object and Edit Mode, with vertex, edge and face selection and box select. Extrude, Delete and Merge at Center that keep quads and UVs intact. Grab, rotate and scale with axis constraints and snapping (increments, or the nearest vertex, edge, edge center or face), Join, Shift+D duplicate (objects, or faces in Edit Mode) and P to separate faces into a new object.
 - **Non-destructive modifier stack.** 13 modifiers, including Subdivision Surface (Catmull-Clark), Mirror, Array, Solidify, Shrinkwrap, Screw, Voxel Remesh, Decimate and Curve Deform, previewed live.
 - **Sculpting.** 23 brushes (Draw, Clay Strips, Inflate, Crease, Smooth, Flatten, Scrape, Pinch, Grab, Snake Hook, Elastic and more) with nine falloff curves, X/Y/Z symmetry, auto-smooth, custom image stamps, multiresolution layers and one undo step per stroke.
-- **UV tools.** Mark seams, unwrap islands with LSCM or Smart UV Project, pack them into the 0..1 square, and move, rotate and scale islands or vertices on the canvas.
-- **Texture painting.** 11 PBR map kinds, each with its own layer stack, and 16 blend modes (including Hue, Saturation, Color and Luminosity). Paint on the 2D canvas or directly on the 3D model. Undo stores only the 128×128 tiles a stroke touched.
+- **UV tools.** Mark seams, unwrap islands with LSCM or Smart UV Project, pack them into the 0..1 square, move, rotate and scale islands or vertices on the canvas, and re-unwrap live as seams change.
+- **Texture painting.** 11 PBR map kinds, each with its own layer stack, and 16 blend modes (including Hue, Saturation, Color and Luminosity). Paint on the 2D canvas or directly on the 3D model. Undo stores only the 128×128 tiles a stroke touched, compressed.
 - **Path tracer.** Multithreaded CPU tracer with BVH acceleration, glass with Fresnel, emissive materials, parallax occlusion mapping, next-event estimation with multiple importance sampling for area lights, tangent-space normal mapping, an edge-aware denoiser and eight procedural HDRI environments.
-- **Rigging and animation.** Armatures with automatic weights and a Weight Paint mode (Add, Subtract, Replace, Smooth, X mirror, heatmap), Pose Mode, two-bone IK with a pole target, bone constraints (IK, Track To, Copy Location, Copy Rotation, Limit Rotation), a one-click humanoid rig with UE5, Unity, Mixamo and Godot naming presets, and a keyframe timeline with Bezier interpolation and nine easing curves.
+- **Rigging and animation.** Armatures with automatic weights and a Weight Paint mode (Add, Subtract, Replace, Smooth, X mirror, heatmap), Pose Mode, two-bone IK with a pole target, bone constraints (IK, Track To, Copy Location, Copy Rotation, Limit Rotation), constraints that can target bones or scene objects, a one-click humanoid rig with UE5, Unity, Mixamo and Godot naming presets and a control rig (IK hands and feet with poles, hip and chest controls), one armature deforming several meshes, and a keyframe timeline with Bezier interpolation and nine easing curves.
 - **Visual scripting for beginners.** Snap together plain-English blocks (Box, Ball, Copy in a Circle, Put Together...) with colour-coded wires; every block explains itself. 21 blocks, including Time, Mirror, Copy Upwards and Scatter Randomly; Random can give every copy its own value, and graphs save as `.leorixblocks` files or inside projects.
 - **Lua scripting.** Build meshes procedurally in a sandbox with no file, OS or network access, with instruction and memory limits so a runaway script can't freeze the app. Scripts can read `frame`, `time` and `fps` and rebuild every frame for procedural animation.
-- **Curves.** Bezier curves with Auto, Vector, Aligned and Free handles, edited in the viewport, swept into tubes with bevel and per-point taper, and converted to meshes.
-- **Physics.** Rigid bodies (box, sphere or convex hull) with mass, friction and bounciness, baked to the timeline so playback is repeatable.
+- **Curves.** Bezier and NURBS curves (weights, exact circles) with Auto, Vector, Aligned and Free handles, edited and box-selected in the viewport, swept into tubes or along any profile curve with per-point taper, and converted to meshes.
+- **Physics.** Rigid bodies (box, sphere or convex hull) with mass, friction and bounciness, and XPBD cloth with pins that drapes over them, all baked to the timeline so playback is repeatable.
 - **Project files.** `.leorix` is a ZIP container with a JSON manifest, per-layer PNGs and binary meshes. It saves the whole scene (meshes, materials and textures, modifiers, rigs with constraints and painted weights, curves, physics settings, keyframes, cameras) and round-trips without loss.
 - **Command-line tools.** Headless format conversion and a self-test run by CTest (primitives, OBJ round trip, edit ops, sculpt, undo and path-tracer convergence checks), plus render-to-PNG at startup.
 
@@ -172,7 +172,7 @@ counts are checked by `--selftest`.
 ## Roadmap
 
 Planned work includes a GPU (Vulkan RT) path tracer backend, per-pixel PBR maps in the viewport,
-cloth simulation, NURBS curves, control rigs, 2.5D diorama scenes and a webcomic mode.
+volumetrics, 2.5D diorama scenes and a webcomic mode.
 The full list is in [PARITY.md](PARITY.md).
 
 ## Author
