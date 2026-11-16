@@ -83,6 +83,7 @@ flowchart LR
 | **Move** | Slides a shape left/right, up/down or forward/back. | Up/Down 3 lifts it 3 metres. |
 | **Turn** | Spins, tips or rolls a shape. Numbers are degrees (90 = a quarter turn). | Tip 90 lays a standing tube on its side. |
 | **Resize** | Makes a shape bigger or smaller. 1 means no change, 2 means twice as big. | Taller 3 stretches a box into a tall block. |
+| **Mirror** | Keeps your shape and adds a flipped copy on the other side, like a reflection. Pick **Flip**: left / right, up / down or front / back. | A Ball moved 2 to the right, then mirrored, makes a pair of eyes. |
 
 ### Repeat: blocks that make copies
 
@@ -91,6 +92,8 @@ flowchart LR
 | **Copy in a Line** | Makes copies side by side in a straight row. | 10 copies with Gap 1 makes a fence. |
 | **Copy in a Circle** | Places copies evenly around a circle, all facing outward. | 8 pillars, How Wide 5, makes a stone circle. |
 | **Copy in a Grid** | Makes rows and columns of copies, like a chessboard. | 3 rows × 4 columns makes 12 copies. |
+| **Copy Upwards** | Stacks copies one above the other. | 10 flat boxes with Gap 1 makes a tower. |
+| **Scatter Randomly** | Drops copies at random spots inside a square (Area) and spins each one. The same Seed gives the same layout. | 50 cones in an Area of 40 makes a forest. |
 
 You can make up to **1000 copies** in one block. If you ask for more, Leorix uses 1000 and
 shows a note, so your computer doesn't freeze.
@@ -108,6 +111,12 @@ shows a note, so your computer doesn't freeze.
 | **Number** | Holds one number you can wire into many slots. | One Number wired into every Size changes them all at once. |
 | **Random Number** | Picks a number between Min and Max. The same Seed always picks the same number. | Change the Seed to try a different look. |
 | **Math** | Does a sum with two numbers: add, take away, times or divide by. | 3 times 2 gives 6. |
+| **Time** | Counts the seconds since frame 1 of the timeline, times Speed. | Time into Turn's Spin with Speed 90 turns a quarter turn every second. |
+
+**Random Number inside copies.** When a Random Number feeds a shape that a Copy block copies,
+every copy gets its own pick, so a row of Random-sized boxes comes out all different sizes.
+Set **Each Copy Different** to 0 if you want every copy to share one pick. The result still
+repeats every time you build, so your model never changes by itself.
 
 ### Finish
 
@@ -192,6 +201,7 @@ That's why the battlements move up 4.3 (sitting on the top edge) and the 3-tall 
 | *"over 2 million points"* | Copies of copies got too big. | Lower How Many, Rows or Columns. |
 | A block has a **red border** | That block has a problem. | Read the red text on the block. |
 | Old models stay when I build again | Each build adds a new model. | Press **Ctrl+Z** to remove the last one. |
+| *"Skipped ... block(s) this version doesn't know"* | The file was made by a newer Leorix, or was edited by hand. | Everything else opened. Add the missing blocks again. |
 
 **Moving around:**
 - Drag a block anywhere on it to move it.
@@ -215,7 +225,19 @@ Lua is a small, friendly programming language, and the scripting guide starts fr
 
 ---
 
-*Coming later:* saving and loading your block graphs. For now a graph lives until you close the app
-or press **Start over**, so build the model before you quit.
+## Saving your blocks
+
+Press **Save** to keep your blocks in a `.leorixblocks` file and **Open** to load them again.
+Opening replaces the blocks on the canvas. Saving a `.leorix` project (**Ctrl+S**) keeps your
+blocks inside the project too, and opening the project brings them back.
+
+## Making it move
+
+1. Add a **Time** block and wire it into a number slot, for example **Turn → Spin**.
+2. Press **Build it!** once.
+3. Tick **Update every frame**, then press **Play** on the timeline.
+
+While the box is ticked, the model you built last is rebuilt whenever the frame changes. The
+Visual Scripting window has to stay open for this. Moving the timeline doesn't add undo steps.
 
 *Leorix is designed and built by Charlize Pauli.*

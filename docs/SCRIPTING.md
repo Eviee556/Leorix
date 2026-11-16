@@ -158,10 +158,42 @@ Details that matter:
 |---|---|
 | `print(...)` | Writes to the Output pane, not the console. Arguments are separated by tabs and the line ends with a newline. Any value that can be turned into a string is accepted. |
 | `PI` | π, the same as `math.pi`. |
+| `frame` | The timeline's current frame. The first frame is 1. |
+| `fps` | Frames per second of the timeline (24 by default). |
+| `time` | Seconds since frame 1: `(frame - 1) / fps`. |
 | `math.*`, `string.*`, `table.*` | The standard Lua 5.4 libraries. See [the sandbox](#4-the-sandbox). |
 
 There is no vector type: pass plain numbers, and write small table helpers when you need
 vector maths (the torus knot example has `sub`, `cross` and `norm`).
+
+### 3.4 Animating with `frame` and `time`
+
+A script runs once and returns a mesh, so to animate it, run it again on every frame. Tick
+**Update every frame** next to **Run**, run the script once, then press **Play** on the
+timeline. Each time the frame changes the script runs again with the new `frame` and `time`,
+and its result replaces the mesh the last run made. These re-runs don't add undo steps.
+
+```lua
+-- A wave that rolls across a grid of cubes
+for x = 0, 9 do
+  for z = 0, 9 do
+    local h = 1 + 0.5 * math.sin(time * 3 + x * 0.6 + z * 0.4)
+    local m = mesh()
+    local s = 0.4
+    local v = {}
+    for _, c in ipairs({{-s,0,-s},{s,0,-s},{s,0,s},{-s,0,s},{-s,h,-s},{s,h,-s},{s,h,s},{-s,h,s}}) do
+      v[#v + 1] = m:vert(x + c[1], c[2], z + c[3])
+    end
+    m:face(v[1], v[2], v[3], v[4]); m:face(v[8], v[7], v[6], v[5])
+    m:face(v[1], v[5], v[6], v[2]); m:face(v[2], v[6], v[7], v[3])
+    m:face(v[3], v[7], v[8], v[4]); m:face(v[4], v[8], v[5], v[1])
+    m:build()
+  end
+end
+```
+
+Keep animated scripts small: the script runs on every frame, and a slow one makes playback
+stutter.
 
 ---
 
@@ -831,5 +863,6 @@ Things scripts can't do yet:
 - Read or edit **existing** scene objects, the selection, or the camera.
 - Load files, other scripts or modules.
 - Run in the background. Scripts run on the UI thread, so a long script pauses the app
-  until it finishes or hits the [limits](#limits).
+  until it finishes or hits the [limits](#limits). This also applies to every re-run while
+  **Update every frame** is ticked.
 - Use `coroutine`, `utf8`, `os` or `io`.
