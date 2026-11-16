@@ -19,6 +19,9 @@ struct SculptDab {
 // unimplemented brushes return false and leave the mesh untouched.
 bool SculptBrushSupported(Icon brush);
 
+// Brush falloff for t = 0 at the centre .. 1 at the rim, using the curve and hardness in `s`.
+float SculptFalloff(float t, const SculptSettings& s);
+
 // Deforms `target.positions`, or `*disp` when given (multires: the surface is positions + disp).
 // Applies X/Y/Z symmetry and axis locks from `s`. Returns the number of vertices moved.
 // Does not recompute normals; the caller does that once per dab.

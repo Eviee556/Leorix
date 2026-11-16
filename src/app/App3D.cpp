@@ -45,6 +45,7 @@ const char* App::Mode3DName(Mode3D m) const {
         case Mode3D::Edit: return "Edit";
         case Mode3D::Retopology: return "Retopology";
         case Mode3D::Pose: return "Pose";
+        case Mode3D::Weight: return "Weight Paint";
     }
     return "";
 }
@@ -56,6 +57,7 @@ static Icon ModeIcon(Mode3D m) {
         case Mode3D::Edit: return Icon::ModeEdit;
         case Mode3D::Retopology: return Icon::ModeRetopo;
         case Mode3D::Pose: return Icon::SculptPose;
+        case Mode3D::Weight: return Icon::SculptPaint;
     }
     return Icon::None;
 }
@@ -73,7 +75,7 @@ void App::ViewportHeader3D() {
     ImVec2 comboPos = ImGui::GetCursorScreenPos();
     char preview[32]; std::snprintf(preview, sizeof(preview), "      %s", Mode3DName(mode3D));
     if (ImGui::BeginCombo("##mode3d", preview)) {
-        for (Mode3D m : {Mode3D::Object, Mode3D::Sculpt, Mode3D::Edit, Mode3D::Retopology, Mode3D::Pose}) {
+        for (Mode3D m : {Mode3D::Object, Mode3D::Sculpt, Mode3D::Edit, Mode3D::Retopology, Mode3D::Pose, Mode3D::Weight}) {
             ImGui::PushID(static_cast<int>(m));
             ImVec2 p = ImGui::GetCursorScreenPos();
             char label[40]; std::snprintf(label, sizeof(label), "      %s Mode", Mode3DName(m));
@@ -164,6 +166,7 @@ void App::EditModePick(bool viewportHovered) {
         bool isActive = (i == scene.activeIndex);
         bool objEdit = editMode && isActive;
         bool objRetopo = retopoMode && isActive;
+        meshPrefs.weightBone = (mode3D == Mode3D::Weight && isActive) ? activeBone : -1;
         PickResult p = DrawAndPickMesh(dl, viewport, obj, edit.selectMode, objEdit, objRetopo, meshPrefs,
                                        mouse, viewportHovered, shading, BuildLighting());
         if (p.hit && p.depth < bestDepth) { bestDepth = p.depth; pickedObject = i; if (isActive || !editMode) { lastPick = p; lastPickObject = i; } }
@@ -220,6 +223,7 @@ void App::EditModePick(bool viewportHovered) {
     // Before the hover check: a stroke released outside the viewport must still become an undo step.
     if (sculpting && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) { sculpting = false; SculptStrokeEnd(); }
     if (paintingModel && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) PaintStrokeEnd();
+    if (weightPainting && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) WeightStrokeEnd();
     if (!viewportHovered || xform.active) return;
     // Alt+LMB, the gizmo and the pan/zoom handles steer the view; they must not also select.
     if (viewport.navigating || viewport.overNavWidget || ImGui::GetIO().KeyAlt) return;
@@ -272,6 +276,11 @@ void App::EditModePick(bool viewportHovered) {
         if (sculpt.hardness > 0.02f)
             dl->AddCircle(mouse, r * std::clamp(sculpt.hardness, 0.05f, 1.0f), IM_COL32(230, 180, 90, 90), 64, 1.0f);
         dl->AddCircleFilled(mouse, 2.0f, onSurface ? IM_COL32(255, 255, 255, 220) : IM_COL32(200, 200, 200, 120));
+    } else if (mode3D == Mode3D::Weight) {
+        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && lastPick.hit) WeightStroke(true);
+        else if (weightPainting && ImGui::IsMouseDown(ImGuiMouseButton_Left)) WeightStroke(false);
+        ImGui::SetMouseCursor(ImGuiMouseCursor_None);
+        dl->AddCircle(mouse, weightPaint.brush.radiusPx, lastPick.hit ? IM_COL32(230, 180, 90, 230) : IM_COL32(150, 158, 175, 120), 64, 1.6f);
     } else if (retopoMode) {
         ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
     }
@@ -309,7 +318,7 @@ void App::ViewportShelf(ImVec2 origin, ImVec2 size) {
             case Mode3D::Object:     toolColumn(kObjectTools, kObjectToolCount, objectTool); break;
             case Mode3D::Edit:       toolColumn(kEditTools, kEditToolCount, edit.tool); break;
             case Mode3D::Retopology: toolColumn(kRetopoTools, kRetopoToolCount, retopo.tool); break;
-            case Mode3D::Pose: break;
+            case Mode3D::Pose: case Mode3D::Weight: break;
             case Mode3D::Sculpt: {
                 BrushCategory lastCat = kSculptBrushes[0].category;
                 int col = 0;
@@ -359,11 +368,11 @@ void App::HandleShortcuts3D(bool hoveredViewport) {
         { std::printf("[keys] D pressed: shift=%d ctrl=%d mode=%d\n", io.KeyShift ? 1 : 0, io.KeyCtrl ? 1 : 0, (int)mode3D); std::fflush(stdout); }
     if (!io.KeyCtrl && io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_D, false)) { DuplicateSelected(); return; }
     if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
-        // Object -> Sculpt -> Edit -> Retopology -> Pose -> Object
-        static const Mode3D order[] = {Mode3D::Object, Mode3D::Sculpt, Mode3D::Edit, Mode3D::Retopology, Mode3D::Pose};
+        // Object -> Sculpt -> Edit -> Retopology -> Pose -> Weight Paint -> Object
+        static const Mode3D order[] = {Mode3D::Object, Mode3D::Sculpt, Mode3D::Edit, Mode3D::Retopology, Mode3D::Pose, Mode3D::Weight};
         int at = 0;
-        for (int i = 0; i < 5; ++i) if (order[i] == mode3D) at = i;
-        SetMode3D(order[(at + 1) % 5]);
+        for (int i = 0; i < 6; ++i) if (order[i] == mode3D) at = i;
+        SetMode3D(order[(at + 1) % 6]);
         ShowStatus(std::string(Mode3DName(mode3D)) + " Mode");
         return;
     }
@@ -435,7 +444,7 @@ void App::Tool3DPanel() {
     if (!ImGui::Begin("3D Tool Settings", &showTool3D)) { ImGui::End(); return; }
     // Mode switch row
     const float b = 30.0f;
-    for (Mode3D m : {Mode3D::Object, Mode3D::Sculpt, Mode3D::Edit, Mode3D::Retopology, Mode3D::Pose}) {
+    for (Mode3D m : {Mode3D::Object, Mode3D::Sculpt, Mode3D::Edit, Mode3D::Retopology, Mode3D::Pose, Mode3D::Weight}) {
         ImGui::PushID(static_cast<int>(m));
         char tip[48]; std::snprintf(tip, sizeof(tip), "%s Mode%s", Mode3DName(m), m == Mode3D::Edit ? " (Tab)" : "");
         if (IconButton("##m", ModeIcon(m), mode3D == m, tip, b)) SetMode3D(m);
@@ -456,6 +465,7 @@ void App::Tool3DPanel() {
             ImGui::TextColored(kBrass, "Pose Mode");
             Hint("Select a bone in the Armature panel, pose it, then press I to keyframe it.");
             break;
+        case Mode3D::Weight:     WeightSettingsUI(); break;
     }
     ImGui::PopItemWidth();
     ImGui::Spacing();

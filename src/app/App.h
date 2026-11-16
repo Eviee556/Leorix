@@ -11,6 +11,7 @@
 #include "paint/Project.h"
 #include "mesh/Scene.h"
 #include "mesh/UVView.h"
+#include "anim/WeightPaint.h"
 #include "tools/BrushImage.h"
 #include "tools/Tools3D.h"
 #include "tools/TransformOp.h"
@@ -299,6 +300,21 @@ private:
     std::vector<Float3> sculptBefore;     // positions or displacement at stroke start
     int   sculptUndoIndex = -1;
     bool  sculptUndoMulti = false;
+    // Weight Paint mode: brushes the active bone's weights on the active object (WeightPaintPanel.cpp)
+    struct WeightPaintSettings {
+        SculptSettings brush;            // radius, strength, hardness and falloff curve
+        int   mode = 0;                  // WeightBrush: Add, Subtract, Replace, Smooth
+        float value = 1.0f;
+        bool  mirrorX = true;
+        WeightPaintSettings() { brush.radiusPx = 50.0f; brush.strength = 0.5f; }
+    } weightPaint;
+    bool  weightPainting = false;
+    int   weightUndoIndex = -1;
+    std::vector<VertexWeights> weightBefore;
+    void WeightStroke(bool begin);
+    void WeightStrokeEnd();
+    void WeightSettingsUI();
+    void PushWeightsUndo(const std::string& label, int objIndex, std::vector<VertexWeights> before);
     void MultiresPanel();
     void JoinMeshes();
     void DuplicateSelected();     // Shift+D: copy the selection and start moving it

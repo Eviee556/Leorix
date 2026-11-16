@@ -31,6 +31,11 @@ float Falloff(float t, const SculptSettings& s, bool sharp) {
     }
 }
 
+}  // namespace
+
+float SculptFalloff(float t, const SculptSettings& s) { return Falloff(t, s, false); }
+
+namespace {
 Float3 Pos(const Mesh& m, const std::vector<Float3>* disp, size_t i) {
     return disp ? Add(m.positions[i], (*disp)[i]) : m.positions[i];
 }

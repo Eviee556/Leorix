@@ -5,7 +5,7 @@
 #include "app/Icons.h"
 #include <string>
 
-enum class Mode3D { Object, Sculpt, Edit, Retopology, Pose };
+enum class Mode3D { Object, Sculpt, Edit, Retopology, Pose, Weight };
 enum class SelectMode { Vertex = 1, Edge = 2, Face = 4 }; // bit flags, Shift+click combines like Blender
 
 enum class BrushCategory { AddSubtract, Contrast, Transform, Cloth, General, Paint, Leorix };

@@ -38,6 +38,7 @@ struct MeshDrawPrefs {
     // Face Orientation overlay, Blender's colours: blue where the normal points at you, red
     // where it points away, which is what a flipped face looks like from outside.
     bool  faceOrientation = false;
+    int   weightBone = -1;            // Weight Paint: shade by this bone's weights (blue 0 .. red 1)
     ImU32 faceFront      = IM_COL32(45, 110, 255, 165);
     ImU32 faceBack       = IM_COL32(255, 40, 40, 205);
     ImU32 wireNeon   = IM_COL32(70, 255, 130, 255);

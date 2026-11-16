@@ -1,4 +1,5 @@
 #include "viewport/MeshView.h"
+#include "anim/WeightPaint.h"
 #include "imgui_internal.h"   // ImDrawListSharedData for the batched primitive fast path
 #include <algorithm>
 #include <cfloat>
@@ -275,7 +276,9 @@ PickResult DrawAndPickMesh(ImDrawList* dl, const Viewport3D& vp, MeshObject& obj
     // Material / Rendered use the object's base colour, and its Base Color texture when one is
     // loaded (UVs come straight from the mesh; ImDrawList interpolates them affinely per triangle).
     const Material& mat = obj.material;
-    bool textured = lit && mat.useTextures && mat.Has(MapSlot::BaseColor) && mesh.HasLoopUVs();
+    // Weight Paint heatmap replaces the material colour; weights are indexed like the base mesh.
+    const bool heat = prefs.weightBone >= 0 && obj.armature.Bound() && obj.armature.weights.size() == vn;
+    bool textured = !heat && lit && mat.useTextures && mat.Has(MapSlot::BaseColor) && mesh.HasLoopUVs();
     if (std::getenv("LEORIX_DEBUG_TEX")) {
         static int once = 0;
         if (once++ < 3) std::printf("[tex] lit=%d useTex=%d hasBase=%d uvs=%zu verts=%zu -> textured=%d\n",
@@ -286,7 +289,7 @@ PickResult DrawAndPickMesh(ImDrawList* dl, const Viewport3D& vp, MeshObject& obj
     // folded into that corner's shade, which ImDrawList then interpolates across the triangle.
     // shortcut: map detail is limited to vertex density (fine on sculpt-scale meshes, blurry on a
     // low-poly cube); upgrade to per-pixel when the GPU fill pass replaces this one.
-    const bool pbr = lit && mat.useTextures && mesh.HasLoopUVs() &&
+    const bool pbr = !heat && lit && mat.useTextures && mesh.HasLoopUVs() &&
         (mat.HasCpu(MapSlot::Normal) || mat.HasCpu(MapSlot::Roughness) || mat.HasCpu(MapSlot::Metallic) || mat.HasCpu(MapSlot::AO));
     // Tangents are cached per mesh and rebuilt only when its positions, UVs or triangles change;
     // hashing the arrays is far cheaper than recomputing tangents every frame.
@@ -373,7 +376,16 @@ PickResult DrawAndPickMesh(ImDrawList* dl, const Viewport3D& vp, MeshObject& obj
             const float flat = obj.shadeSmooth ? 0.0f : faceShade(t);
             float cs[3] = {obj.shadeSmooth ? A.shade : flat, obj.shadeSmooth ? B.shade : flat, obj.shadeSmooth ? C.shade : flat};
             if (pbr) for (int k = 0; k < 3; ++k) cs[k] = pbrShade(oi, k);
-            if (textured) {
+            if (heat) {
+                auto H = [&](const ProjV& P, uint32_t v, float sh) {
+                    float w = std::clamp(BoneWeight(obj.armature.weights[v], prefs.weightBone), 0.0f, 1.0f);
+                    // blue -> cyan -> green -> yellow -> red, like Blender's weight ramp
+                    float r = std::clamp(w * 4.0f - 2.0f, 0.0f, 1.0f), g = w < 0.75f ? std::clamp(w * 4.0f, 0.0f, 1.0f) : std::clamp(4.0f - w * 4.0f, 0.0f, 1.0f);
+                    float b = std::clamp(2.0f - w * 4.0f, 0.0f, 1.0f), k = 255.0f * (0.35f + 0.65f * sh);
+                    dl->PrimWriteVtx(P.s, uv, IM_COL32((int)(r * k), (int)(g * k), (int)(b * k), 255));
+                };
+                H(A, t.a, cs[0]); H(B, t.b, cs[1]); H(C, t.c, cs[2]);
+            } else if (textured) {
                 const Float2* luv = &mesh.loopUVs[oi * 3];
                 auto W = [&](const ProjV& P, const Float2& t2, float sh) {
                     ImU32 c = IM_COL32((int)(baseR * sh), (int)(baseG * sh), (int)(baseB * sh), 255);

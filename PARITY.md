@@ -182,7 +182,7 @@ app because of how it's structured differently:
 | Multires level switching is nearest-neighbour resampled, not a true displacement hierarchy | open - detail survives a level change but is approximated when the level moves |
 | Curve editing: moving control points in the viewport, handle types, bevel/taper | not started - curves are created from presets and used as deform targets |
 | Cloth simulation | not started |
-| Weight painting (manual, on top of automatic weights) | not started |
+| Weight painting (manual, on top of automatic weights): Weight Paint mode, Add/Subtract/Replace/Smooth, falloff curves, X mirror with .L/.R twin bones, blue-red heatmap, Normalize All, Clean, one undo step per stroke | done |
 | Rigid body / physics simulation | not started |
 | Curves (Bezier, NURBS, path, circle) and curve-to-mesh | not started |
 | Control rig presets and export for Unreal / Unity / Godot | partial - humanoid rig, UE5/Unity/Mixamo/Godot naming and skinned glTF/GLB export exist; control rigs don't |

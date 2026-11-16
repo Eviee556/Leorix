@@ -13,6 +13,7 @@
 #include "tools/VisualScript.h"
 #include "tools/Snap.h"
 #include "anim/Armature.h"
+#include "anim/WeightPaint.h"
 #include "anim/Animation.h"
 #include "paint/Project.h"
 #include "miniz.h"
@@ -833,6 +834,57 @@ static int SelfTest() {
         }
         check(survived, "project: damaged manifests and mesh data load without crashing");
         std::error_code ec; fs::remove(proj, ec);
+    }
+    // Weight painting: Add / Subtract keep the sum at 1, Smooth averages neighbours, X mirror, Clean
+    {
+        auto sum = [](const VertexWeights& w) { float t = 0; for (int s = 0; s < 4; ++s) if (w.bone[s] >= 0) t += w.weight[s]; return t; };
+        auto both = [](float a) { VertexWeights w; w.bone[0] = 0; w.weight[0] = a; w.bone[1] = 1; w.weight[1] = 1 - a; return w; };
+        Armature arm;
+        arm.AddBone("a", {0, 0, 0}, {0, 1, 0});
+        arm.AddBone("b", {0, 1, 0}, {0, 2, 0});
+        std::vector<Float3> pos = {{0, 0, 0}, {1, 0, 0}, {2, 0, 0}, {1, 1, 0}};
+        std::vector<Tri> tris = {{0, 1, 3, 0}, {1, 2, 3, 1}};
+        arm.restPositions = pos;
+        arm.weights = {both(1), both(0.2f), both(0), both(0.5f)};
+        SculptSettings fall; fall.falloffCurve = 8;   // Constant: the full amount inside the radius
+        WeightDab d; d.center = pos[1]; d.radius = 0.1f; d.strength = 1; d.bone = 0;
+        d.mode = WeightBrush::Add; d.value = 0.3f;
+        size_t hit = ApplyWeightDab(arm, pos, tris, fall, d);
+        check(hit == 1 && std::fabs(BoneWeight(arm.weights[1], 0) - 0.5f) < 1e-5f && std::fabs(sum(arm.weights[1]) - 1) < 1e-5f,
+              "weight paint: Add raises the bone and keeps the sum at 1");
+        d.mode = WeightBrush::Subtract; d.value = 0.4f;
+        ApplyWeightDab(arm, pos, tris, fall, d);
+        check(std::fabs(BoneWeight(arm.weights[1], 0) - 0.1f) < 1e-5f && std::fabs(sum(arm.weights[1]) - 1) < 1e-5f,
+              "weight paint: Subtract lowers the bone and keeps the sum at 1");
+        d.mode = WeightBrush::Smooth;   // neighbours over the edges 1-0, 1-3, 1-2, 3-1: (1 + 0.5 + 0 + 0.5) / 4
+        ApplyWeightDab(arm, pos, tris, fall, d);
+        check(std::fabs(BoneWeight(arm.weights[1], 0) - 0.5f) < 1e-5f && std::fabs(sum(arm.weights[1]) - 1) < 1e-5f,
+              "weight paint: Smooth averages the neighbours");
+        check(std::fabs(BoneWeight(arm.weights[0], 0) - 1) < 1e-6f && std::fabs(BoneWeight(arm.weights[3], 0) - 0.5f) < 1e-6f,
+              "weight paint: vertices outside the radius are untouched");
+
+        Armature m;
+        m.AddBone("arm.L", {1, 0, 0}, {2, 0, 0});
+        m.AddBone("arm.R", {-1, 0, 0}, {-2, 0, 0});
+        std::vector<Float3> mp = {{1.5f, 0.2f, 0}, {-1.5f, 0.2f, 0}};
+        m.restPositions = mp;
+        m.weights = {both(0.5f), both(0.5f)};
+        check(MirrorBone(m, 0) == 1 && MirrorBone(m, 1) == 0, "weight paint: .L/.R twin bones");
+        WeightDab md; md.center = mp[0]; md.radius = 0.1f; md.strength = 1; md.bone = 0; md.value = 0.3f; md.mirrorX = true;
+        ApplyWeightDab(m, mp, {}, fall, md);
+        check(std::fabs(BoneWeight(m.weights[0], 0) - 0.8f) < 1e-5f && std::fabs(BoneWeight(m.weights[1], 1) - 0.8f) < 1e-5f,
+              "weight paint: X mirror paints the twin bone on the mirrored vertex");
+
+        Armature c;
+        c.AddBone("a", {0, 0, 0}, {0, 1, 0});
+        c.AddBone("b", {0, 1, 0}, {0, 2, 0});
+        c.restPositions = {{0, 0, 0}};
+        c.weights = {both(0.995f)};
+        size_t removed = CleanWeights(c, 0.01f);
+        check(removed == 1 && c.weights[0].bone[1] == -1 && std::fabs(BoneWeight(c.weights[0], 0) - 1) < 1e-6f,
+              "weight paint: Clean drops weights under 0.01 and renormalizes");
+        c.weights = {both(0.6f)}; c.weights[0].weight[1] = 0.2f;   // sums to 0.8
+        check(NormalizeAllWeights(c) == 1 && std::fabs(sum(c.weights[0]) - 1) < 1e-6f, "weight paint: Normalize All");
     }
     std::printf(failures ? "self-test FAILED (%d)\n" : "self-test passed\n", failures);
     return failures ? 1 : 0;

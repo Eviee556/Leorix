@@ -498,6 +498,18 @@ height. *Rename Bones* maps every recognised humanoid bone between the Plain, Un
 Unity (Mecanim), Mixamo and Godot conventions; one table holds the names, with per-side
 prefixes and suffixes (`.L`, `_l`, `Left`, `mixamorig:Left`).
 
+**Weight painting** (`anim/WeightPaint.*`, UI in `app/WeightPaintPanel.cpp`). Weight Paint mode
+edits the four bone influences each vertex stores, on top of the automatic weights. A dab finds
+the vertices inside the brush on the surface you see (the skinned positions when posed) and
+applies Add, Subtract, Replace or Smooth to the active bone, scaled by strength and the sculpt
+falloff curve. `SetBoneWeight` keeps every vertex normalized: the other influences are scaled so
+the total stays 1, and a full slot set gives up its weakest influence. Smooth averages the
+active bone's weight over edge neighbours, read before the dab so vertex order does not matter.
+X Mirror hashes positions on a 0.1 mm grid, finds the vertex at (-x, y, z) and paints the twin
+bone (`.L`/`.R`, `_l`/`_r`, `Left`/`Right`). The viewport shows the active bone's weights as a
+blue-to-red ramp, each stroke is one undo step, and *Normalize All* / *Clean* tidy the result.
+Weights are stored in `.leorix` projects with the armature.
+
 **Keyframes** (`anim/Animation.*`). Each channel animates one scalar (object or bone ×
 location/rotation/scale × axis), like Blender's F-curves. There are 12 interpolation modes
 (Constant, Linear, Bezier, and Sine through Elastic) with In/Out/InOut easing.
