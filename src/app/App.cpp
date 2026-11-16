@@ -584,9 +584,11 @@ void App::Canvas2DPanel() {
     }
     dl->AddRect(a, b, IM_COL32(139, 146, 163, 120));
     if (showUV) DrawUVOverlay(a, b);
+    // UV editing takes the mouse instead of the brush while it is switched on.
+    const bool uvEditing = showUV && uvEditMode && UVCanvasEdit(a, b);
 
     // Painting: canvas space is the map's pixel space, so zoom does not change the brush size.
-    if (activeMap && canvas2DHovered && hw > 0 && hh > 0) {
+    if (activeMap && canvas2DHovered && hw > 0 && hh > 0 && !uvEditing) {
         ImVec2 mouse = io.MousePos;
         ImVec2 mapPos((mouse.x - a.x) / (b.x - a.x) * activeMap->width,
                       (mouse.y - a.y) / (b.y - a.y) * activeMap->height);
@@ -594,25 +596,7 @@ void App::Canvas2DPanel() {
         if (inside && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) { painting = true; PaintStroke(mapPos, true); }
         else if (painting && ImGui::IsMouseDown(ImGuiMouseButton_Left)) PaintStroke(mapPos, false);
     }
-    if (painting && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-        painting = false;
-        if (activeStroke && !activeStroke->Empty() && activeMap) {
-            Layer* l = activeMap->Active();
-            if (l) activeStroke->CaptureAfter(*l);
-            auto stroke = activeStroke;
-            const auto& tname = kTools2D[tool2D];
-            auto restore = [this, stroke](bool useBefore) {
-                if (stroke->mapIndex < 0 || stroke->mapIndex >= (int)paint.maps.size()) return;
-                MapDoc& md = paint.maps[stroke->mapIndex];
-                if (stroke->layerIndex < 0 || stroke->layerIndex >= (int)md.layers.size()) return;
-                stroke->Restore(md.layers[stroke->layerIndex], useBefore);
-                md.dirty.Whole(md.width, md.height);
-            };
-            undoStack.Push(tname.name ? tname.name : "Stroke",
-                           [restore] { restore(true); }, [restore] { restore(false); }, stroke->Bytes());
-        }
-        activeStroke.reset();
-    }
+    if (painting && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) PaintStrokeEnd();
 
     // Imported sculpt brush image, shown in the 2D viewport as requested.
     if (brushImage.Loaded() && sculpt.showImageIn2D) {

@@ -737,6 +737,46 @@ into a new paint layer.
 
 ![The 2D/UV canvas beside the 3D viewport, with seams drawn in red](images/uv-paint.png)
 
+### Smart UV Project
+
+`SmartUVProject` needs no seams. It flood-fills polygons across shared edges while each one's
+normal stays within the angle limit (66° by default) of the group's first polygon. The borders
+between groups become temporary seams, the normal Unwrap pipeline runs, and then the user's own
+seams are put back. A cube gives six islands.
+
+### Editing UVs on the canvas
+
+`mesh/UVEdit.*` holds the math, so the self-test can check it without a window:
+
+- **Islands.** `UVIslands` joins two triangles when they share a mesh edge with the same UVs on both sides.
+- **Picking.** `PickUVTriangle` finds the triangle under a UV point and `PickUVCorner` the nearest corner.
+- **Selection.** One flag per face corner, filled by `SelectUVIsland` or `SelectUVVertex`.
+- **Move, rotate, scale.** `TransformUVSelection` always writes from the UVs saved when the
+  gesture began, so a long drag never builds up rounding error. One undo step per gesture.
+
+With **Edit UVs on the canvas** switched on, a click selects an island or a vertex (Shift adds or
+toggles) and dragging moves it. The UV Editor panel has Rotate and Scale drags. The canvas brush
+is off while this is on.
+
+### Painting on the 3D model
+
+In Sculpt Mode the **Paint** brush paints texture instead of moving vertices:
+
+1. The viewport pick already gives the hit triangle and the world point. That point is moved
+   into object space.
+2. `SurfaceUV` turns it into a UV using barycentric weights on the triangle's corner UVs.
+3. The UV becomes a map pixel: x = u × width, y = (1 − v) × height.
+4. The brush radius, which is measured in screen pixels as for sculpting, is converted to surface
+   units and then to map pixels with `TexelsPerUnit`. The dab therefore covers the same area as
+   the ring shown in the viewport.
+5. The dab goes through the same `PaintStroke` path as the 2D canvas, with the same colour,
+   opacity, hardness, Eraser and dirty-tile undo.
+
+When consecutive hits land far apart in UV space, the brush has crossed a seam, so it stamps
+instead of drawing a line across the texture. Any material slot still showing that map, which is
+labelled "*map* (painted)" when a map is dropped onto it, is refreshed in place about every
+150 ms during a stroke and once more when the stroke ends or is undone.
+
 ---
 
 ## 14. Scripting

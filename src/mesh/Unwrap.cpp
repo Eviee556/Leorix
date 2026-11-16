@@ -350,3 +350,53 @@ UnwrapResult UnwrapMesh(Mesh& mesh, const UnwrapOptions& opts) {
     res.message = "Unwrapped " + std::to_string(islands.size()) + " island" + (islands.size() == 1 ? "" : "s");
     return res;
 }
+
+UnwrapResult SmartUVProject(Mesh& mesh, float angleLimitDeg, const UnwrapOptions& opts) {
+    if (mesh.tris.empty()) { UnwrapResult r; r.message = "Mesh has no faces"; return r; }
+    // polygon normals (area weighted, so a fan of slivers can't skew them)
+    uint32_t polys = 0;
+    for (const Tri& t : mesh.tris) polys = std::max(polys, t.poly + 1);
+    std::vector<Float3> pn(polys, Float3{0, 0, 0});
+    std::unordered_map<uint64_t, std::vector<uint32_t>> edgePolys;
+    for (const Tri& t : mesh.tris) {
+        Float3 n = Cross(Sub(mesh.positions[t.b], mesh.positions[t.a]), Sub(mesh.positions[t.c], mesh.positions[t.a]));
+        pn[t.poly].x += n.x; pn[t.poly].y += n.y; pn[t.poly].z += n.z;
+        for (uint64_t k : {Mesh::EdgeKey(t.a, t.b), Mesh::EdgeKey(t.b, t.c), Mesh::EdgeKey(t.c, t.a)}) {
+            auto& l = edgePolys[k];
+            if (std::find(l.begin(), l.end(), t.poly) == l.end()) l.push_back(t.poly);
+        }
+    }
+    for (Float3& n : pn) { double l = Len(n); if (l > 1e-12) n = {(float)(n.x / l), (float)(n.y / l), (float)(n.z / l)}; }
+
+    // flood-fill groups across shared edges while the normal stays near the seed's
+    std::unordered_map<uint32_t, std::vector<uint64_t>> polyEdges;
+    for (const auto& kv : edgePolys) for (uint32_t p : kv.second) polyEdges[p].push_back(kv.first);
+    const double cosLimit = std::cos(std::clamp(angleLimitDeg, 1.0f, 89.0f) * 3.14159265358979 / 180.0);
+    std::vector<int> group(polys, -1);
+    int groups = 0;
+    std::vector<uint32_t> stack;
+    for (uint32_t seed = 0; seed < polys; ++seed) {
+        if (group[seed] >= 0 || !polyEdges.count(seed)) continue;
+        const Float3 sn = pn[seed];
+        group[seed] = groups;
+        stack.assign(1, seed);
+        while (!stack.empty()) {
+            uint32_t p = stack.back(); stack.pop_back();
+            for (uint64_t k : polyEdges[p])
+                for (uint32_t q : edgePolys[k])
+                    if (group[q] < 0 && Dot(pn[q], sn) >= cosLimit) { group[q] = groups; stack.push_back(q); }
+        }
+        ++groups;
+    }
+
+    // cut along group borders by unwrapping with those as the only seams, then put the user's back
+    std::unordered_set<uint64_t> userSeams = std::move(mesh.seamEdges);
+    mesh.seamEdges.clear();
+    for (const auto& kv : edgePolys)
+        for (size_t i = 1; i < kv.second.size(); ++i)
+            if (group[kv.second[i]] != group[kv.second[0]]) { mesh.seamEdges.insert(kv.first); break; }
+    UnwrapResult r = UnwrapMesh(mesh, opts);
+    mesh.seamEdges = std::move(userSeams);
+    if (r.ok) r.message = "Smart UV Project: " + std::to_string(r.islands) + " island" + (r.islands == 1 ? "" : "s");
+    return r;
+}

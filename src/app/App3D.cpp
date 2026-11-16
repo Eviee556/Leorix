@@ -6,6 +6,7 @@
 #include "mesh/IO.h"
 #include "mesh/Primitives.h"
 #include "mesh/Unwrap.h"
+#include "mesh/UVEdit.h"
 #include "mesh/EditOps.h"
 #include "mesh/Axes.h"
 #include "tools/Script.h"
@@ -152,6 +153,7 @@ void App::EditModePick(bool viewportHovered) {
 
     // Every visible object is drawn. Edit/sculpt overlays only apply to the active one.
     lastPick = PickResult{};
+    lastPickObject = -1;
     int pickedObject = -1;
     float bestDepth = FLT_MAX;
     for (int i = 0; i < (int)scene.objects.size(); ++i) {
@@ -162,7 +164,7 @@ void App::EditModePick(bool viewportHovered) {
         bool objRetopo = retopoMode && isActive;
         PickResult p = DrawAndPickMesh(dl, viewport, obj, edit.selectMode, objEdit, objRetopo, meshPrefs,
                                        mouse, viewportHovered, shading, BuildLighting());
-        if (p.hit && p.depth < bestDepth) { bestDepth = p.depth; pickedObject = i; if (isActive || !editMode) lastPick = p; }
+        if (p.hit && p.depth < bestDepth) { bestDepth = p.depth; pickedObject = i; if (isActive || !editMode) { lastPick = p; lastPickObject = i; } }
     }
     DrawCameraGizmo();
 
@@ -215,6 +217,7 @@ void App::EditModePick(bool viewportHovered) {
 
     // Before the hover check: a stroke released outside the viewport must still become an undo step.
     if (sculpting && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) { sculpting = false; SculptStrokeEnd(); }
+    if (paintingModel && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) PaintStrokeEnd();
     if (!viewportHovered || xform.active) return;
     // Alt+LMB, the gizmo and the pan/zoom handles steer the view; they must not also select.
     if (viewport.navigating || viewport.overNavWidget || ImGui::GetIO().KeyAlt) return;
@@ -247,7 +250,11 @@ void App::EditModePick(bool viewportHovered) {
             else if (edit.selectMode & 4) { if (!shift) obj.selFaces.clear(); uint32_t poly = obj.mesh.tris[lastPick.tri].poly; if (obj.selFaces.count(poly)) obj.selFaces.erase(poly); else obj.selFaces.insert(poly); }
         }
     } else if (mode3D == Mode3D::Sculpt) {
-        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && lastPick.hit) {
+        const bool texPaint = kSculptBrushes[sculpt.brush].icon == Icon::SculptPaint;
+        if (texPaint) {
+            if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && lastPick.hit) PaintOnModel(true);
+            else if (paintingModel && ImGui::IsMouseDown(ImGuiMouseButton_Left)) PaintOnModel(false);
+        } else if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && lastPick.hit) {
             sculpting = true;
             lastSculptPoint = lastPick.point;
             SculptStroke(true);
@@ -2656,7 +2663,7 @@ void App::ApplyMapsToMaterial() {
     ShowStatus("No Base Color map to apply");
 }
 
-void App::PaintStroke(ImVec2 canvasPos, bool begin) {
+void App::PaintStroke(ImVec2 canvasPos, bool begin, float sizePx) {
     MapDoc* m = paint.Active();
     if (!m) return;
     Layer* l = m->Active();
@@ -2664,12 +2671,13 @@ void App::PaintStroke(ImVec2 canvasPos, bool begin) {
     if (l->locked) { ShowStatus("Layer is locked"); return; }
 
     const auto& t = kTools2D[tool2D];
+    const bool fromViewport = sizePx > 0.0f;
     bool erase = t.icon == Icon::Eraser;
-    bool pencil = t.icon == Icon::Pencil;
-    if (!erase && !pencil && t.icon != Icon::Brush && t.icon != Icon::Fill) return;
+    bool pencil = t.icon == Icon::Pencil && !fromViewport;
+    if (!fromViewport && !erase && !pencil && t.icon != Icon::Brush && t.icon != Icon::Fill) return;
 
     uint32_t rgba = IM_COL32((int)(color[0] * 255), (int)(color[1] * 255), (int)(color[2] * 255), 255);
-    if (t.icon == Icon::Fill) {
+    if (t.icon == Icon::Fill && !fromViewport) {
         if (!begin) return;
         auto snap = std::make_shared<std::vector<uint8_t>>(l->pixels);
         FillLayer(*l, m->width, m->height, rgba, m->dirty);
@@ -2689,7 +2697,7 @@ void App::PaintStroke(ImVec2 canvasPos, bool begin) {
     }
 
     BrushSettings b = brush2D;
-    b.size = brushSize;
+    b.size = fromViewport ? sizePx : brushSize;
     b.opacity = brushOpacity;
     b.hardness = pencil ? 100.0f : brushHardness;   // the pencil is a hard round brush
 
@@ -2697,17 +2705,21 @@ void App::PaintStroke(ImVec2 canvasPos, bool begin) {
         activeStroke = std::make_shared<StrokeUndo>();
         activeStroke->Begin(paint.activeMap, m->activeLayer, m->width, m->height);
     }
+    // From the model, a jump in UV space means the brush crossed a seam: stamp, don't draw a line
+    // across the texture between the two islands.
+    const float jx = canvasPos.x - lastPaintPos.x, jy = canvasPos.y - lastPaintPos.y;
+    const bool stamp = begin || (fromViewport && jx * jx + jy * jy > b.size * b.size * 4.0f);
     // save the tiles this dab or segment will touch, before it touches them
     if (activeStroke) {
         float r = b.size * 0.5f + 2.0f;
-        float ax = begin ? canvasPos.x : lastPaintPos.x, ay = begin ? canvasPos.y : lastPaintPos.y;
+        float ax = stamp ? canvasPos.x : lastPaintPos.x, ay = stamp ? canvasPos.y : lastPaintPos.y;
         activeStroke->BackupRect(*l, (int)std::floor(std::min(ax, canvasPos.x) - r),
                                      (int)std::floor(std::min(ay, canvasPos.y) - r),
                                      (int)std::ceil(std::max(ax, canvasPos.x) + r),
                                      (int)std::ceil(std::max(ay, canvasPos.y) + r));
     }
 
-    if (begin) {
+    if (stamp) {
         strokeCarry = 0.0f;
         StampBrush(*l, m->width, m->height, canvasPos.x, canvasPos.y, b, rgba, erase, m->dirty);
     } else {
@@ -2883,6 +2895,44 @@ void App::UVPanel() {
 
     ImGui::Spacing();
     if (ImGui::Button("Unwrap  (U)", ImVec2(-1, 0))) UnwrapSelected();
+    if (ImGui::Button("Smart UV Project", ImVec2(-1, 0))) UnwrapSelected(true);
+    ImGui::SetNextItemWidth(-90.0f);
+    ImGui::SliderFloat("Angle limit", &smartAngle, 1.0f, 89.0f, "%.0f deg");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Smart UV Project keeps neighbouring faces together while they bend less than this");
+
+    ImGui::Spacing();
+    ImGui::TextColored(kBrass, "EDIT UVS");
+    ImGui::Checkbox("Edit UVs on the canvas", &uvEditMode);
+    if (uvEditMode) {
+        if (ImGui::RadioButton("Islands", uvSelectIslands)) uvSelectIslands = true;
+        ImGui::SameLine();
+        if (ImGui::RadioButton("Vertices", !uvSelectIslands)) uvSelectIslands = false;
+        Float2 c;
+        const bool any = UVSelectionCenter(o->mesh, uvSel, c);
+        ImGui::BeginDisabled(!any);
+        ImGui::SetNextItemWidth(-90.0f);
+        if (ImGui::DragFloat("Rotate", &uvRotateDeg, 0.5f, -360.0f, 360.0f, "%.1f deg")) {
+            if (uvGestureBase.empty()) BeginUVGesture();
+            Float2 pivot; UVSelectionCenter(o->mesh, uvSel, pivot);
+            TransformUVSelection(o->mesh, uvGestureBase, uvSel, {0, 0}, uvRotateDeg * 3.14159265f / 180.0f, {1, 1}, pivot);
+            uvLayout.valid = false;
+        }
+        if (ImGui::IsItemDeactivated()) { EndUVGesture("Rotate UVs"); uvRotateDeg = 0.0f; }
+        ImGui::SetNextItemWidth(-90.0f);
+        if (ImGui::DragFloat("Scale", &uvScale, 0.005f, 0.01f, 20.0f, "%.3f x")) {
+            if (uvGestureBase.empty()) BeginUVGesture();
+            Float2 pivot; UVSelectionCenter(o->mesh, uvSel, pivot);
+            TransformUVSelection(o->mesh, uvGestureBase, uvSel, {0, 0}, 0.0f, {uvScale, uvScale}, pivot);
+            uvLayout.valid = false;
+        }
+        if (ImGui::IsItemDeactivated()) { EndUVGesture("Scale UVs"); uvScale = 1.0f; }
+        ImGui::EndDisabled();
+        if (ImGui::Button("Select All")) { uvSel.assign(o->mesh.loopUVs.size(), 1); uvSelOwner = o; }
+        ImGui::SameLine();
+        if (ImGui::Button("Select None")) uvSel.clear();
+        Hint("Click an island (or a vertex) on the canvas to select it, Shift+click to add, then drag "
+             "it to move. Rotate and Scale turn around the selection's centre.");
+    }
     if (ImGui::Button("Rebuild layout from mesh", ImVec2(-1, 0))) { RebuildUVLayout(); ShowStatus("UV layout rebuilt"); }
 
     // Bake, as the original did: draw the layout into a new layer of the active map.
@@ -2914,6 +2964,17 @@ void App::DrawUVOverlay(ImVec2 a, ImVec2 b) {
         ImU32 col = IM_COL32((int)(uvSeamColor[0] * 255), (int)(uvSeamColor[1] * 255),
                              (int)(uvSeamColor[2] * 255), 255);
         for (const UVEdge& e : uvLayout.seams) dl->AddLine(toScreen(e.a), toScreen(e.b), col, uvSeamWidth);
+    }
+    const MeshObject* o = scene.Active();
+    if (uvEditMode && o && o->mesh.HasLoopUVs() && uvSel.size() == o->mesh.loopUVs.size()) {
+        const auto& uv = o->mesh.loopUVs;
+        for (size_t ti = 0; ti * 3 + 2 < uv.size(); ++ti)
+            for (int e = 0; e < 3; ++e) {
+                size_t c0 = ti * 3 + e, c1 = ti * 3 + (e + 1) % 3;
+                if (uvSel[c0] && uvSel[c1]) dl->AddLine(toScreen(uv[c0]), toScreen(uv[c1]), IM_COL32(240, 150, 40, 255), 1.5f);
+            }
+        for (size_t c = 0; c < uv.size(); ++c)
+            if (uvSel[c]) dl->AddCircleFilled(toScreen(uv[c]), 2.5f, IM_COL32(240, 150, 40, 255));
     }
 }
 
@@ -2991,13 +3052,13 @@ void App::MarkEdges(bool seam, bool set) {
     ShowStatus(msg);
 }
 
-void App::UnwrapSelected() {
+void App::UnwrapSelected(bool smart) {
     MeshObject* o = scene.Active();
     if (!o) { ShowStatus("No object selected"); return; }
     auto beforeUV = std::make_shared<std::vector<Float2>>(o->mesh.loopUVs);
 
     UnwrapOptions opts;
-    UnwrapResult r = UnwrapMesh(o->mesh, opts);
+    UnwrapResult r = smart ? SmartUVProject(o->mesh, smartAngle, opts) : UnwrapMesh(o->mesh, opts);
     if (!r.ok) { ShowStatus(r.message); return; }
     auto afterUV = std::make_shared<std::vector<Float2>>(o->mesh.loopUVs);
 
@@ -3007,13 +3068,13 @@ void App::UnwrapSelected() {
         scene.objects[objIndex]->mesh.loopUVs = *uv;
         uvLayout.valid = false;
     };
-    undoStack.Push("Unwrap", [apply, beforeUV] { apply(beforeUV); }, [apply, afterUV] { apply(afterUV); },
+    undoStack.Push(smart ? "Smart UV Project" : "Unwrap", [apply, beforeUV] { apply(beforeUV); }, [apply, afterUV] { apply(afterUV); },
                    (beforeUV->size() + afterUV->size()) * sizeof(Float2));
 
     uvLayout.valid = false;
     RebuildUVLayout();
     showUV = true;
-    if (o->mesh.seamEdges.empty())
+    if (o->mesh.seamEdges.empty() && !smart)
         ShowStatus(r.message + " - no seams marked, so the whole mesh was flattened in one piece");
     else
         ShowStatus(r.message);

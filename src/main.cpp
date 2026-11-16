@@ -4,6 +4,8 @@
 #include "mesh/IO.h"
 #include "mesh/EditOps.h"
 #include "mesh/Primitives.h"
+#include "mesh/Unwrap.h"
+#include "mesh/UVEdit.h"
 #include "tools/Script.h"
 #include "render/PathTracer.h"
 #include "tools/Sculpt.h"
@@ -464,6 +466,60 @@ static int SelfTest() {
         float hi = -1e9f;
         if (tr.ok && !tr.meshes.empty()) for (const Float3& q : tr.meshes[0].positions) hi = std::max(hi, q.x);
         check(tr.ok && std::fabs(hi - 2.5f) < 1e-4f, "script: frame, time and fps globals");
+    }
+    // Smart UV Project, UV island editing and painting on the model
+    {
+        Mesh cube = BuildPrimitive(Primitive::Cube, DefaultParams(Primitive::Cube));
+        UnwrapResult sr = SmartUVProject(cube);
+        bool inside = cube.HasLoopUVs();
+        for (const Float2& q : cube.loopUVs) inside &= q.u >= 0 && q.u <= 1 && q.v >= 0 && q.v <= 1;
+        UVLayout lay; lay.Build(cube);
+        std::vector<int> isl;
+        int count = UVIslands(cube, isl);
+        check(sr.ok && sr.islands == 6 && inside && lay.islands == 6 && count == 6 && cube.seamEdges.empty(),
+              "smart UV project: cube gives 6 separate islands inside 0..1, seams untouched");
+
+        std::vector<uint8_t> sel;
+        SelectUVIsland(cube, isl, 0, sel);
+        std::vector<Float2> base = cube.loopUVs;
+        TransformUVSelection(cube, base, sel, {0.1f, 0.0f}, 0.0f, {1, 1}, {0, 0});
+        bool moved = true, rest = true; size_t n = 0;
+        for (size_t c = 0; c < base.size(); ++c) {
+            float du = cube.loopUVs[c].u - base[c].u, dv = cube.loopUVs[c].v - base[c].v;
+            if (sel[c]) { ++n; moved &= std::fabs(du - 0.1f) < 1e-5f && std::fabs(dv) < 1e-5f; }
+            else rest &= du == 0.0f && dv == 0.0f;
+        }
+        check(n == 6 && moved && rest, "moving a UV island shifts only its corners");
+        TransformUVSelection(cube, base, sel, {0, 0}, 3.14159265f, {1, 1}, {0.5f, 0.5f});
+        Float2 c0 = cube.loopUVs[0];
+        check(std::fabs(c0.u - (1.0f - base[0].u)) < 1e-4f && std::fabs(c0.v - (1.0f - base[0].v)) < 1e-4f,
+              "rotating UVs 180 degrees about the centre");
+
+        // a 2 x 2 plane on y = 0 whose UVs follow x and z; a ray straight down onto (0.5, 0, -0.5)
+        Mesh plane;
+        plane.positions = {{-1, 0, -1}, {1, 0, -1}, {1, 0, 1}, {-1, 0, 1}};
+        plane.tris = {{0, 1, 2, 0}, {0, 2, 3, 0}};
+        plane.polyCount = 1;
+        for (const Tri& t : plane.tris)
+            for (uint32_t v : {t.a, t.b, t.c}) plane.loopUVs.push_back({(plane.positions[v].x + 1) * 0.5f, (plane.positions[v].z + 1) * 0.5f});
+        Float3 ro{0.5f, 1.0f, -0.5f}, rd{0, -1, 0};
+        float tHit = -ro.y / rd.y;
+        Float3 hit{ro.x + rd.x * tHit, ro.y + rd.y * tHit, ro.z + rd.z * tHit};
+        Float2 uv{};
+        bool got = SurfaceUV(plane, 0, hit, uv);
+        check(got && std::fabs(uv.u - 0.75f) < 1e-5f && std::fabs(uv.v - 0.25f) < 1e-5f, "paint on model: hit point to UV");
+        check(std::fabs(TexelsPerUnit(plane, 0, 256, 256) - 128.0f) < 1e-3f, "paint on model: texel density");
+
+        Layer layer; layer.Fill(0xFF000000u, 256, 256);
+        StrokeUndo su; su.Begin(0, 0, 256, 256);
+        const float px = uv.u * 256, py = (1.0f - uv.v) * 256;
+        su.BackupRect(layer, (int)px - 8, (int)py - 8, (int)px + 8, (int)py + 8);
+        BrushSettings bs; bs.size = 10; bs.hardness = 100;
+        DirtyRect dr;
+        StampBrush(layer, 256, 256, px, py, bs, 0xFFFFFFFFu, false, dr);
+        auto at = [&](int x, int y) { return layer.pixels[((size_t)y * 256 + x) * 4]; };
+        check(at((int)px, (int)py) == 255 && at(64, 64) == 0 && su.tiles.size() == 1 && su.tiles[0] == 3,
+              "paint on model: dab lands in the right tile");
     }
     std::printf(failures ? "self-test FAILED (%d)\n" : "self-test passed\n", failures);
     return failures ? 1 : 0;
