@@ -15,6 +15,13 @@ All notable changes to Leorix Native are listed here. The format follows
 ### Changed
 - Existing curves are now Bezier with Auto handles instead of a Catmull-Rom spline, so meshes bent with Curve Deform can shift slightly.
 
+### Fixed
+- Curve edits now update meshes bent with Curve Deform.
+- Duplicating or moving a physics-baked object no longer snaps it back onto the old baked path.
+- Weight Paint X Mirror works on posed rigs and no longer moves centre-line vertices to the mirrored bone.
+- Joining into, or sculpting, a curve's tube is refused instead of losing the geometry.
+- Physics bakes are capped at 10000 frames so the app can't hang.
+
 ## [0.4.0] - 2026-11-15
 
 ### Added
