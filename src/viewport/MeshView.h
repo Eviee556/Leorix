@@ -39,6 +39,8 @@ struct MeshDrawPrefs {
     // where it points away, which is what a flipped face looks like from outside.
     bool  faceOrientation = false;
     int   weightBone = -1;            // Weight Paint: shade by this bone's weights (blue 0 .. red 1)
+    bool  weightZeroBlack = false;    // zero / missing weight drawn black instead of blue
+    bool  weightContours = false;     // iso lines every 0.1 over the heatmap
     ImU32 faceFront      = IM_COL32(45, 110, 255, 165);
     ImU32 faceBack       = IM_COL32(255, 40, 40, 205);
     ImU32 wireNeon   = IM_COL32(70, 255, 130, 255);
@@ -71,6 +73,9 @@ void RasterizeDepth(const Viewport3D& vp, MeshObject& obj);
 
 // Draws an object's bones in the viewport.
 void DrawArmature(ImDrawList* dl, const Viewport3D& vp, MeshObject& obj, int activeBone);
+// The bone of `obj` whose screen-space segment is within `maxPx` of `mouse`, or -1. `xf` places
+// the bones (the armature object's transform).
+int  PickArmatureBone(const Viewport3D& vp, const MeshObject& obj, ImVec2 mouse, float maxPx);
 
 // Rendered mode: the object's shadow cast onto the ground plane, drawn before the meshes.
 void DrawGroundShadow(ImDrawList* dl, const Viewport3D& vp, MeshObject& obj, const ViewLighting& light);

@@ -515,6 +515,17 @@ bone (`.L`/`.R`, `_l`/`_r`, `Left`/`Right`). The viewport shows the active bone'
 blue-to-red ramp, each stroke is one undo step, and *Normalize All* / *Clean* tidy the result.
 Weights are stored in `.leorix` projects with the armature.
 
+The full toolset sits on the same functions. Blur, Average, Sharpen and Multiply are more dab
+modes (Blur uses a grid of brush-radius cells; Average pulls to the brush area's mean). With
+Accumulate off a dab is clamped against the weights at stroke start, so passing over a spot twice
+doesn't add twice. Bones carry a `weightLocked` flag: `SetBoneWeight` never edits a locked bone
+and renormalizes only the unlocked ones, capping the painted bone at what the locked ones leave
+free. Whole-mesh operations (Invert, Levels, Clamp, Quantize, Clear, Smooth with expand, Limit
+Total, Mirror L>R, Assign) run on the active bone or every unlocked bone as one undo step.
+Gradient sets weights along a dragged line or radius through the falloff curve, Sample Weight
+interpolates the hit triangle's corners, and Transfer Weights copies the nearest surface point
+of another mesh bound to the same bones (barycentric blend, strongest four kept).
+
 **One armature, many meshes** (`anim/ArmatureLink.*`, UI in `app/RigLinks.cpp`). A mesh can be
 deformed by another object's bones, like Blender's Armature modifier. The mesh stores the
 armature object's id in `armatureObject` and keeps its own weights and rest positions; the

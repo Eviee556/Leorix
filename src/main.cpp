@@ -1157,6 +1157,165 @@ static int SelfTest() {
         c.weights = {both(0.6f)}; c.weights[0].weight[1] = 0.2f;   // sums to 0.8
         check(NormalizeAllWeights(c) == 1 && std::fabs(sum(c.weights[0]) - 1) < 1e-6f, "weight paint: Normalize All");
     }
+    // Weight painting tools: new brushes, locks, operations, gradient, mirror, transfer, sample, project locks
+    {
+        auto sum = [](const VertexWeights& w) { float t = 0; for (int s = 0; s < 4; ++s) if (w.bone[s] >= 0) t += w.weight[s]; return t; };
+        auto two = [](float a) { VertexWeights w; w.bone[0] = 0; w.weight[0] = a; w.bone[1] = 1; w.weight[1] = 1 - a; return w; };
+        auto rig = [](Armature& a) { a.AddBone("a", {0, 0, 0}, {0, 1, 0}); a.AddBone("b", {0, 1, 0}, {0, 2, 0}); };
+        // a 5 x 2 strip of vertices, normals facing +z
+        std::vector<Float3> pos = {{0, 0, 0}, {1, 0, 0}, {2, 0, 0}, {3, 0, 0}, {4, 0, 0}, {0, 1, 0}, {1, 1, 0}, {2, 1, 0}, {3, 1, 0}, {4, 1, 0}};
+        std::vector<Tri> tris;
+        for (uint32_t i = 0; i < 4; ++i) { tris.push_back({i, i + 1, i + 5, i}); tris.push_back({i + 1, i + 6, i + 5, i}); }
+        SculptSettings fall; fall.falloffCurve = 8;   // Constant
+        auto fresh = [&](Armature& a) {
+            a = Armature{}; rig(a); a.restPositions = pos;
+            for (size_t i = 0; i < pos.size(); ++i) a.weights.push_back(two(i % 5 == 2 ? 1.0f : 0.0f));
+        };
+        Armature a;
+        fresh(a);
+        WeightDab d; d.center = pos[2]; d.radius = 1.5f; d.strength = 1; d.bone = 0;
+        d.mode = WeightBrush::Blur;
+        ApplyWeightDab(a, pos, tris, fall, d);
+        const float c2 = BoneWeight(a.weights[2], 0), c1 = BoneWeight(a.weights[1], 0);
+        check(c2 < 1.0f && c2 > 0.0f && c1 > 0.0f && std::fabs(sum(a.weights[1]) - 1) < 1e-5f, "weight tools: Blur spreads a peak");
+        fresh(a);
+        d.mode = WeightBrush::Average; d.radius = 1.1f;   // covers vertices 1, 2, 3 and 7 (weights 0, 1, 0, 1)
+        ApplyWeightDab(a, pos, tris, fall, d);
+        check(std::fabs(BoneWeight(a.weights[1], 0) - 0.5f) < 1e-4f && std::fabs(BoneWeight(a.weights[2], 0) - 0.5f) < 1e-4f,
+              "weight tools: Average pulls the brush area to its mean");
+        fresh(a);
+        for (auto& w : a.weights) w = two(0.5f);
+        a.weights[2] = two(0.6f);
+        d.mode = WeightBrush::Sharpen; d.radius = 0.1f; d.strength = 1;
+        ApplyWeightDab(a, pos, tris, fall, d);
+        check(BoneWeight(a.weights[2], 0) > 0.6f + 1e-4f, "weight tools: Sharpen pushes a vertex away from its neighbours");
+        a.weights[2] = two(0.8f);
+        d.mode = WeightBrush::Multiply; d.value = 0.5f;
+        ApplyWeightDab(a, pos, tris, fall, d);
+        check(std::fabs(BoneWeight(a.weights[2], 0) - 0.4f) < 1e-5f, "weight tools: Multiply scales the weight");
+        {   // accumulate off: two passes of Add go no further than one
+            a.weights[2] = two(0.2f);
+            const std::vector<VertexWeights> start = a.weights;
+            WeightDab ad = d; ad.mode = WeightBrush::Add; ad.value = 0.3f; ad.strokeStart = &start;
+            ApplyWeightDab(a, pos, tris, fall, ad);
+            ApplyWeightDab(a, pos, tris, fall, ad);
+            check(std::fabs(BoneWeight(a.weights[2], 0) - 0.5f) < 1e-5f, "weight tools: Accumulate off caps a stroke at one pass");
+        }
+        {   // front faces only: the strip faces +z, so an eye looking down -z sees it and one looking down +z doesn't
+            fresh(a);
+            WeightDab fd = d; fd.mode = WeightBrush::Replace; fd.value = 0.7f; fd.frontOnly = true;
+            fd.viewDir = {0, 0, -1};
+            check(ApplyWeightDab(a, pos, tris, fall, fd) == 1, "weight tools: front faces only paints faces toward the eye");
+            fd.viewDir = {0, 0, 1};
+            check(ApplyWeightDab(a, pos, tris, fall, fd) == 0, "weight tools: front faces only skips faces turned away");
+        }
+        {   // locks: a locked bone never changes and the sum stays 1
+            Armature l; rig(l); l.AddBone("c", {0, 2, 0}, {0, 3, 0});
+            l.restPositions = {pos[0]};
+            VertexWeights w; w.bone[0] = 0; w.weight[0] = 0.2f; w.bone[1] = 1; w.weight[1] = 0.5f; w.bone[2] = 2; w.weight[2] = 0.3f;
+            l.weights = {w};
+            l.bones[1].weightLocked = true;
+            WeightDab ld; ld.center = pos[0]; ld.radius = 0.1f; ld.strength = 1; ld.bone = 0; ld.mode = WeightBrush::Replace; ld.value = 0.9f;
+            ApplyWeightDab(l, {pos[0]}, {}, fall, ld);
+            check(std::fabs(BoneWeight(l.weights[0], 1) - 0.5f) < 1e-6f && std::fabs(BoneWeight(l.weights[0], 0) - 0.5f) < 1e-5f &&
+                  std::fabs(sum(l.weights[0]) - 1) < 1e-5f, "weight tools: locked bone untouched, painted bone capped, sum 1");
+            ld.bone = 1;
+            check(ApplyWeightDab(l, {pos[0]}, {}, fall, ld) == 0, "weight tools: a locked bone can't be painted");
+            InvertWeights(l, -1);
+            check(std::fabs(BoneWeight(l.weights[0], 1) - 0.5f) < 1e-6f && std::fabs(sum(l.weights[0]) - 1) < 1e-5f,
+                  "weight tools: all-bone operations skip locked bones");
+        }
+        {   // invert / levels / clamp / quantize / clear on one bone
+            Armature m; rig(m); m.restPositions = {pos[0], pos[1]};
+            m.weights = {two(0.3f), two(0.8f)};
+            InvertWeights(m, 0);
+            check(std::fabs(BoneWeight(m.weights[0], 0) - 0.7f) < 1e-5f && std::fabs(BoneWeight(m.weights[1], 0) - 0.2f) < 1e-5f &&
+                  std::fabs(sum(m.weights[0]) - 1) < 1e-5f, "weight tools: Invert");
+            LevelsWeights(m, 0, 0.1f, 0.5f);   // 0.7 -> 0.45, 0.2 -> 0.2
+            check(std::fabs(BoneWeight(m.weights[0], 0) - 0.45f) < 1e-5f && std::fabs(BoneWeight(m.weights[1], 0) - 0.2f) < 1e-5f,
+                  "weight tools: Levels");
+            ClampWeights(m, 0, 0.3f, 0.4f);
+            check(std::fabs(BoneWeight(m.weights[0], 0) - 0.4f) < 1e-5f && std::fabs(BoneWeight(m.weights[1], 0) - 0.3f) < 1e-5f,
+                  "weight tools: Clamp");
+            m.weights = {two(0.3f), two(0.62f)};
+            QuantizeWeights(m, 0, 4);
+            check(std::fabs(BoneWeight(m.weights[0], 0) - 0.25f) < 1e-5f && std::fabs(BoneWeight(m.weights[1], 0) - 0.5f) < 1e-5f,
+                  "weight tools: Quantize");
+            ClearBoneWeights(m, 0);
+            check(m.weights[0].bone[0] == -1 && std::fabs(BoneWeight(m.weights[0], 1) - 1) < 1e-6f, "weight tools: Clear removes the bone");
+        }
+        {   // smooth operation with expand, and limit total
+            fresh(a);
+            SmoothWeights(a, tris, 0, 2, 1.0f, 0.0f);
+            check(BoneWeight(a.weights[1], 0) > 0.0f && BoneWeight(a.weights[2], 0) < 1.0f && std::fabs(sum(a.weights[1]) - 1) < 1e-5f,
+                  "weight tools: Smooth operation spreads weight");
+            fresh(a);
+            SmoothWeights(a, tris, 0, 1, 1.0f, 1.0f);   // full expand: every vertex takes its neighbours' maximum
+            check(std::fabs(BoneWeight(a.weights[1], 0) - 1) < 1e-5f && BoneWeight(a.weights[4], 0) < 1e-5f,
+                  "weight tools: Smooth expand grows the area");
+            Armature lt; rig(lt); lt.AddBone("c", {0, 2, 0}, {0, 3, 0}); lt.AddBone("d", {0, 3, 0}, {0, 4, 0});
+            lt.restPositions = {pos[0]};
+            VertexWeights w;
+            for (int s = 0; s < 4; ++s) { w.bone[s] = s; w.weight[s] = 0.1f * (s + 1); }
+            lt.weights = {w};
+            LimitTotalWeights(lt, 2);
+            int kept = 0;
+            for (int s = 0; s < 4; ++s) kept += lt.weights[0].bone[s] >= 0;
+            check(kept == 2 && BoneWeight(lt.weights[0], 3) > BoneWeight(lt.weights[0], 2) && BoneWeight(lt.weights[0], 2) > 0 &&
+                  std::fabs(sum(lt.weights[0]) - 1) < 1e-5f, "weight tools: Limit Total keeps the strongest and renormalizes");
+        }
+        {   // mirror weights L -> R on a symmetric mesh
+            Armature mw; mw.AddBone("arm.L", {1, 0, 0}, {2, 0, 0}); mw.AddBone("arm.R", {-1, 0, 0}, {-2, 0, 0});
+            std::vector<Float3> sp = {{1.5f, 0, 0}, {-1.5f, 0, 0}, {0.5f, 0.3f, 0}, {-0.5f, 0.3f, 0}};
+            mw.restPositions = sp;
+            mw.weights = {two(0.9f), two(0.5f), two(0.3f), two(0.5f)};
+            MirrorWeights(mw, sp, -1);
+            check(std::fabs(BoneWeight(mw.weights[1], 1) - 0.9f) < 1e-5f && std::fabs(BoneWeight(mw.weights[3], 1) - 0.3f) < 1e-5f &&
+                  std::fabs(BoneWeight(mw.weights[0], 0) - 0.9f) < 1e-5f, "weight tools: Mirror Weights copies .L onto .R");
+        }
+        {   // gradient: monotonic along its axis, untouched past the end; sample weight interpolates
+            fresh(a);
+            for (auto& w : a.weights) w = two(0.0f);
+            SculptSettings lin; lin.falloffCurve = 5;   // Linear
+            WeightGradient g; g.a = {0, 0, 0}; g.b = {3, 0, 0}; g.bone = 0; g.value = 1; g.strength = 1;
+            ApplyWeightGradient(a, pos, lin, g);
+            bool mono = true;
+            for (int i = 0; i < 3; ++i) mono &= BoneWeight(a.weights[i], 0) > BoneWeight(a.weights[i + 1], 0) - 1e-6f;
+            check(mono && std::fabs(BoneWeight(a.weights[0], 0) - 1) < 1e-5f && BoneWeight(a.weights[3], 0) < 1e-5f &&
+                  BoneWeight(a.weights[4], 0) < 1e-6f, "weight tools: Gradient fades along its axis");
+            check(std::fabs(SampleWeight(a.weights, pos, tris, 0, {0.5f, 0, 0}, 0) -
+                            0.5f * (BoneWeight(a.weights[0], 0) + BoneWeight(a.weights[1], 0))) < 1e-4f,
+                  "weight tools: Sample Weight interpolates across the triangle");
+        }
+        {   // transfer: an identical mesh gets the same weights back
+            fresh(a);
+            Armature dst; rig(dst); dst.restPositions = pos; dst.weights.assign(pos.size(), VertexWeights{});
+            TransferWeights(dst, pos, a.weights, pos, tris);
+            bool same = true;
+            for (size_t i = 0; i < pos.size(); ++i) same &= std::fabs(BoneWeight(dst.weights[i], 0) - BoneWeight(a.weights[i], 0)) < 1e-5f;
+            check(same, "weight tools: Transfer reproduces the source on an identical mesh");
+            check(BoneInfluenceCounts(a, 2)[0] == 2 && BoneInfluenceCounts(a, 2)[1] == 8, "weight tools: influence counts");
+        }
+        {   // a project keeps bone locks
+            namespace fs = std::filesystem;
+            const std::string proj = (fs::temp_directory_path() / "leorix_selftest_wlock.leorix").string();
+            Scene sc;
+            MeshObject* mo = sc.AddMesh(BuildPrimitive(Primitive::Cube, DefaultParams(Primitive::Cube)), "Body");
+            mo->armature.AddBone("spine", {0, -1, 0}, {0, 0, 0});
+            mo->armature.AddBone("chest", {0, 0, 0}, {0, 1, 0}, 0);
+            mo->armature.BindAutomaticWeights(mo->mesh);
+            mo->armature.bones[1].weightLocked = true;
+            PaintProject pp; pp.New(16, 16);
+            BrushSettings br; PlaybackState pb;
+            bool ok = SaveLeorixProject(proj, pp, br, {}, &sc, &pb).ok;
+            Scene back; PaintProject pp2; PlaybackState pb2;
+            ok = ok && LoadLeorixProject(proj, pp2, br, g_vk, nullptr, &back, &pb2).ok && back.objects.size() == 1 &&
+                 back.objects[0]->armature.bones.size() == 2;
+            check(ok && back.objects[0]->armature.bones[1].weightLocked && !back.objects[0]->armature.bones[0].weightLocked,
+                  "weight tools: bone locks survive a project round trip");
+            fs::remove(proj);
+        }
+    }
     // Rigid bodies: free fall timing, resting, bounce, stacking, determinism, project round trip
     {
         const float top = 0.005f;   // a flat plane collides as a 1 cm slab

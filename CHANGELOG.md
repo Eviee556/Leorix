@@ -7,6 +7,7 @@ All notable changes to Leorix Native are listed here. The format follows
 ## [0.6.0] - 2026-11-16
 
 ### Added
+- Weight painting toolset: Blur, Average, Sharpen and Multiply brushes; Ctrl inverts Add/Subtract; Accumulate and Front Faces Only; F / Shift+F to drag radius and strength; Sample Weight (also Ctrl+right-click) and linear or radial Gradient tools; Ctrl+click a bone to paint it; a searchable bone list with influence counts and per-bone locks; Auto Normalize; Invert, Levels, Clamp, Smooth with expand, Limit Total, Mirror L > R, Clear, Quantize and Assign to Selected on the active or all bones; Transfer Weights from another mesh; zero-weight colour, contour lines and a weight readout under the cursor. Locks are saved in projects.
 - Cloth simulation: XPBD fabric with stretch and bend stiffness, damping, friction and thickness, pinned vertices (Pin Top Edge or the Edit Mode selection), and collisions with rigid bodies, including baked falling ones. It is baked to the timeline alongside rigid bodies, with Free Bake and Apply as Shape. Cloth settings and pins are saved in projects.
 - NURBS curves: order 2 to 6, per-point weights, Endpoint or uniform knots, cyclic, and an exact NURBS Circle preset.
 - Box select for curve points and handles in curve Edit Mode.

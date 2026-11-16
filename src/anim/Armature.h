@@ -54,6 +54,7 @@ struct Bone {
     bool   selected = false;
     float  envelope = 1.0f;                // weighting radius multiplier
     bool   deform = true;
+    bool   weightLocked = false;           // Weight Paint: this bone's weights never change
     std::vector<BoneConstraint> constraints;
 };
 
