@@ -57,6 +57,8 @@ from descriptions, so names and behavior may differ from the original.
 | Shift+RMB horizontal drag rotates the environment | done |
 | Recalculate Normals Outside (Shift+N) / Flip Normals | done |
 | Armature, automatic weights, linear blend skinning, Pose Mode | done |
+| Two-bone IK (analytic, pole target or keeps its bend) and bone constraints: IK, Track To, Copy Location, Copy Rotation, Limit Rotation | done - constraints are not saved in .leorix yet (armatures are not saved there either) |
+| Rig presets: Add Humanoid Rig (21 bones) and Rename Bones to Plain / UE5 / Unity / Mixamo / Godot names | done |
 | Keyframes (object + bone loc/rot/scale), Timeline, playback, Bake | done |
 | `.leorix` project save/load (ENGINE_SPEC container) | done, lossless round trip |
 | Undo/redo: paint tiles, layer structure, 3D transforms, add/delete, edit ops, sculpt strokes, materials, maps, armatures, keyframes | done |
@@ -180,12 +182,10 @@ app because of how it's structured differently:
 | Curve editing: moving control points in the viewport, handle types, bevel/taper | not started - curves are created from presets and used as deform targets |
 | Cloth simulation | not started |
 | Weight painting (manual, on top of automatic weights) | not started |
-| Rig naming presets (UE5/Unity/Mixamo/Godot/Plain), two-bone IK | not started - Armature/skinning/keyframes exist, presets and IK don't |
-| Bone constraints (Copy Rotation/Location, Track To, Limit Rotation, IK) | not started - bone *parenting* works, constraints do not |
 | Rigid body / physics simulation | not started |
 | Curves (Bezier, NURBS, path, circle) and curve-to-mesh | not started |
 | Control rig presets and export for Unreal / Unity / Godot | not started - needs a skinned FBX/glTF exporter first |
-| Gyro-style control rig widgets (control objects driving bones) | not started - needs constraints first |
+| Gyro-style control rig widgets (control objects driving bones) | not started - constraints exist now, the widgets do not |
 | Texture painting directly onto the 3D model (paint in the viewport, not the canvas) | not started - needs UV-space projection from the viewport |
 | UV editing: move verts/islands in UV space, Smart UV Project, live unwrap | not started - unwrap and display work, editing does not |
 | Corona, V-Ray, Redshift engines | proprietary SDKs, not publicly redistributable |

@@ -468,6 +468,28 @@ weights* uses distance-to-segment falloff normalized over the closest four bones
 envelope approach rather than heat diffusion). Binding is instant, but it ignores topology.
 Skinning is linear blend skinning of the bound rest positions.
 
+**Constraints and IK** (`anim/Armature.*`, panel in `app/RigPanel.*`). Each bone carries a
+constraint stack: IK, Track To, Copy Location, Copy Rotation and Limit Rotation. Targets are
+other bones (their posed head) or a fixed point. `Armature::Evaluate` is the only place poses
+become matrices, so skinning and the viewport both see constrained poses. It runs in three
+steps:
+
+1. Forward kinematics, with Limit Rotation clamping each bone's own Euler pose.
+2. IK, solved on that pose. `SolveTwoBoneIK` is analytic: the law of cosines places the joint,
+   the pole (or the current bend) picks the bend plane, and an unreachable target gives a fully
+   extended chain pointing at it. The result becomes two world-space rotations, one for the
+   parent around its head and one for the bone around the new joint.
+3. Forward kinematics again with those rotations, then the other constraints in stack order,
+   bone by bone, so children follow constrained parents.
+
+IK is solved on the FK pose, so a constraint that moves the chain's grandparent afterwards is
+not fed back into the solve.
+
+**Rig presets.** *Add Humanoid Rig* appends a 21-bone T-pose skeleton fitted to the mesh
+height. *Rename Bones* maps every recognised humanoid bone between the Plain, Unreal Engine 5,
+Unity (Mecanim), Mixamo and Godot conventions; one table holds the names, with per-side
+prefixes and suffixes (`.L`, `_l`, `Left`, `mixamorig:Left`).
+
 **Keyframes** (`anim/Animation.*`). Each channel animates one scalar (object or bone ×
 location/rotation/scale × axis), like Blender's F-curves. There are 12 interpolation modes
 (Constant, Linear, Bezier, and Sine through Elastic) with In/Out/InOut easing.
