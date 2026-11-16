@@ -344,15 +344,25 @@ json SaveScene(mz_zip_archive& zip, const Scene& scene, const PlaybackState* pla
 
         json mods = json::array();
         for (const Modifier& md : o.modifiers) mods.push_back(SaveModifier(md));
-        json curvePts = json::array();
-        for (const Float3& p : o.curve.points) curvePts.push_back(J3(p));
+        json curvePts = json::array(), curveL = json::array(), curveR = json::array(), curveT = json::array(), curveRad = json::array();
+        CurvePath cv = o.curve;
+        cv.Sync();
+        for (size_t i = 0; i < cv.points.size(); ++i) {
+            curvePts.push_back(J3(cv.points[i]));
+            curveL.push_back(J3(cv.handleL[i]));
+            curveR.push_back(J3(cv.handleR[i]));
+            curveT.push_back((int)cv.handleType[i]);
+            curveRad.push_back(cv.radius[i]);
+        }
 
         objs.push_back({{"name", o.name}, {"visible", o.visible}, {"shadeSmooth", o.shadeSmooth},
                         {"transform", {{"position", J3(o.transform.position)}, {"rotation", J3(o.transform.rotation)},
                                        {"scale", J3(o.transform.scale)}}},
                         {"data", base + ".bin"}, {"material", jm}, {"modifiers", mods},
                         {"isCurve", o.isCurve},
-                        {"curve", {{"points", curvePts}, {"cyclic", o.curve.cyclic}, {"resolution", o.curve.resolution}}},
+                        {"curve", {{"points", curvePts}, {"handleL", curveL}, {"handleR", curveR}, {"handleType", curveT}, {"radius", curveRad},
+                                   {"cyclic", o.curve.cyclic}, {"resolution", o.curve.resolution},
+                                   {"bevelDepth", o.curve.bevelDepth}, {"bevelResolution", o.curve.bevelResolution}}},
                         {"multires", {{"levels", o.multires.valid ? o.multires.levels : 0}, {"viewLevel", o.multires.viewLevel}}},
                         {"armature", SaveArmature(o.armature)}, {"action", SaveAction(o.action)}});
     }
@@ -425,6 +435,27 @@ bool LoadObject(mz_zip_archive& zip, const json& x, MeshObject& o, std::string& 
         if (o.curve.points.size() < 100000) { json w = {{"p", p}}; o.curve.points.push_back(V3(w, "p", {0, 0, 0})); }
     o.curve.cyclic = B(jc, "cyclic", false);
     o.curve.resolution = I(jc, "resolution", o.curve.resolution, 1, 256);
+    o.curve.bevelDepth = F(jc, "bevelDepth", 0.0f, 0.0f, 1000.0f);
+    o.curve.bevelResolution = I(jc, "bevelResolution", o.curve.bevelResolution, 0, 32);
+    {
+        // Handles, types and radii are optional (older projects); each array is used only when complete.
+        const size_t n = o.curve.points.size();
+        auto vecs = [&](const char* key, std::vector<Float3>& out) {
+            const json& a = Arr(jc, key);
+            if (a.size() != n) return;
+            for (const json& p : a) { json w = {{"p", p}}; out.push_back(V3(w, "p", {0, 0, 0})); }
+        };
+        vecs("handleL", o.curve.handleL);
+        vecs("handleR", o.curve.handleR);
+        if (o.curve.handleL.size() != n || o.curve.handleR.size() != n) { o.curve.handleL.clear(); o.curve.handleR.clear(); }
+        const json& ht = Arr(jc, "handleType");
+        if (ht.size() == n)
+            for (const json& t : ht) { json w = {{"t", t}}; o.curve.handleType.push_back((HandleType)I(w, "t", 0, 0, 3)); }
+        const json& rd = Arr(jc, "radius");
+        if (rd.size() == n)
+            for (const json& v : rd) { json w = {{"r", v}}; o.curve.radius.push_back(F(w, "r", 1.0f, 0.0f, 1000.0f)); }
+        o.curve.Sync();
+    }
 
     LoadArmature(Obj(x, "armature"), o.armature);
     Armature& a = o.armature;

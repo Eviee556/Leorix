@@ -250,7 +250,7 @@ bool PathTracer::Start(const Scene& scene, const SceneCamera& camera, float view
     auto bvh = std::make_shared<BVH>();
     for (const auto& up : scene.objects) {
         const MeshObject& o = *up;
-        if (!o.visible || o.isCurve) continue;
+        if (!o.visible) continue;
         const Mesh& mesh = o.hasDisplay ? o.displayMesh : o.mesh;
         if (mesh.tris.empty()) continue;
         auto snap = std::make_unique<Material>();

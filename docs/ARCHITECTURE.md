@@ -498,6 +498,22 @@ height. *Rename Bones* maps every recognised humanoid bone between the Plain, Un
 Unity (Mecanim), Mixamo and Godot conventions; one table holds the names, with per-side
 prefixes and suffixes (`.L`, `_l`, `Left`, `mixamorig:Left`).
 
+**Curves** (`mesh/Curve.*`, editing in `app/CurveEdit.cpp`). A curve object keeps a
+`CurvePath`: control points, a left and right handle per point, a handle type per point
+(Auto, Vector, Aligned, Free, as in Blender) and a radius per point. Spans are cubic Bezier.
+Auto and Vector handles are recomputed from the neighbours, so a plain list of points is still
+a valid smooth curve, which keeps presets and older projects working. Dragging an Auto handle
+turns it Aligned and a Vector handle Free. In Edit Mode the shared transform operator moves
+curve elements (`3*point`, `+1` left handle, `+2` right handle) instead of mesh vertices.
+
+With a Bevel Depth the curve is swept into a tube (`CurveToMesh`). Frames are rotation
+minimising: each normal is the previous one with its tangent component removed, so the tube
+never flips the way a fixed up vector does on a vertical stretch. On a cyclic curve the
+leftover twist between the last and first frame is spread evenly round the loop. Radius scales
+each ring (taper), open ends get n-gon caps, and face-corner UVs run around and along the tube.
+The tube is the curve object's mesh, so it draws, picks and renders like any mesh, and
+Convert to Mesh just clears `isCurve`.
+
 **Keyframes** (`anim/Animation.*`). Each channel animates one scalar (object or bone ×
 location/rotation/scale × axis), like Blender's F-curves. There are 12 interpolation modes
 (Constant, Linear, Bezier, and Sine through Elastic) with In/Out/InOut easing.

@@ -376,6 +376,7 @@ void App::MenuBar() {
             if (ImGui::MenuItem("Bezier Curve")) AddCurve(0);
             if (ImGui::MenuItem("Circle")) AddCurve(1);
             if (ImGui::MenuItem("Spiral")) AddCurve(2);
+            if (ImGui::MenuItem("Path")) AddCurve(3);
             ImGui::EndMenu();
         }
         if (ImGui::MenuItem("Join Meshes", "Ctrl+J", false, scene.objects.size() > 1)) JoinMeshes();

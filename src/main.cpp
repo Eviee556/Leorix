@@ -731,6 +731,105 @@ static int SelfTest() {
         check(at((int)px, (int)py) == 255 && at(64, 64) == 0 && su.tiles.size() == 1 && su.tiles[0] == 3,
               "paint on model: dab lands in the right tile");
     }
+    // Curves: Bezier evaluation, handle types, tube sweep, frames, taper, cyclic, extrude/delete, save/load
+    {
+        auto near3 = [](Float3 a, Float3 b, float tol) { return std::fabs(a.x - b.x) < tol && std::fabs(a.y - b.y) < tol && std::fabs(a.z - b.z) < tol; };
+        CurvePath c;
+        c.points = {{0, 0, 0}, {3, 0, 0}};
+        c.handleType = {HandleType::Free, HandleType::Free};
+        c.handleL = {{-1, 0, 0}, {3, 3, 0}};
+        c.handleR = {{0, 3, 0}, {4, 0, 0}};
+        c.resolution = 2;
+        std::vector<Float3> ev = c.Evaluate();
+        check(ev.size() == 3 && near3(ev[0], {0, 0, 0}, 1e-5f) && near3(ev[1], {1.5f, 2.25f, 0}, 1e-5f) && near3(ev[2], {3, 0, 0}, 1e-5f),
+              "curve: bezier endpoints and midpoint");
+
+        CurvePath z;
+        z.points = {{0, 0, 0}, {1, 1, 0}, {2, 0, 0}, {3, 1, 0}};
+        z.Sync();
+        bool smooth = true;
+        for (int i = 1; i < 3; ++i) {
+            Float3 a{z.points[i].x - z.handleL[i].x, z.points[i].y - z.handleL[i].y, z.points[i].z - z.handleL[i].z};
+            Float3 b{z.handleR[i].x - z.points[i].x, z.handleR[i].y - z.points[i].y, z.handleR[i].z - z.points[i].z};
+            float cr = a.x * b.y - a.y * b.x, dt = a.x * b.x + a.y * b.y;
+            smooth = smooth && std::fabs(cr) < 1e-5f && dt > 0;
+        }
+        check(smooth, "curve: auto handles are smooth (collinear through the point)");
+        z.SetElem(1 * 3 + 1, {0.5f, 1.5f, 0});   // drag point 1's left handle
+        Float3 hl = z.handleL[1], hr = z.handleR[1], p1 = z.points[1];
+        float cr = (p1.x - hl.x) * (hr.y - p1.y) - (p1.y - hl.y) * (hr.x - p1.x);
+        check(z.handleType[1] == HandleType::Aligned && std::fabs(cr) < 1e-5f && near3(hl, {0.5f, 1.5f, 0}, 1e-6f),
+              "curve: dragging an auto handle makes it aligned and keeps the other side opposite");
+        z.handleType[2] = HandleType::Vector;
+        z.Sync();
+        check(near3(z.handleR[2], {2 + 1.0f / 3, 1.0f / 3, 0}, 1e-5f), "curve: vector handle points a third of the way to the next point");
+
+        CurvePath t;
+        t.points = {{0, 0, 0}, {2, 0, 0}, {4, 1, 0}};
+        t.resolution = 4; t.bevelDepth = 0.2f; t.bevelResolution = 2;   // 8 sides
+        t.radius = {1.0f, 0.5f, 2.0f};
+        Mesh tube = CurveToMesh(t);
+        check(tube.positions.size() == 9 * 8 && tube.polyCount == 8 * 8 + 2 && tube.tris.size() == 64 * 2 + 2 * 6 && tube.HasLoopUVs(),
+              "curve: open tube sweep has rings x sides verts, quads plus two caps");
+        std::vector<Float3> tp = t.Evaluate();
+        auto ringR = [&](int ring) { Float3 v = tube.positions[ring * 8]; Float3 c0 = tp[ring];
+            return std::sqrt((v.x - c0.x) * (v.x - c0.x) + (v.y - c0.y) * (v.y - c0.y) + (v.z - c0.z) * (v.z - c0.z)); };
+        check(std::fabs(ringR(0) - 0.2f) < 1e-4f && std::fabs(ringR(4) - 0.1f) < 1e-4f && std::fabs(ringR(8) - 0.4f) < 1e-4f,
+              "curve: taper scales the tube radius per point");
+
+        CurvePath ring;
+        for (int i = 0; i < 4; ++i) { float a = i * 1.5707963f; ring.points.push_back({std::cos(a), 0, std::sin(a)}); }
+        ring.cyclic = true; ring.resolution = 4; ring.bevelDepth = 0.1f; ring.bevelResolution = 2;
+        std::vector<Float3> rp = ring.Evaluate();
+        Mesh torus = CurveToMesh(ring);
+        check(rp.size() == 17 && near3(rp.front(), rp.back(), 1e-6f) && torus.positions.size() == 16 * 8 && torus.polyCount == 16 * 8,
+              "curve: cyclic curve closes, its tube has no caps");
+
+        CurvePath helix;
+        for (int i = 0; i < 20; ++i) { float a = i * 0.6f; helix.points.push_back({std::cos(a), i * 0.15f, std::sin(a)}); }
+        std::vector<Float3> hp = helix.Evaluate();
+        std::vector<Float3> hn = CurveFrameNormals(hp, false);
+        bool steady = hn.size() == hp.size();
+        for (size_t i = 1; steady && i < hn.size(); ++i) steady = hn[i].x * hn[i - 1].x + hn[i].y * hn[i - 1].y + hn[i].z * hn[i - 1].z > 0.9f;
+        check(steady, "curve: parallel-transport frames never flip along a helix");
+
+        CurvePath e = t;
+        check(ExtrudeCurveEnd(e, 2) == 3 && e.points.size() == 4 && near3(e.points[3], {6, 2, 0}, 1e-6f) && e.radius.size() == 4 &&
+              ExtrudeCurveEnd(e, 1) == -1 && ExtrudeCurveEnd(e, 0) == 0 && e.points.size() == 5,
+              "curve: extrude adds points past either end only");
+        CurvePath two = c;
+        check(DeleteCurvePoints(e, {1, 2}) == 2 && e.points.size() == 3 && DeleteCurvePoints(two, {0}) == 0 && two.points.size() == 2,
+              "curve: delete removes points but keeps at least two");
+
+        namespace fs = std::filesystem;
+        const std::string proj = (fs::temp_directory_path() / "leorix_selftest_curve.leorix").string();
+        Scene sc;
+        MeshObject* co = sc.AddMesh(Mesh{}, "Tube");
+        co->isCurve = true;
+        co->curve = t;
+        co->curve.Sync();
+        co->curve.SetElem(2, {0.5f, 1.0f, 0});   // point 0 right handle -> aligned
+        co->curve.handleType[2] = HandleType::Free;
+        co->curve.handleL[2] = {3, 3, 3};
+        co->curve.cyclic = false;
+        co->mesh = CurveToMesh(co->curve);
+        PaintProject pp; pp.New(16, 16);
+        BrushSettings br;
+        PlaybackState pb;
+        bool saved = SaveLeorixProject(proj, pp, br, {}, &sc, &pb).ok;
+        Scene back; PaintProject pp2; PlaybackState pb2;
+        bool loaded = saved && LoadLeorixProject(proj, pp2, br, g_vk, nullptr, &back, &pb2).ok && back.objects.size() == 1;
+        bool same = loaded;
+        if (same) {
+            const CurvePath& b = back.objects[0]->curve;
+            same = back.objects[0]->isCurve && b.points.size() == 3 && b.bevelDepth == 0.2f && b.bevelResolution == 2 &&
+                   b.handleType[0] == HandleType::Aligned && b.handleType[2] == HandleType::Free &&
+                   near3(b.handleL[2], {3, 3, 3}, 1e-6f) && near3(b.handleR[0], {0.5f, 1.0f, 0}, 1e-6f) &&
+                   b.radius[1] == 0.5f && back.objects[0]->mesh.tris.size() == co->mesh.tris.size();
+        }
+        check(same, "curve: handles, types, taper and bevel survive a project round trip");
+        fs::remove(proj);
+    }
     // .leorix projects keep the 3D scene: mesh, transform, material, modifier, armature, constraint, keys
     {
         namespace fs = std::filesystem;

@@ -53,6 +53,7 @@ struct MeshObject {
     std::unordered_set<uint32_t> selVerts;
     std::unordered_set<uint64_t> selEdges;
     std::unordered_set<uint32_t> selFaces;   // polygon ids
+    std::unordered_set<int> curveSel;        // curve Edit Mode: 3*point, +1 left handle, +2 right handle
 
     // Lazy topology
     std::vector<uint64_t>                       uniqueEdges;      // every triangle edge
