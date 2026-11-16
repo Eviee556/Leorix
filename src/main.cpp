@@ -13,6 +13,9 @@
 #include "tools/Snap.h"
 #include "anim/Armature.h"
 #include "anim/Animation.h"
+#include "paint/Project.h"
+#include "miniz.h"
+#include <cstring>
 #define TINYGLTF_NO_STB_IMAGE        // match IO.cpp, which holds the implementation
 #define TINYGLTF_NO_STB_IMAGE_WRITE
 #include "tiny_gltf.h"
@@ -650,6 +653,109 @@ static int SelfTest() {
         auto at = [&](int x, int y) { return layer.pixels[((size_t)y * 256 + x) * 4]; };
         check(at((int)px, (int)py) == 255 && at(64, 64) == 0 && su.tiles.size() == 1 && su.tiles[0] == 3,
               "paint on model: dab lands in the right tile");
+    }
+    // .leorix projects keep the 3D scene: mesh, transform, material, modifier, armature, constraint, keys
+    {
+        namespace fs = std::filesystem;
+        const std::string proj = (fs::temp_directory_path() / "leorix_selftest_scene.leorix").string();
+        Scene sc;
+        MeshObject* o = sc.AddMesh(BuildPrimitive(Primitive::Cube, DefaultParams(Primitive::Cube)), "Rigged");
+        o->transform.position = {1, 2, 3};
+        o->material.roughness = 0.25f;
+        o->material.cpu[(int)MapSlot::Roughness].width = 2; o->material.cpu[(int)MapSlot::Roughness].height = 2;
+        o->material.cpu[(int)MapSlot::Roughness].pixels.assign(16, 77);
+        o->material.paths[(int)MapSlot::Roughness] = "rough.png";
+        o->mesh.seamEdges.insert(Mesh::EdgeKey(0, 1));
+        Modifier mod; mod.type = ModifierType::Array; mod.arrayCount = 3; o->modifiers.push_back(mod);
+        o->armature.AddBone("upper", {0, 0, 0}, {0, 1, 0});
+        o->armature.AddBone("lower", {0, 1, 0}, {0, 2, 0}, 0);
+        BoneConstraint ik; ik.type = BoneConstraint::IK; ik.point = {1, 1, 0};
+        o->armature.bones[1].constraints.push_back(ik);
+        o->armature.BindAutomaticWeights(o->mesh);
+        o->action.Find(ChannelTarget::Bone, 1, ChannelProp::Rotation, 2).Insert(10, 0.5f, Interp::Back, Easing::InOut);
+        o->action.Find(ChannelTarget::Object, -1, ChannelProp::Location, 0).Insert(1, 2.0f);
+        sc.AddMesh(BuildPrimitive(Primitive::Plane, DefaultParams(Primitive::Plane)), "Floor");
+        sc.cameras[0].focalLengthMm = 85;
+        PlaybackState pb; pb.fps = 30;
+        PaintProject pp; pp.New(16, 16);
+        BrushSettings br;
+        check(SaveLeorixProject(proj, pp, br, {}, &sc, &pb).ok, "project: save with scene");
+
+        Scene back; PlaybackState pb2; PaintProject pp2;
+        ProjectSaveInfo r = LoadLeorixProject(proj, pp2, br, g_vk, nullptr, &back, &pb2);
+        bool same = r.ok && back.objects.size() == 2 && pb2.fps == 30 && back.cameras[0].focalLengthMm == 85;
+        if (same) {
+            const MeshObject& b = *back.objects[0];
+            const Armature& a = b.armature;
+            const Channel* ch = b.action.Get(ChannelTarget::Bone, 1, ChannelProp::Rotation, 2);
+            same = b.name == "Rigged" && b.mesh.positions.size() == o->mesh.positions.size() &&
+                   b.mesh.tris.size() == o->mesh.tris.size() && b.mesh.polyCount == o->mesh.polyCount &&
+                   b.mesh.loopUVs.size() == o->mesh.loopUVs.size() && b.mesh.IsSeam(0, 1) &&
+                   b.transform.position.z == 3 && b.material.roughness == 0.25f &&
+                   b.material.cpu[(int)MapSlot::Roughness].pixels == o->material.cpu[(int)MapSlot::Roughness].pixels &&
+                   b.material.paths[(int)MapSlot::Roughness] == "rough.png" &&
+                   b.modifiers.size() == 1 && b.modifiers[0].arrayCount == 3 &&
+                   a.bones.size() == 2 && a.bones[1].parent == 0 && a.bones[1].constraints.size() == 1 &&
+                   a.bones[1].constraints[0].type == BoneConstraint::IK && a.bones[1].constraints[0].point.x == 1 &&
+                   a.Bound() && a.weights.size() == o->armature.weights.size() &&
+                   ch && ch->keys.size() == 1 && ch->keys[0].frame == 10 && ch->keys[0].interp == Interp::Back &&
+                   ch->keys[0].easing == Easing::InOut && b.action.channels.size() == 2 && back.objects[1]->name == "Floor";
+        }
+        check(same, "project: scene round trip (mesh, material map, modifier, armature, constraint, keys, camera)");
+
+        // a project saved without a scene leaves the current one alone
+        check(SaveLeorixProject(proj, pp, br).ok, "project: save without scene");
+        r = LoadLeorixProject(proj, pp2, br, g_vk, nullptr, &back, &pb2);
+        check(r.ok && back.objects.size() == 2, "project: old-style project keeps the open scene");
+
+        // damaged manifests: wrong types, bad indices, absurd sizes, truncated mesh data
+        auto writeZip = [&](const std::string& manifest, const std::string& blobName, const std::string& blob) {
+            mz_zip_archive z{};
+            if (!mz_zip_writer_init_file(&z, proj.c_str(), 0)) return false;
+            mz_zip_writer_add_mem(&z, "manifest.json", manifest.data(), manifest.size(), 0);
+            if (!blobName.empty()) mz_zip_writer_add_mem(&z, blobName.c_str(), blob.data(), blob.size(), 0);
+            mz_zip_writer_finalize_archive(&z); mz_zip_writer_end(&z);
+            return true;
+        };
+        const char* bad[] = {
+            R"J([1,2,3])J",
+            R"J({"canvas":"big","project":5,"brush":[1],"maps":{"x":1}})J",
+            R"J({"canvas":{"width":1e12,"height":-4},"maps":[{"kind":7,"layers":[{"opacity":"x","file":9},3]},null]})J",
+            R"J({"scene":{"objects":[{"name":1,"data":"objects/O1.bin","transform":{"position":["a",null,1e40]},
+                "modifiers":[{"type":99,"arrayCount":1e9,"subdivLevels":-3}],
+                "armature":{"bones":[{"parent":5,"constraints":[{"type":42,"target":77}]},{"parent":0}]},
+                "action":{"channels":[{"target":1,"bone":9,"keys":[[1,2]]},{"keys":[["a"],[3,4,99,99],5]}]},
+                "multires":{"levels":99}},7,{"data":"missing.bin"}],"cameras":[{"camera":{"clipStart":-1}}],
+                "activeObject":12,"activeCamera":-5,"playback":{"fps":0}}})J"};
+        const uint32_t magic = 0x424F584Cu, ver = 1;
+        std::string blob(8, '\0');   // right header, then cut short
+        std::memcpy(&blob[0], &magic, 4); std::memcpy(&blob[4], &ver, 4);
+        bool survived = true;
+        for (int k = 0; k < 4; ++k) {
+            Scene s2; PlaybackState p2; PaintProject q;
+            if (!writeZip(bad[k], "objects/O1.bin", blob)) { survived = false; break; }
+            ProjectSaveInfo rr = LoadLeorixProject(proj, q, br, g_vk, nullptr, &s2, &p2);
+            if (k == 0) survived = survived && !rr.ok;   // not an object: refused outright
+            else survived = survived && rr.ok && !q.maps.empty() && q.width >= 1 && q.width <= 16384 && !s2.cameras.empty();
+        }
+        // a well-formed blob whose triangle points past the vertex list is refused
+        {
+            std::string b2;
+            auto put = [&](const void* p, size_t n) { b2.append((const char*)p, n); };
+            const uint32_t one = 1, zero = 0;
+            put(&magic, 4); put(&ver, 4);
+            put(&one, 4); Float3 v{0, 0, 0}; put(&v, sizeof v);          // 1 position
+            put(&zero, 4); put(&zero, 4); put(&zero, 4);                  // normals, uvs, loopUVs
+            put(&one, 4); Tri t{0, 0, 5, 0}; put(&t, sizeof t);           // 1 bad triangle
+            put(&one, 4);                                                 // polyCount
+            for (int k = 0; k < 5; ++k) put(&zero, 4);                    // seams, sharp, rest, weights, disp
+            Scene s2; PaintProject q;
+            writeZip(R"J({"scene":{"objects":[{"data":"objects/O1.bin"}]}})J", "objects/O1.bin", b2);
+            ProjectSaveInfo rr = LoadLeorixProject(proj, q, br, g_vk, nullptr, &s2, nullptr);
+            survived = survived && rr.ok && s2.objects.empty() && rr.message.find("skipped") != std::string::npos;
+        }
+        check(survived, "project: damaged manifests and mesh data load without crashing");
+        std::error_code ec; fs::remove(proj, ec);
     }
     std::printf(failures ? "self-test FAILED (%d)\n" : "self-test passed\n", failures);
     return failures ? 1 : 0;

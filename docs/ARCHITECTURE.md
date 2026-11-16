@@ -644,11 +644,15 @@ A `.leorix` file is a **ZIP** (written with miniz) that contains:
 
 ```
 project.leorix
-├── manifest.json            canvas, project settings, brush, full layer hierarchy
-└── layers/
-    ├── L1_albedo.png        one PNG per layer, named L{id}_{mapKind}.png
-    ├── L2_albedo.png
-    └── L3_roughness.png
+├── manifest.json            canvas, project settings, brush, full layer hierarchy, 3D scene
+├── blocks.json              the visual scripting graph, when one was started
+├── layers/
+│   ├── L1_albedo.png        one PNG per layer, named L{id}_{mapKind}.png
+│   ├── L2_albedo.png
+│   └── L3_roughness.png
+└── objects/
+    ├── O1.bin               object 1's mesh arrays, skin weights and multires detail
+    └── O1_map2.png          object 1's material texture in slot 2 (Roughness)
 ```
 
 The layer PNGs are stored with `MZ_BEST_SPEED`, because PNG data is already compressed and deflate has little left
@@ -687,6 +691,27 @@ Loading is **tolerant**: every field is read with a default, and unknown fields 
 files from newer versions still open. Indices such as `activeLayer` are clamped, and a map with no layers
 gets a background layer filled with that map's default colour. Blend modes and map kinds are
 stored as stable string ids (`"color-dodge"`, `"roughness"`), not enum numbers.
+
+### The 3D scene
+
+The manifest's `"scene"` section holds every object with its name, visibility, shading,
+transform, material settings, modifier stack, curve, multires level, armature (bones, rest and
+pose, constraints) and keyframe action. It also holds the cameras, the active object and camera,
+and the playback rate and frame. The heavy arrays live in one little-endian binary file per
+object, `objects/O{n}.bin`. It starts with the magic `LXOB` and version 1, then holds positions,
+normals, per-vertex UVs, face-corner UVs, triangles, the polygon count, seam and sharp edge keys,
+the armature's bind positions and weights, and the multires displacement. Each array is a `uint32`
+count followed by the raw elements. Material textures are stored as PNGs next to the binary file.
+
+A project without a `"scene"` section (saved before the scene was stored) opens without touching
+the scene that is already open. Loading treats the file as untrusted:
+
+- Every number is type-checked, range-clamped and NaN-checked.
+- Array counts are checked against the bytes left in the binary file.
+- An object whose triangle points past its vertex list is skipped with a note.
+- Bone parents must come before their children.
+- Constraint, weight and keyframe bone indices that point nowhere are dropped.
+- Modifier settings are capped, so a damaged file can't ask for a billion array copies.
 
 ---
 
