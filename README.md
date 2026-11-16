@@ -102,8 +102,9 @@ cd build; ctest --output-on-failure
 
 **Build the installer** (uses IExpress, which ships with Windows):
 
-```powershell
-powershell -ExecutionPolicy Bypass -File installer/build_setup.ps1
+```sh
+sh installer/build_setup.sh                                      # Git Bash
+powershell -ExecutionPolicy Bypass -File installer/build_setup.ps1  # or PowerShell
 ```
 
 This writes `LeorixNative-Setup.exe` to the repo root.
