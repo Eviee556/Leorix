@@ -464,7 +464,11 @@ returns how many vertices moved.
 `EvaluateModifiers` runs the stack top to bottom into `MeshObject::displayMesh`, which is
 drawn instead of `mesh`. *Apply* bakes one entry down. The 13 modifiers are Array, Mirror,
 Solidify, Subdivide, Smooth, Weld, Shrinkwrap, Screw, Remesh, Displace, Triangulate, Decimate
-and Curve Deform. Shrinkwrap and Curve Deform receive other scene objects as targets. Curves
+and Curve Deform. Shrinkwrap and Curve Deform receive other scene objects as targets. A target
+is stored as the object's stable `id` (assigned by `Scene::AddMesh`/`Insert`), not its list
+position, so deleting or joining an earlier object never re-points a modifier;
+`Scene::StackWithIndices` turns ids into indices just before evaluation, and `.leorix` files
+keep writing list indices so older projects load unchanged. Curves
 are Catmull-Rom splines (`CurvePath::Evaluate`).
 
 **Multires** (`mesh/Multires.*`). Sculpted detail is stored as a **displacement per vertex of
@@ -777,10 +781,13 @@ representation:
 
 - **Paint strokes** store only the **128×128 tiles a stroke touched**, before and after
   (`StrokeUndo`). Copying a whole 2048² RGBA layer for every stroke would cost 16 MB, while a
-  typical stroke touches a handful of tiles.
+  typical stroke touches a handful of tiles. When the stroke ends the tiles are deflated with
+  miniz at its fastest level, so flat or lightly painted tiles shrink to a fraction of 64 KB,
+  and the undo memory cap counts the compressed size.
 - **Layer structure** changes (add, duplicate, delete, reorder) snapshot the whole stack.
 - **3D operations** (move/rotate/scale, add primitive, delete object) capture transforms or
-  objects.
+  objects. Moving a physics-baked object drops its bake, and that step keeps the dropped bake
+  so undo brings it back.
 - **Topology edits** (Extrude, Delete, Merge) snapshot the whole `Mesh` before and after,
   because vertex and triangle counts change.
 - **Sculpt strokes** store the vertex positions (or multires displacement) before and after,
@@ -840,6 +847,9 @@ into a new paint layer.
 normal stays within the angle limit (66° by default) of the group's first polygon. The borders
 between groups become temporary seams, the normal Unwrap pipeline runs, and then the user's own
 seams are put back. A cube gives six islands.
+
+**Live Unwrap.** With the UV Editor's *Live Unwrap* box ticked, `MarkSeams` re-runs Unwrap every
+time seams are marked or cleared, and the new UVs go into the same undo step as the seams.
 
 ### Editing UVs on the canvas
 

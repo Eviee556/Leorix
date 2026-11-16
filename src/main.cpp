@@ -832,6 +832,62 @@ static int SelfTest() {
         check(same, "curve: handles, types, taper and bevel survive a project round trip");
         fs::remove(proj);
     }
+    // Polish: deflated undo tiles, stable modifier targets, Live Unwrap
+    {
+        Layer flat; flat.Fill(0xFF336699u, 256, 256);
+        StrokeUndo su; su.Begin(0, 0, 256, 256);
+        su.BackupRect(flat, 10, 10, 20, 20);
+        const std::vector<uint8_t> raw = flat.pixels;
+        DirtyRect dr; BrushSettings bs; bs.size = 8;
+        StampBrush(flat, 256, 256, 15, 15, bs, 0xFFFFFFFFu, false, dr);
+        const std::vector<uint8_t> painted = flat.pixels;
+        su.CaptureAfter(flat);
+        check(su.packed && su.Bytes() < (size_t)2 * StrokeUndo::kTile * StrokeUndo::kTile * 4 / 10, "undo tiles: deflated well below raw size");
+        su.Restore(flat, true);
+        bool backOk = flat.pixels == raw;
+        su.Restore(flat, false);
+        check(backOk && flat.pixels == painted, "undo tiles: deflated tiles restore before and after exactly");
+
+        Scene sc;
+        MeshObject* first = sc.AddMesh(BuildPrimitive(Primitive::Cube, DefaultParams(Primitive::Cube)), "First");
+        MeshObject* path = sc.AddMesh(Mesh{}, "Path");
+        path->isCurve = true; path->curve.points = {{0, 0, 0}, {1, 0, 0}, {2, 1, 0}};
+        MeshObject* bent = sc.AddMesh(BuildPrimitive(Primitive::Cube, DefaultParams(Primitive::Cube)), "Bent");
+        Modifier cd; cd.type = ModifierType::CurveDeform; cd.curveTarget = (int)path->id; bent->modifiers.push_back(cd);
+        Modifier sw; sw.type = ModifierType::Shrinkwrap; sw.shrinkTarget = (int)first->id; path->modifiers.push_back(sw);
+        check(first->id && path->id && bent->id && first->id != path->id && path->id != bent->id, "object ids: unique and non-zero");
+        namespace fs = std::filesystem;
+        const std::string proj = (fs::temp_directory_path() / "leorix_selftest_targets.leorix").string();
+        PaintProject pp; pp.New(16, 16); BrushSettings br;
+        bool saved = SaveLeorixProject(proj, pp, br, {}, &sc, nullptr).ok;
+        sc.Remove(0);   // delete an earlier object: list indices shift, ids do not
+        check(sc.IndexOfId(bent->modifiers[0].curveTarget) == sc.IndexOf(path) && sc.StackWithIndices(bent->modifiers)[0].curveTarget == 0,
+              "object ids: Curve Deform keeps its curve after an earlier object is deleted");
+        check(sc.IndexOfId(path->modifiers[0].shrinkTarget) == -1, "object ids: a deleted Shrinkwrap target resolves to none");
+        Scene back; PaintProject pp2;
+        bool loaded = saved && LoadLeorixProject(proj, pp2, br, g_vk, nullptr, &back, nullptr).ok && back.objects.size() == 3;
+        check(loaded && back.IndexOfId(back.objects[2]->modifiers[0].curveTarget) == 1 &&
+              back.IndexOfId(back.objects[1]->modifiers[0].shrinkTarget) == 0 && back.objects[1]->name == "Path",
+              "object ids: project round trip keeps Curve Deform and Shrinkwrap targets");
+        std::error_code ec; fs::remove(proj, ec);
+
+        Mesh cube = BuildPrimitive(Primitive::Cube, DefaultParams(Primitive::Cube));
+        UnwrapMesh(cube);
+        const std::vector<Float2> uv0 = cube.loopUVs;
+        auto sameUV = [&](const std::vector<Float2>& a) {
+            if (a.size() != uv0.size()) return false;
+            for (size_t i = 0; i < a.size(); ++i) if (a[i].u != uv0[i].u || a[i].v != uv0[i].v) return false;
+            return true;
+        };
+        std::unordered_set<uint64_t> ring;
+        for (const Tri& t : cube.tris) { ring.insert(Mesh::EdgeKey(t.a, t.b)); if (ring.size() >= 4) break; }
+        UnwrapResult noLive = MarkSeams(cube, ring, true, false);
+        bool untouched = !noLive.ok && sameUV(cube.loopUVs) && cube.seamEdges.size() == ring.size();
+        cube.seamEdges.clear();
+        UnwrapResult live = MarkSeams(cube, ring, true, true);
+        check(untouched && live.ok && cube.seamEdges.size() == ring.size() && cube.loopUVs.size() == uv0.size() && !sameUV(cube.loopUVs),
+              "live unwrap: marking seams re-unwraps only when Live Unwrap is on");
+    }
     // .leorix projects keep the 3D scene: mesh, transform, material, modifier, armature, constraint, keys
     {
         namespace fs = std::filesystem;
@@ -1037,9 +1093,12 @@ static int SelfTest() {
             Scene cs;
             MeshObject* bent = cs.AddMesh(BuildPrimitive(Primitive::Cube, DefaultParams(Primitive::Cube)), "Bent");
             MeshObject* plain = cs.AddMesh(BuildPrimitive(Primitive::Cube, DefaultParams(Primitive::Cube)), "Plain");
-            Modifier cd; cd.type = ModifierType::CurveDeform; bent->modifiers.push_back(cd);
+            MeshObject* path = cs.AddMesh(Mesh{}, "Path");
+            MeshObject* other = cs.AddMesh(Mesh{}, "Other");
+            Modifier cd; cd.type = ModifierType::CurveDeform; cd.curveTarget = (int)path->id; bent->modifiers.push_back(cd);
+            cd.curveTarget = (int)other->id; plain->modifiers.push_back(cd);
             bent->stackDirty = plain->stackDirty = false;
-            check(cs.MarkCurveDependentsDirty() == 1 && bent->stackDirty && !plain->stackDirty, "curves: edits mark Curve Deform users dirty");
+            check(cs.MarkCurveDependentsDirty(*path) == 1 && bent->stackDirty && !plain->stackDirty, "curves: edits mark only that curve's Curve Deform users dirty");
         }
         const auto& c = ball->rigidBody.cache;
         int land = landing(c, 0);

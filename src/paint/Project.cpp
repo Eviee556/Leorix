@@ -343,7 +343,7 @@ json SaveScene(mz_zip_archive& zip, const Scene& scene, const PlaybackState* pla
         jm["maps"] = maps;
 
         json mods = json::array();
-        for (const Modifier& md : o.modifiers) mods.push_back(SaveModifier(md));
+        for (const Modifier& md : scene.StackWithIndices(o.modifiers)) mods.push_back(SaveModifier(md));   // targets go to the file as list indices
         json curvePts = json::array(), curveL = json::array(), curveR = json::array(), curveT = json::array(), curveRad = json::array();
         CurvePath cv = o.curve;
         cv.Sync();
@@ -494,7 +494,9 @@ bool LoadObject(mz_zip_archive& zip, const json& x, MeshObject& o, std::string& 
 void LoadScene(mz_zip_archive& zip, const json& js, Scene& out, PlaybackState* playback, std::string& notes) {
     const json& jo = Arr(js, "objects");
     int skipped = 0;
+    std::vector<int> savedToId;   // file index -> loaded object id (0 = skipped)
     for (size_t i = 0; i < jo.size() && i < 10000; ++i) {
+        savedToId.push_back(0);
         if (!jo[i].is_object()) { ++skipped; continue; }
         auto o = std::make_unique<MeshObject>();
         std::string why;
@@ -503,12 +505,15 @@ void LoadScene(mz_zip_archive& zip, const json& js, Scene& out, PlaybackState* p
             if (notes.empty()) notes = "skipped " + S(jo[i], "name", "an object") + ": " + why;
             continue;
         }
+        out.AssignId(*o);
+        savedToId.back() = (int)o->id;
         out.objects.push_back(std::move(o));
     }
     if (skipped > 1) notes += " (+" + std::to_string(skipped - 1) + " more)";
-    for (auto& o : out.objects)   // targets are object indices; one that no longer exists means "none"
-        for (Modifier& md : o->modifiers)
-            if (md.shrinkTarget >= (int)out.objects.size()) md.shrinkTarget = -1;
+    // targets are stored as file indices; turn them into ids, and a missing one into "none"
+    auto toId = [&](int idx) { return idx >= 0 && idx < (int)savedToId.size() && savedToId[idx] ? savedToId[idx] : -1; };
+    for (auto& o : out.objects)
+        for (Modifier& md : o->modifiers) { md.shrinkTarget = toId(md.shrinkTarget); md.curveTarget = toId(md.curveTarget); }
 
     const json& jc = Arr(js, "cameras");
     if (!jc.empty()) { out.cameras.clear(); out.cameraNames.clear(); }

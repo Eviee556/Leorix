@@ -76,12 +76,15 @@ struct PaintProject {
 };
 
 // Undo for painting. Copying a whole 2048x2048 layer per stroke would cost 16 MB, so only the
-// 128x128 tiles a stroke actually touches are kept, before and after.
+// 128x128 tiles a stroke actually touches are kept, before and after. Once the stroke ends
+// (CaptureAfter) every tile is deflated with miniz, so a flat or lightly painted tile costs a
+// fraction of its 64 KB.
 struct StrokeUndo {
     static const int kTile = 128;
     int mapIndex = -1, layerIndex = -1, width = 0, height = 0;
     std::vector<int> tiles;                       // tile ids, in touch order
-    std::vector<std::vector<uint8_t>> before, after;
+    std::vector<std::vector<uint8_t>> before, after;   // raw while painting, deflated after CaptureAfter
+    bool packed = false;
 
     void Begin(int map, int layer, int w, int h);
     void BackupRect(const Layer& l, int x0, int y0, int x1, int y1);

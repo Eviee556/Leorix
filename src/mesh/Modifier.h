@@ -35,7 +35,7 @@ struct Modifier {
     // Weld
     float weldDistance = 0.001f;
     // Shrinkwrap
-    int   shrinkTarget = -1;      // index into the scene's object list
+    int   shrinkTarget = -1;      // target object's id (Scene::IndexOfId); -1 none
     float shrinkOffset = 0.0f;
     // Screw (Blender's Screw modifier, i.e. a spin/revolve)
     int   screwSteps = 16;
@@ -51,7 +51,7 @@ struct Modifier {
     // Decimate
     float decimateRatio = 0.5f;
     // Curve Deform
-    int   curveTarget = -1;        // index into the scene's curve list
+    int   curveTarget = -1;        // curve object's id (Scene::IndexOfId); -1 none
     int   curveAxis = 0;           // which mesh axis runs along the curve: 0 X, 1 Y, 2 Z
     float curveStretch = 1.0f;
 };

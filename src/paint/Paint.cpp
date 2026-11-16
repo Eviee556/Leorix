@@ -1,4 +1,5 @@
 #include "paint/Paint.h"
+#include "miniz.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -285,7 +286,7 @@ void FillLayer(Layer& layer, int w, int h, uint32_t rgba, DirtyRect& dirty) {
 // ---------------------------------------------------------------- stroke undo (tile backups)
 void StrokeUndo::Begin(int map, int layer, int w, int h) {
     mapIndex = map; layerIndex = layer; width = w; height = h;
-    tiles.clear(); before.clear(); after.clear();
+    tiles.clear(); before.clear(); after.clear(); packed = false;
 }
 
 void StrokeUndo::TileRect(int tile, int& x0, int& y0, int& x1, int& y1) const {
@@ -306,8 +307,23 @@ static void CopyTile(const Layer& l, int w, int x0, int y0, int x1, int y1, std:
     }
 }
 
+static void Deflate(std::vector<uint8_t>& tile) {
+    mz_ulong n = mz_compressBound((mz_ulong)tile.size());
+    std::vector<uint8_t> out(n);
+    if (mz_compress2(out.data(), &n, tile.data(), (mz_ulong)tile.size(), 1) != MZ_OK) return;   // keep raw on failure
+    out.resize(n);
+    tile.swap(out);
+}
+
+// Returns false if the bytes don't inflate to exactly `raw` bytes, so a bad tile is skipped, not half-written.
+static bool Inflate(const std::vector<uint8_t>& packed, size_t raw, std::vector<uint8_t>& out) {
+    out.resize(raw);
+    mz_ulong n = (mz_ulong)raw;
+    return mz_uncompress(out.data(), &n, packed.data(), (mz_ulong)packed.size()) == MZ_OK && n == raw;
+}
+
 void StrokeUndo::BackupRect(const Layer& l, int rx0, int ry0, int rx1, int ry1) {
-    if (l.pixels.size() != (size_t)width * height * 4) return;
+    if (packed || l.pixels.size() != (size_t)width * height * 4) return;
     int cols = (width + kTile - 1) / kTile;
     int t0x = std::max(0, rx0) / kTile, t1x = std::min(width - 1, rx1) / kTile;
     int t0y = std::max(0, ry0) / kTile, t1y = std::min(height - 1, ry1) / kTile;
@@ -333,6 +349,9 @@ void StrokeUndo::CaptureAfter(const Layer& l) {
         after.emplace_back();
         CopyTile(l, width, x0, y0, x1, y1, after.back());
     }
+    if (!packed) for (auto& t : before) Deflate(t);
+    for (auto& t : after) Deflate(t);
+    packed = true;
 }
 
 void StrokeUndo::Restore(Layer& l, bool useBefore) const {
@@ -341,9 +360,14 @@ void StrokeUndo::Restore(Layer& l, bool useBefore) const {
     for (size_t t = 0; t < tiles.size(); ++t) {
         int x0, y0, x1, y1;
         TileRect(tiles[t], x0, y0, x1, y1);
+        const size_t raw = (size_t)(x1 - x0 + 1) * (y1 - y0 + 1) * 4;
+        std::vector<uint8_t> unpacked;
+        if (packed && !Inflate(src[t], raw, unpacked)) continue;
+        const std::vector<uint8_t>& tile = packed ? unpacked : src[t];
+        if (tile.size() != raw) continue;
         size_t o = 0;
         for (int y = y0; y <= y1; ++y) {
-            std::memcpy(&l.pixels[((size_t)y * width + x0) * 4], &src[t][o], (size_t)(x1 - x0 + 1) * 4);
+            std::memcpy(&l.pixels[((size_t)y * width + x0) * 4], &tile[o], (size_t)(x1 - x0 + 1) * 4);
             o += (size_t)(x1 - x0 + 1) * 4;
         }
     }
