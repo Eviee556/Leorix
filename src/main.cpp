@@ -14,6 +14,7 @@
 #include "tools/Snap.h"
 #include "anim/Armature.h"
 #include "anim/WeightPaint.h"
+#include "anim/ArmatureLink.h"
 #include "physics/Physics.h"
 #include "anim/Animation.h"
 #include "paint/Project.h"
@@ -832,6 +833,62 @@ static int SelfTest() {
         check(same, "curve: handles, types, taper and bevel survive a project round trip");
         fs::remove(proj);
     }
+    // Polish: deflated undo tiles, stable modifier targets, Live Unwrap
+    {
+        Layer flat; flat.Fill(0xFF336699u, 256, 256);
+        StrokeUndo su; su.Begin(0, 0, 256, 256);
+        su.BackupRect(flat, 10, 10, 20, 20);
+        const std::vector<uint8_t> raw = flat.pixels;
+        DirtyRect dr; BrushSettings bs; bs.size = 8;
+        StampBrush(flat, 256, 256, 15, 15, bs, 0xFFFFFFFFu, false, dr);
+        const std::vector<uint8_t> painted = flat.pixels;
+        su.CaptureAfter(flat);
+        check(su.packed && su.Bytes() < (size_t)2 * StrokeUndo::kTile * StrokeUndo::kTile * 4 / 10, "undo tiles: deflated well below raw size");
+        su.Restore(flat, true);
+        bool backOk = flat.pixels == raw;
+        su.Restore(flat, false);
+        check(backOk && flat.pixels == painted, "undo tiles: deflated tiles restore before and after exactly");
+
+        Scene sc;
+        MeshObject* first = sc.AddMesh(BuildPrimitive(Primitive::Cube, DefaultParams(Primitive::Cube)), "First");
+        MeshObject* path = sc.AddMesh(Mesh{}, "Path");
+        path->isCurve = true; path->curve.points = {{0, 0, 0}, {1, 0, 0}, {2, 1, 0}};
+        MeshObject* bent = sc.AddMesh(BuildPrimitive(Primitive::Cube, DefaultParams(Primitive::Cube)), "Bent");
+        Modifier cd; cd.type = ModifierType::CurveDeform; cd.curveTarget = (int)path->id; bent->modifiers.push_back(cd);
+        Modifier sw; sw.type = ModifierType::Shrinkwrap; sw.shrinkTarget = (int)first->id; path->modifiers.push_back(sw);
+        check(first->id && path->id && bent->id && first->id != path->id && path->id != bent->id, "object ids: unique and non-zero");
+        namespace fs = std::filesystem;
+        const std::string proj = (fs::temp_directory_path() / "leorix_selftest_targets.leorix").string();
+        PaintProject pp; pp.New(16, 16); BrushSettings br;
+        bool saved = SaveLeorixProject(proj, pp, br, {}, &sc, nullptr).ok;
+        sc.Remove(0);   // delete an earlier object: list indices shift, ids do not
+        check(sc.IndexOfId(bent->modifiers[0].curveTarget) == sc.IndexOf(path) && sc.StackWithIndices(bent->modifiers)[0].curveTarget == 0,
+              "object ids: Curve Deform keeps its curve after an earlier object is deleted");
+        check(sc.IndexOfId(path->modifiers[0].shrinkTarget) == -1, "object ids: a deleted Shrinkwrap target resolves to none");
+        Scene back; PaintProject pp2;
+        bool loaded = saved && LoadLeorixProject(proj, pp2, br, g_vk, nullptr, &back, nullptr).ok && back.objects.size() == 3;
+        check(loaded && back.IndexOfId(back.objects[2]->modifiers[0].curveTarget) == 1 &&
+              back.IndexOfId(back.objects[1]->modifiers[0].shrinkTarget) == 0 && back.objects[1]->name == "Path",
+              "object ids: project round trip keeps Curve Deform and Shrinkwrap targets");
+        std::error_code ec; fs::remove(proj, ec);
+
+        Mesh cube = BuildPrimitive(Primitive::Cube, DefaultParams(Primitive::Cube));
+        UnwrapMesh(cube);
+        const std::vector<Float2> uv0 = cube.loopUVs;
+        auto sameUV = [&](const std::vector<Float2>& a) {
+            if (a.size() != uv0.size()) return false;
+            for (size_t i = 0; i < a.size(); ++i) if (a[i].u != uv0[i].u || a[i].v != uv0[i].v) return false;
+            return true;
+        };
+        std::unordered_set<uint64_t> ring;
+        for (const Tri& t : cube.tris) { ring.insert(Mesh::EdgeKey(t.a, t.b)); if (ring.size() >= 4) break; }
+        UnwrapResult noLive = MarkSeams(cube, ring, true, false);
+        bool untouched = !noLive.ok && sameUV(cube.loopUVs) && cube.seamEdges.size() == ring.size();
+        cube.seamEdges.clear();
+        UnwrapResult live = MarkSeams(cube, ring, true, true);
+        check(untouched && live.ok && cube.seamEdges.size() == ring.size() && cube.loopUVs.size() == uv0.size() && !sameUV(cube.loopUVs),
+              "live unwrap: marking seams re-unwraps only when Live Unwrap is on");
+    }
     // .leorix projects keep the 3D scene: mesh, transform, material, modifier, armature, constraint, keys
     {
         namespace fs = std::filesystem;
@@ -1037,9 +1094,12 @@ static int SelfTest() {
             Scene cs;
             MeshObject* bent = cs.AddMesh(BuildPrimitive(Primitive::Cube, DefaultParams(Primitive::Cube)), "Bent");
             MeshObject* plain = cs.AddMesh(BuildPrimitive(Primitive::Cube, DefaultParams(Primitive::Cube)), "Plain");
-            Modifier cd; cd.type = ModifierType::CurveDeform; bent->modifiers.push_back(cd);
+            MeshObject* path = cs.AddMesh(Mesh{}, "Path");
+            MeshObject* other = cs.AddMesh(Mesh{}, "Other");
+            Modifier cd; cd.type = ModifierType::CurveDeform; cd.curveTarget = (int)path->id; bent->modifiers.push_back(cd);
+            cd.curveTarget = (int)other->id; plain->modifiers.push_back(cd);
             bent->stackDirty = plain->stackDirty = false;
-            check(cs.MarkCurveDependentsDirty() == 1 && bent->stackDirty && !plain->stackDirty, "curves: edits mark Curve Deform users dirty");
+            check(cs.MarkCurveDependentsDirty(*path) == 1 && bent->stackDirty && !plain->stackDirty, "curves: edits mark only that curve's Curve Deform users dirty");
         }
         const auto& c = ball->rigidBody.cache;
         int land = landing(c, 0);
@@ -1105,6 +1165,105 @@ static int SelfTest() {
         }
         check(same, "physics: rigid body settings survive a project round trip");
         std::error_code ec; fs::remove(proj, ec);
+    }
+    // One armature deforming several meshes, and control rigs driving bones through object targets
+    {
+        auto far3 = [](Float3 a, Float3 b) { return std::fabs(a.x - b.x) + std::fabs(a.y - b.y) + std::fabs(a.z - b.z); };
+        auto maxMove = [&](const MeshObject& o) {
+            float m = 0;
+            if (o.skinned.size() != o.mesh.positions.size()) return -1.0f;
+            for (size_t i = 0; i < o.skinned.size(); ++i) m = std::max(m, far3(o.skinned[i], o.mesh.positions[i]));
+            return m;
+        };
+        Scene sc;
+        sc.AddMesh(BuildPrimitive(Primitive::Plane, DefaultParams(Primitive::Plane)), "Spacer");   // deleted later: indices shift
+        MeshObject* rig = sc.AddMesh(Mesh{}, "Rig");
+        rig->transform.position = {1, 0, 0};
+        int root = rig->armature.AddBone("root", {0, 0, 0}, {0, 1, 0});
+        int tip = rig->armature.AddBone("tip", {0, 1, 0}, {0, 2, 0}, root);
+        Mesh cyl = BuildPrimitive(Primitive::Cylinder, DefaultParams(Primitive::Cylinder));
+        MeshObject* a = sc.AddMesh(cyl, "BodyA");
+        MeshObject* b = sc.AddMesh(cyl, "BodyB");
+        a->transform.position = b->transform.position = {1, 1, 0};
+        b->transform.scale = {0.5f, 1, 0.5f};
+        check(BindToArmatureObject(sc, *a, *rig) && BindToArmatureObject(sc, *b, *rig) && BoneSource(sc, *a) == rig,
+              "linked armature: two meshes bind to one armature object");
+        check(maxMove(*a) >= 0 && maxMove(*a) < 1e-4f, "linked armature: rest pose leaves the mesh in place");
+        rig->armature.bones[tip].poseRotation = {0, 0, 0.8f};
+        SkinWithLinks(sc, *rig);
+        check(maxMove(*a) > 0.2f && maxMove(*b) > 0.1f, "linked armature: both meshes deform when a bone rotates");
+        // The same mesh with the bones as its own (moved into its space) must deform identically.
+        MeshObject ref;
+        ref.mesh = cyl;
+        ref.armature.AddBone("root", {0, -1, 0}, {0, 0, 0});
+        ref.armature.AddBone("tip", {0, 0, 0}, {0, 1, 0}, 0);
+        ref.armature.BindAutomaticWeights(ref.mesh);
+        ref.armature.bones[1].poseRotation = {0, 0, 0.8f};
+        ref.armature.Skin(ref.skinned);
+        float diff = 0;
+        for (size_t i = 0; i < ref.skinned.size() && i < a->skinned.size(); ++i) diff = std::max(diff, far3(ref.skinned[i], a->skinned[i]));
+        check(ref.skinned.size() == a->skinned.size() && diff < 1e-4f, "linked armature: matches the same rig owned by the mesh");
+
+        namespace fs = std::filesystem;
+        const std::string proj = (fs::temp_directory_path() / "leorix_selftest_linked.leorix").string();
+        PaintProject pp; pp.New(16, 16); BrushSettings br;
+        bool saved = SaveLeorixProject(proj, pp, br, {}, &sc, nullptr).ok;
+        sc.Remove(0);
+        SyncRigs(sc);
+        check(BoneSource(sc, *a) == rig && maxMove(*a) > 0.2f, "linked armature: survives deleting an earlier object");
+        Scene back; PaintProject pp2;
+        bool loaded = saved && LoadLeorixProject(proj, pp2, br, g_vk, nullptr, &back, nullptr).ok && back.objects.size() == 4;
+        if (loaded) {
+            for (auto& o : back.objects) SkinObject(back, *o);
+            loaded = BoneSource(back, *back.objects[2]) == back.objects[1].get() && back.objects[3]->armatureObject == back.objects[1]->id &&
+                     maxMove(*back.objects[2]) > 0.2f;
+        }
+        check(loaded, "linked armature: the binding survives a project round trip");
+        std::error_code ec; fs::remove(proj, ec);
+
+        Scene cs;
+        MeshObject* body = cs.AddMesh(Mesh{}, "Armature");
+        AddHumanoidRig(body->armature, {-0.5f, 0, -0.2f}, {0.5f, 2, 0.2f}, RigNaming::Plain);
+        std::vector<MeshObject*> ctrls = AddControlRig(cs, *body);
+        bool allCtrl = ctrls.size() == 10;
+        for (MeshObject* c : ctrls) allCtrl = allCtrl && c->isControl && c->mesh.tris.empty() && c->mesh.positions.size() >= 2;
+        check(allCtrl && AddControlRig(cs, *body).empty(), "control rig: 10 controls, added once");
+        auto find = [&](const std::string& n) { for (auto& o : cs.objects) if (o->name == n) return o.get(); return (MeshObject*)nullptr; };
+        int fore = -1, hips = -1;
+        for (int i = 0; i < (int)body->armature.bones.size(); ++i) {
+            if (body->armature.bones[i].name == "forearm.L") fore = i;
+            if (body->armature.bones[i].name == "hips") hips = i;
+        }
+        MeshObject* hand = find("CTRL_hand.L");
+        MeshObject* hipCtrl = find("CTRL_hips");
+        std::vector<Mat4> m;
+        if (hand && hipCtrl && fore >= 0 && hips >= 0) {
+            body->armature.Evaluate(m);
+            const Bone& fb = body->armature.bones[fore];
+            check(far3(m[fore].Apply(fb.tail), fb.tail) < 1e-3f, "control rig: the rest pose is unchanged");
+            hand->transform.position = {hand->transform.position.x - 0.25f, hand->transform.position.y - 0.3f, hand->transform.position.z + 0.2f};
+            check(SyncRigs(cs) >= 1, "control rig: moving a control is picked up");
+            body->armature.Evaluate(m);
+            check(far3(m[fore].Apply(fb.tail), hand->transform.position) < 1e-3f, "control rig: moving the hand control moves the IK chain end to it");
+            hipCtrl->transform.position.z += 0.5f;
+            SyncRigs(cs);
+            body->armature.Evaluate(m);
+            check(far3(m[hips].Apply(body->armature.bones[hips].head), hipCtrl->transform.position) < 1e-3f, "control rig: the hip control moves the hips");
+            const std::string cproj = (fs::temp_directory_path() / "leorix_selftest_controls.leorix").string();
+            Scene cb; PaintProject cpp2;
+            bool ok = SaveLeorixProject(cproj, pp, br, {}, &cs, nullptr).ok &&
+                      LoadLeorixProject(cproj, cpp2, br, g_vk, nullptr, &cb, nullptr).ok && cb.objects.size() == 11;
+            if (ok) {
+                const BoneConstraint& ik = cb.objects[0]->armature.bones[fore].constraints.at(0);
+                const MeshObject* t = cb.FindById(ik.targetObject);
+                ok = t && t->isControl && t->name == "CTRL_hand.L" && cb.FindById(ik.poleObject) && !t->mesh.positions.empty();
+                SyncRigs(cb);
+                cb.objects[0]->armature.Evaluate(m);
+                ok = ok && far3(m[fore].Apply(fb.tail), t->transform.position) < 1e-3f;
+            }
+            check(ok, "control rig: controls and their targets survive a project round trip");
+            fs::remove(cproj, ec);
+        } else check(false, "control rig: controls and bones found");
     }
     std::printf(failures ? "self-test FAILED (%d)\n" : "self-test passed\n", failures);
     return failures ? 1 : 0;

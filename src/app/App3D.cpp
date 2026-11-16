@@ -1361,7 +1361,7 @@ void App::OpenDemo(const std::string& meshPath, int mode) {
         PrimitiveParams pp; pp.gridX = 60; pp.gridY = 2; pp.size = 2.0f;   // dense along X, the deform axis
         MeshObject* bar = scene.AddMesh(BuildPrimitive(Primitive::Grid, pp), "Ribbon");
         for (auto& p : bar->mesh.positions) { p.x *= 4.0f; p.z *= 0.25f; }
-        Modifier cd; cd.type = ModifierType::CurveDeform; cd.curveTarget = curveIndex; cd.curveAxis = 0;
+        Modifier cd; cd.type = ModifierType::CurveDeform; cd.curveTarget = (int)scene.objects[curveIndex]->id; cd.curveAxis = 0;
         Modifier so; so.type = ModifierType::Solidify; so.solidifyThickness = 0.06f;
         bar->modifiers.push_back(cd);
         bar->modifiers.push_back(so);
@@ -1855,11 +1855,23 @@ void App::UpdateTransform(bool) {
                            [apply, before] { apply(before); }, [apply, after] { apply(after); },
                            verts->size() * sizeof(Float3) * 2);
         } else {
+            // a moved baked object drops its bake; undo hands the bake back with the old transform
+            auto bake = std::make_shared<RigidBody>(o->rigidBody);
             if (o->rigidBody.Baked()) { o->rigidBody.cache.clear(); bakeCleared = true; }
             Transform before = xform.savedTransform, after = o->transform;
             undoStack.Push(names[xform.mode],
-                [this, objIndex, before] { if (objIndex < (int)scene.objects.size()) scene.objects[objIndex]->transform = before; },
-                [this, objIndex, after] { if (objIndex < (int)scene.objects.size()) scene.objects[objIndex]->transform = after; });
+                [this, objIndex, before, bake] {
+                    if (objIndex >= (int)scene.objects.size()) return;
+                    MeshObject& ob = *scene.objects[objIndex];
+                    ob.transform = before;
+                    if (bake->Baked()) { ob.rigidBody.cache = bake->cache; ob.rigidBody.cacheStart = bake->cacheStart; }
+                },
+                [this, objIndex, after, bake] {
+                    if (objIndex >= (int)scene.objects.size()) return;
+                    scene.objects[objIndex]->transform = after;
+                    if (bake->Baked()) scene.objects[objIndex]->rigidBody.cache.clear();
+                },
+                bake->cache.size() * sizeof(RigidTransform));
         }
         xform = TransformOp{};
         ShowStatus(bakeCleared ? "Moved a baked object: its bake was cleared, bake again" : "Transform applied");
@@ -2476,7 +2488,9 @@ void App::ArmaturePanel() {
         }
         ImGui::SameLine();
         if (ImGui::Button("Insert Keyframe  (I)")) InsertKeyframes(true, true, true);
-        int con = BoneConstraintsUI(arm, activeBone, b, track);
+        std::vector<std::pair<uint32_t, std::string>> targets;   // objects a constraint can follow
+        for (const auto& up : scene.objects) if (up.get() != o && up->id) targets.push_back({up->id, up->name});
+        int con = BoneConstraintsUI(arm, activeBone, b, track, targets);
         if (con) UpdateSkinning(*o);
         if (con == 2) pushBone("Edit Constraint", frameStart);
     }
@@ -2957,6 +2971,8 @@ void App::UVPanel() {
     ImGui::SameLine();
     if (ImGui::Button("Clear Sharp")) MarkEdges(false, false);
     ImGui::EndDisabled();
+    ImGui::Checkbox("Live Unwrap", &liveUnwrap);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Unwrap again every time seams are marked or cleared");
     if (!can) ImGui::TextDisabled("Enter Edit Mode, switch to Edge select, then pick edges.");
     ImGui::TextDisabled("%zu seam edge%s, %zu sharp edge%s marked on the mesh",
                         o->mesh.seamEdges.size(), o->mesh.seamEdges.size() == 1 ? "" : "s",
@@ -3102,20 +3118,27 @@ void App::MarkEdges(bool seam, bool set) {
 
     auto& target = seam ? o->mesh.seamEdges : o->mesh.sharpEdges;
     auto before = std::make_shared<std::unordered_set<uint64_t>>(target);
-    for (uint64_t e : o->selEdges) { if (set) target.insert(e); else target.erase(e); }
+    auto beforeUV = std::make_shared<std::vector<Float2>>(o->mesh.loopUVs);
+    bool unwrapped = false;
+    if (seam) unwrapped = MarkSeams(o->mesh, o->selEdges, set, liveUnwrap).ok;
+    else for (uint64_t e : o->selEdges) { if (set) target.insert(e); else target.erase(e); }
     auto after = std::make_shared<std::unordered_set<uint64_t>>(target);
+    auto afterUV = std::make_shared<std::vector<Float2>>(o->mesh.loopUVs);
 
     int objIndex = scene.activeIndex;
     bool isSeam = seam;
-    auto apply = [this, objIndex, isSeam](std::shared_ptr<std::unordered_set<uint64_t>> v) {
+    auto apply = [this, objIndex, isSeam, unwrapped](std::shared_ptr<std::unordered_set<uint64_t>> v, std::shared_ptr<std::vector<Float2>> uv) {
         if (objIndex < 0 || objIndex >= (int)scene.objects.size()) return;
         MeshObject& obj = *scene.objects[objIndex];
         (isSeam ? obj.mesh.seamEdges : obj.mesh.sharpEdges) = *v;
+        if (unwrapped) { obj.mesh.loopUVs = *uv; obj.stackDirty = true; }
         if (isSeam) uvLayout.valid = false;
     };
     const char* label = seam ? (set ? "Mark Seam" : "Clear Seam") : (set ? "Mark Sharp" : "Clear Sharp");
-    undoStack.Push(label, [apply, before] { apply(before); }, [apply, after] { apply(after); },
-                   (before->size() + after->size()) * sizeof(uint64_t));
+    undoStack.Push(label, [apply, before, beforeUV] { apply(before, beforeUV); }, [apply, after, afterUV] { apply(after, afterUV); },
+                   (before->size() + after->size()) * sizeof(uint64_t) +
+                   (unwrapped ? (beforeUV->size() + afterUV->size()) * sizeof(Float2) : 0));
+    if (unwrapped) o->stackDirty = true;
 
     if (seam) uvLayout.valid = false;   // the layout changes with the cuts
     char msg[96];
@@ -3413,7 +3436,7 @@ void App::RefreshModifiers(MeshObject& o) {
         targets.push_back(&other->mesh);
         curves.push_back(other->isCurve ? &other->curve : nullptr);
     }
-    o.displayMesh = EvaluateModifiers(o.mesh, o.modifiers, targets, curves);
+    o.displayMesh = EvaluateModifiers(o.mesh, scene.StackWithIndices(o.modifiers), targets, curves);
     o.hasDisplay = true;
     o.stackDirty = false;
 }
@@ -3501,13 +3524,13 @@ void App::ModifierPanel() {
                     break;
                 case ModifierType::Shrinkwrap: {
                     std::string preview = "(none)";
-                    if (m.shrinkTarget >= 0 && m.shrinkTarget < (int)scene.objects.size())
-                        preview = scene.objects[m.shrinkTarget]->name;
+                    if (scene.IndexOfId(m.shrinkTarget) >= 0)
+                        preview = scene.objects[scene.IndexOfId(m.shrinkTarget)]->name;
                     if (ImGui::BeginCombo("Target", preview.c_str())) {
                         for (int k = 0; k < (int)scene.objects.size(); ++k) {
                             if (scene.objects[k].get() == o) continue;       // never itself
-                            if (ImGui::Selectable(scene.objects[k]->name.c_str(), m.shrinkTarget == k)) {
-                                m.shrinkTarget = k; ch = true;
+                            if (ImGui::Selectable(scene.objects[k]->name.c_str(), m.shrinkTarget == (int)scene.objects[k]->id)) {
+                                m.shrinkTarget = (int)scene.objects[k]->id; ch = true;
                             }
                         }
                         ImGui::EndCombo();
@@ -3541,14 +3564,14 @@ void App::ModifierPanel() {
                     break;
                 case ModifierType::CurveDeform: {
                     std::string preview = "(none)";
-                    if (m.curveTarget >= 0 && m.curveTarget < (int)scene.objects.size())
-                        preview = scene.objects[m.curveTarget]->name;
+                    if (scene.IndexOfId(m.curveTarget) >= 0)
+                        preview = scene.objects[scene.IndexOfId(m.curveTarget)]->name;
                     if (ImGui::BeginCombo("Curve", preview.c_str())) {
                         bool any = false;
                         for (int k = 0; k < (int)scene.objects.size(); ++k) {
                             if (!scene.objects[k]->isCurve) continue;
                             any = true;
-                            if (ImGui::Selectable(scene.objects[k]->name.c_str(), m.curveTarget == k)) { m.curveTarget = k; ch = true; }
+                            if (ImGui::Selectable(scene.objects[k]->name.c_str(), m.curveTarget == (int)scene.objects[k]->id)) { m.curveTarget = (int)scene.objects[k]->id; ch = true; }
                         }
                         if (!any) ImGui::TextDisabled("No curves in the scene");
                         ImGui::EndCombo();
@@ -3583,7 +3606,7 @@ void App::ModifierPanel() {
             targets.push_back(&other->mesh);
             curves.push_back(other->isCurve ? &other->curve : nullptr);
         }
-        o->mesh = ApplyModifier(o->mesh, o->modifiers[apply], targets, curves);
+        o->mesh = ApplyModifier(o->mesh, scene.StackWithIndices({o->modifiers[apply]})[0], targets, curves);
         o->modifiers.erase(o->modifiers.begin() + apply);
         o->MarkTopoDirty();
         o->selVerts.clear(); o->selEdges.clear(); o->selFaces.clear();   // old indices mean nothing in the new mesh
@@ -4106,7 +4129,8 @@ void App::DuplicateSelected() {
         auto copy = std::make_unique<MeshObject>(*scene.objects[i]);
         copy->name = scene.UniqueName(scene.objects[i]->name);
         copy->rigidBody.cache.clear();   // a copy must not replay the original's baked path
-        copy->id = 0;                    // a copy is a new object; links keep pointing at the original
+        copy->id = 0;
+        scene.AssignId(*copy);
         copy->selected = true;
         copy->active = false;
         scene.objects.push_back(std::move(copy));

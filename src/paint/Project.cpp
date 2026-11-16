@@ -186,7 +186,8 @@ Modifier LoadModifier(const json& j) {
     return m;
 }
 
-json SaveArmature(const Armature& a) {
+// Object references go to the file as list indices (-1 = none), like modifier targets.
+json SaveArmature(const Armature& a, const Scene& scene) {
     json bones = json::array();
     for (const Bone& b : a.bones) {
         json cons = json::array();
@@ -195,7 +196,7 @@ json SaveArmature(const Armature& a) {
                             {"usePole", c.usePole}, {"poleTarget", c.poleTarget}, {"polePoint", J3(c.polePoint)},
                             {"limit", json::array({c.limit[0], c.limit[1], c.limit[2]})},
                             {"minRot", J3(c.minRot)}, {"maxRot", J3(c.maxRot)},
-                            {"targetObject", c.targetObject}, {"poleObject", c.poleObject}});
+                            {"targetObject", scene.IndexOfId((int)c.targetObject)}, {"poleObject", scene.IndexOfId((int)c.poleObject)}});
         bones.push_back({{"name", b.name}, {"parent", b.parent}, {"head", J3(b.head)}, {"tail", J3(b.tail)},
                          {"poseRotation", J3(b.poseRotation)}, {"poseLocation", J3(b.poseLocation)},
                          {"poseScale", J3(b.poseScale)}, {"envelope", b.envelope}, {"deform", b.deform},
@@ -232,8 +233,9 @@ void LoadArmature(const json& j, Armature& a) {
             const json& lim = Arr(y, "limit");
             for (int k = 0; k < 3 && k < (int)lim.size(); ++k) if (lim[k].is_boolean()) c.limit[k] = lim[k].get<bool>();
             c.minRot = V3(y, "minRot", c.minRot); c.maxRot = V3(y, "maxRot", c.maxRot);
-            c.targetObject = (uint32_t)I(y, "targetObject", 0, 0, 1 << 30);   // checked once every object is loaded
-            c.poleObject = (uint32_t)I(y, "poleObject", 0, 0, 1 << 30);
+            // file index + 1 (0 = none); LoadScene turns it into an object id once every object is loaded
+            c.targetObject = (uint32_t)(I(y, "targetObject", -1, -1, 1 << 20) + 1);
+            c.poleObject = (uint32_t)(I(y, "poleObject", -1, -1, 1 << 20) + 1);
             b.constraints.push_back(c);
         }
         a.bones.push_back(std::move(b));
@@ -346,7 +348,7 @@ json SaveScene(mz_zip_archive& zip, const Scene& scene, const PlaybackState* pla
         jm["maps"] = maps;
 
         json mods = json::array();
-        for (const Modifier& md : o.modifiers) mods.push_back(SaveModifier(md));
+        for (const Modifier& md : scene.StackWithIndices(o.modifiers)) mods.push_back(SaveModifier(md));   // targets go to the file as list indices
         json curvePts = json::array(), curveL = json::array(), curveR = json::array(), curveT = json::array(), curveRad = json::array();
         CurvePath cv = o.curve;
         cv.Sync();
@@ -365,12 +367,12 @@ json SaveScene(mz_zip_archive& zip, const Scene& scene, const PlaybackState* pla
                                        {"scale", J3(o.transform.scale)}}},
                         {"data", base + ".bin"}, {"material", jm}, {"modifiers", mods},
                         {"isCurve", o.isCurve},
-                        {"id", o.id}, {"armatureObject", o.armatureObject}, {"isControl", o.isControl},
+                        {"armatureObject", scene.IndexOfId((int)o.armatureObject)}, {"isControl", o.isControl},
                         {"curve", {{"points", curvePts}, {"handleL", curveL}, {"handleR", curveR}, {"handleType", curveT}, {"radius", curveRad},
                                    {"cyclic", o.curve.cyclic}, {"resolution", o.curve.resolution},
                                    {"bevelDepth", o.curve.bevelDepth}, {"bevelResolution", o.curve.bevelResolution}}},
                         {"multires", {{"levels", o.multires.valid ? o.multires.levels : 0}, {"viewLevel", o.multires.viewLevel}}},
-                        {"armature", SaveArmature(o.armature)}, {"action", SaveAction(o.action)},
+                        {"armature", SaveArmature(o.armature, scene)}, {"action", SaveAction(o.action)},
                         {"rigidBody", {{"enabled", o.rigidBody.enabled}, {"passive", o.rigidBody.passive},
                                        {"mass", o.rigidBody.mass}, {"friction", o.rigidBody.friction},
                                        {"bounciness", o.rigidBody.bounciness}, {"shape", (int)o.rigidBody.shape}}}});
@@ -474,8 +476,7 @@ bool LoadObject(mz_zip_archive& zip, const json& x, MeshObject& o, std::string& 
     }
 
     LoadArmature(Obj(x, "armature"), o.armature);
-    o.id = (uint32_t)I(x, "id", 0, 0, 1 << 30);
-    o.armatureObject = (uint32_t)I(x, "armatureObject", 0, 0, 1 << 30);
+    o.armatureObject = (uint32_t)(I(x, "armatureObject", -1, -1, 1 << 20) + 1);   // file index + 1, see LoadScene
     o.isControl = B(x, "isControl", false);
     Armature& a = o.armature;
     const int nb = (int)a.bones.size();
@@ -506,7 +507,9 @@ bool LoadObject(mz_zip_archive& zip, const json& x, MeshObject& o, std::string& 
 void LoadScene(mz_zip_archive& zip, const json& js, Scene& out, PlaybackState* playback, std::string& notes) {
     const json& jo = Arr(js, "objects");
     int skipped = 0;
+    std::vector<int> savedToId;   // file index -> loaded object id (0 = skipped)
     for (size_t i = 0; i < jo.size() && i < 10000; ++i) {
+        savedToId.push_back(0);
         if (!jo[i].is_object()) { ++skipped; continue; }
         auto o = std::make_unique<MeshObject>();
         std::string why;
@@ -515,27 +518,30 @@ void LoadScene(mz_zip_archive& zip, const json& js, Scene& out, PlaybackState* p
             if (notes.empty()) notes = "skipped " + S(jo[i], "name", "an object") + ": " + why;
             continue;
         }
+        out.AssignId(*o);
+        savedToId.back() = (int)o->id;
         out.objects.push_back(std::move(o));
     }
     if (skipped > 1) notes += " (+" + std::to_string(skipped - 1) + " more)";
-    // Ids must be unique; links that point nowhere (or at an object without bones) are dropped.
-    for (size_t i = 0; i < out.objects.size(); ++i)
-        for (size_t j = 0; j < i; ++j)
-            if (out.objects[i]->id && out.objects[i]->id == out.objects[j]->id) { out.objects[i]->id = 0; break; }
+    // targets are stored as file indices; turn them into ids, and a missing one into "none"
+    auto toId = [&](int idx) { return idx >= 0 && idx < (int)savedToId.size() && savedToId[idx] ? savedToId[idx] : -1; };
+    for (auto& o : out.objects)
+        for (Modifier& md : o->modifiers) { md.shrinkTarget = toId(md.shrinkTarget); md.curveTarget = toId(md.curveTarget); }
+    // Armature links and object-target constraints are file indices + 1 (0 = none) until here.
     for (auto& o : out.objects) {
         if (o->armatureObject) {
-            const MeshObject* src = out.FindById(o->armatureObject);
-            if (!src || src == o.get() || src->armature.bones.empty()) o->armatureObject = 0;
+            int id = toId((int)o->armatureObject - 1);
+            const MeshObject* src = out.FindById(id > 0 ? (uint32_t)id : 0);
+            o->armatureObject = src && src != o.get() && !src->armature.bones.empty() ? src->id : 0;
             ClampWeights(o->armature, o->armatureObject ? (int)src->armature.bones.size() : (int)o->armature.bones.size());
         }
         for (Bone& b : o->armature.bones)
             for (BoneConstraint& c : b.constraints)
-                for (uint32_t* t : {&c.targetObject, &c.poleObject})
-                    if (*t && !out.FindById(*t)) *t = 0;
+                for (uint32_t* t : {&c.targetObject, &c.poleObject}) {
+                    int id = *t ? toId((int)*t - 1) : -1;
+                    *t = id > 0 ? (uint32_t)id : 0;
+                }
     }
-    for (auto& o : out.objects)   // targets are object indices; one that no longer exists means "none"
-        for (Modifier& md : o->modifiers)
-            if (md.shrinkTarget >= (int)out.objects.size()) md.shrinkTarget = -1;
 
     const json& jc = Arr(js, "cameras");
     if (!jc.empty()) { out.cameras.clear(); out.cameraNames.clear(); }

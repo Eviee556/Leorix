@@ -400,3 +400,9 @@ UnwrapResult SmartUVProject(Mesh& mesh, float angleLimitDeg, const UnwrapOptions
     if (r.ok) r.message = "Smart UV Project: " + std::to_string(r.islands) + " island" + (r.islands == 1 ? "" : "s");
     return r;
 }
+
+UnwrapResult MarkSeams(Mesh& mesh, const std::unordered_set<uint64_t>& edges, bool set, bool liveUnwrap) {
+    for (uint64_t e : edges) { if (set) mesh.seamEdges.insert(e); else mesh.seamEdges.erase(e); }
+    if (!liveUnwrap) return {};
+    return UnwrapMesh(mesh);
+}

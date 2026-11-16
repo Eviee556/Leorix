@@ -103,7 +103,7 @@ Paint, Smear, Wrinkle, Noise, Simplify) have no engine yet. 2D tool settings lik
 | Manifest: canvas metadata (size, colour space, bit depth), project settings, full layer hierarchy (id, name, opacity, blend, visibility, lock) | done |
 | Save Project As (Ctrl+S) / Open Project (Ctrl+O), verified lossless round trip | done |
 | Reoriented Normal Mapping when compositing Normal maps, instead of alpha blending | done |
-| Dirty-tile undo deltas (spec section 3) - tiles yes, LZ4 compression no | partial |
+| Dirty-tile undo deltas (spec section 3): 128x128 tiles, deflated with miniz (fast level) when the stroke ends; the undo memory cap counts the compressed bytes | done |
 | Not yet: brushes/ and cache/ directories in the container, .bin raw precision for Normal and Displacement, SharedArrayBuffer-style worker architecture (native app is threaded differently) | open |
 
 ## Undo / Redo
@@ -129,7 +129,7 @@ Paint, Smear, Wrinkle, Noise, Simplify) have no engine yet. 2D tool settings lik
 | Verified: flat and developable surfaces unwrap with 0 degree angle distortion | done |
 | UV editing on the canvas: select islands or vertices, drag to move, Rotate / Scale about the selection centre, undoable | done |
 | Smart UV Project: faces grouped by normal angle (limit adjustable), each group its own island, packed into 0..1 | done |
-| Not yet: live unwrap, sharp edges affecting shading | open |
+| Not yet: sharp edges affecting shading | open |
 
 ## Ported from index.html this round
 | Area | State |
@@ -180,16 +180,16 @@ app because of how it's structured differently:
 | PBR map set, blend modes, masks, layer effects, selections | maps/layers/blend modes done; masks, effects, selections not yet |
 | 2.5D flat parallax + 3D diorama + camera path | not started |
 | Webcomic: panel grids, balloons, page guides, bleed/safe area | not started |
-| Cross-object armature parenting (one armature deforming several meshes) | not started - an armature currently belongs to the object it deforms |
+| Cross-object armature parenting: one armature object deforms several meshes (Bind Selected Meshes, or Deformed by on the mesh), each with its own automatic weights and Weight Paint; linked by stable object id, saved in projects, exported as a skinned glTF/GLB | done |
 | Multires level switching is nearest-neighbour resampled, not a true displacement hierarchy | open - detail survives a level change but is approximated when the level moves |
 | Cloth simulation | not started |
 | Weight painting (manual, on top of automatic weights): Weight Paint mode, Add/Subtract/Replace/Smooth, falloff curves, X mirror with .L/.R twin bones, blue-red heatmap, Normalize All, Clean, one undo step per stroke | done |
 | Rigid body / physics simulation: Active/Passive bodies, Box/Sphere/Convex Hull shapes, mass, friction, bounciness, gravity; baked per frame so scrubbing is deterministic; Bake, Free Bake, Apply Transform; undoable; settings saved in projects | done - no edge-edge contacts, no constraints/joints, passive bodies do not follow keyframes |
 | NURBS curves, box select for curve points, bevel profile objects | not started - Bezier, path and circle curves with round bevels are done |
-| Control rig presets and export for Unreal / Unity / Godot | partial - humanoid rig, UE5/Unity/Mixamo/Godot naming and skinned glTF/GLB export exist; control rigs don't |
-| Gyro-style control rig widgets (control objects driving bones) | not started - constraints exist now, the widgets do not |
+| Control rig presets and export for Unreal / Unity / Godot | partial - humanoid rig, UE5/Unity/Mixamo/Godot naming, Add Control Rig and skinned glTF/GLB export exist; control objects themselves are not exported (their effect is baked into the bone keys only when keyed) |
+| Control rig widgets: Add Control Rig puts hand/foot IK controls with elbow/knee poles, a hip control (Copy Location + Copy Rotation) and a chest control (Copy Rotation) on a humanoid rig; wire widgets picked and moved in Object Mode; constraints can target any object | done |
 | Texture painting directly onto the 3D model: Sculpt Mode Paint brush paints the active layer through the model's UVs, brush sized to the viewport ring, seam-aware, dirty-tile undo, assigned material slots refresh live | done |
-| UV editing: live unwrap while seams change | not started - island/vertex editing and Smart UV Project are done |
+| UV editing: Live Unwrap toggle re-unwraps whenever seams are marked or cleared, in the same undo step | done |
 | Corona, V-Ray, Redshift engines | proprietary SDKs, not publicly redistributable |
 | AMD HIP / ROCm render backend | needs MSVC + the HIP SDK; would be an optional plugin DLL |
 | GPU (Vulkan RT) rendering | the tracer runs on the CPU; the GPU backend is detected but unused |

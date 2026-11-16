@@ -30,6 +30,7 @@ struct Transform {
 };
 
 struct MeshObject {
+    uint32_t    id = 0;            // stable handle for modifier targets; 0 until the scene assigns one
     std::string name = "Mesh";
     Transform   transform;
     bool        visible = true;
@@ -51,9 +52,6 @@ struct MeshObject {
     Action   action;            // this object's keyframes
     RigidBody rigidBody;        // physics settings and baked cache
     std::vector<Float3> skinned;// deformed positions for the current pose
-    // Stable identity for links between objects; list indices shift on delete/undo, ids do not.
-    // 0 = not assigned yet (Scene::IdOf assigns lazily). Copies must reset it.
-    uint32_t id = 0;
     // Another object whose armature deforms this mesh (by id, 0 = none). This mesh keeps its own
     // weights and rest positions in `armature`; the bones come from that object.
     uint32_t armatureObject = 0;
@@ -82,6 +80,9 @@ struct MeshObject {
 struct Scene {
     std::vector<std::unique_ptr<MeshObject>> objects;
     int activeIndex = -1;
+    uint32_t nextId = 1;
+    // Gives a new object its id; objects coming back through Insert keep theirs.
+    void AssignId(MeshObject& o) { if (!o.id) o.id = nextId++; else nextId = std::max(nextId, o.id + 1); }
     // Every camera in the scene. One is active: it is what F12 renders and Numpad 0 looks through.
     std::vector<SceneCamera> cameras{SceneCamera{}};
     std::vector<std::string> cameraNames{"Camera"};
@@ -114,6 +115,7 @@ struct Scene {
         else if (obj->mesh.normals.size() != obj->mesh.positions.size()) obj->mesh.ComputeNormals();
         obj->mesh.EnsureUVs();
         obj->MarkTopoDirty();
+        AssignId(*obj);
         objects.push_back(std::move(obj));
         activeIndex = (int)objects.size() - 1;
         SelectOnly(activeIndex);
@@ -144,29 +146,33 @@ struct Scene {
     void Insert(int index, std::unique_ptr<MeshObject> obj) {
         if (!obj) return;
         index = std::clamp(index, 0, (int)objects.size());
+        AssignId(*obj);
         objects.insert(objects.begin() + index, std::move(obj));
         SelectOnly(index);
     }
-    // A curve changed: re-evaluate every stack that bends along a curve.
-    // shortcut: marks all Curve Deform users rather than only those targeting this curve; fine for small scenes.
-    int MarkCurveDependentsDirty() {
+    // A curve changed: re-evaluate the stacks that bend along it.
+    int MarkCurveDependentsDirty(const MeshObject& curve) {
         int n = 0;
         for (auto& o : objects)
             for (const Modifier& m : o->modifiers)
-                if (m.enabled && m.type == ModifierType::CurveDeform) { o->stackDirty = true; ++n; break; }
+                if (m.enabled && m.type == ModifierType::CurveDeform && m.curveTarget == (int)curve.id) { o->stackDirty = true; ++n; break; }
         return n;
+    }
+    int IndexOfId(int id) const {
+        if (id <= 0) return -1;
+        for (int i = 0; i < (int)objects.size(); ++i) if ((int)objects[i]->id == id) return i;
+        return -1;
+    }
+    // Modifier targets hold object ids; the evaluator wants list indices, so hand it a translated copy.
+    std::vector<Modifier> StackWithIndices(const std::vector<Modifier>& stack) const {
+        std::vector<Modifier> out = stack;
+        for (Modifier& m : out) { m.shrinkTarget = IndexOfId(m.shrinkTarget); m.curveTarget = IndexOfId(m.curveTarget); }
+        return out;
     }
     MeshObject* FindById(uint32_t id) const {
         if (id == 0) return nullptr;
         for (const auto& o : objects) if (o->id == id) return o.get();
         return nullptr;
-    }
-    // The object's id, assigning a fresh one (above every id in use) the first time it is asked.
-    uint32_t IdOf(MeshObject& obj) const {
-        if (obj.id != 0) return obj.id;
-        uint32_t top = 0;
-        for (const auto& o : objects) top = std::max(top, o->id);
-        return obj.id = top + 1;
     }
     int IndexOf(const MeshObject* obj) const {
         for (int i = 0; i < (int)objects.size(); ++i) if (objects[i].get() == obj) return i;

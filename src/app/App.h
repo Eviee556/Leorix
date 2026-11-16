@@ -190,6 +190,7 @@ private:
     bool  uvDragging = false; Float2 uvDragStart{};
     float uvRotateDeg = 0.0f, uvScale = 1.0f;   // panel drag values for the gesture in progress
     float smartAngle = 66.0f;
+    bool  liveUnwrap = false;    // re-unwrap whenever seams are marked or cleared
     // painting on the 3D model (Sculpt Mode, Paint brush) into the active map layer
     bool  paintingModel = false; double modelPaintRefreshAt = 0;
     const MeshObject* uvSelOwner = nullptr;   // the object uvSel was made on

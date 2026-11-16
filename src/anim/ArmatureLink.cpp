@@ -82,7 +82,7 @@ void SkinWithLinks(const Scene& scene, MeshObject& o) {
 }
 
 bool BindToArmatureObject(const Scene& scene, MeshObject& mesh, MeshObject& armObj) {
-    if (&mesh == &armObj || armObj.armature.bones.empty() || mesh.mesh.positions.empty()) return false;
+    if (&mesh == &armObj || armObj.id == 0 || armObj.armature.bones.empty() || mesh.mesh.positions.empty()) return false;
     Armature tmp;
     tmp.bones = armObj.armature.bones;
     Mesh inArm = mesh.mesh;   // weights are measured where the bones are: in the armature's space
@@ -90,7 +90,7 @@ bool BindToArmatureObject(const Scene& scene, MeshObject& mesh, MeshObject& armO
     tmp.BindAutomaticWeights(inArm);
     mesh.armature.weights = std::move(tmp.weights);
     mesh.armature.restPositions = mesh.mesh.positions;
-    mesh.armatureObject = scene.IdOf(armObj);
+    mesh.armatureObject = armObj.id;
     SkinObject(scene, mesh);
     return true;
 }
@@ -181,7 +181,7 @@ std::vector<MeshObject*> AddControlRig(Scene& scene, MeshObject& armObj) {
         c->transform.position = armObj.transform.Apply(local);
         c->transform.rotation = armObj.transform.rotation;   // so Copy Rotation starts at no change
         made.push_back(c);
-        return scene.IdOf(*c);
+        return c->id;
     };
     auto add = [&](int bone, BoneConstraint c) { arm.bones[bone].constraints.push_back(c); };
 
