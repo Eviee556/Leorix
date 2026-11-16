@@ -19,3 +19,8 @@ struct UnwrapOptions {
 
 // Writes per-face-corner UVs into mesh.loopUVs.
 UnwrapResult UnwrapMesh(Mesh& mesh, const UnwrapOptions& opts = UnwrapOptions{});
+
+// Smart UV Project: no seams needed. Neighbouring faces whose normals stay within angleLimit
+// degrees of the group's first face are flattened together; every group becomes its own island,
+// then the islands are packed like Unwrap. The mesh's marked seams are left untouched.
+UnwrapResult SmartUVProject(Mesh& mesh, float angleLimitDeg = 66.0f, const UnwrapOptions& opts = UnwrapOptions{});

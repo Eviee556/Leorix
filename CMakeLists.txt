@@ -123,6 +123,7 @@ add_executable(leorix
   src/tools/VisualScript.cpp
   src/app/VisualScriptPanel.cpp
   src/app/RigPanel.cpp
+  src/app/UVPaint.cpp
   src/mesh/Mesh.cpp
   src/mesh/EditOps.cpp
   src/mesh/Primitives.cpp
@@ -130,6 +131,7 @@ add_executable(leorix
   src/mesh/IO.cpp
   src/mesh/UVView.cpp
   src/mesh/Unwrap.cpp
+  src/mesh/UVEdit.cpp
   src/mesh/Modifier.cpp
   src/mesh/Multires.cpp
 

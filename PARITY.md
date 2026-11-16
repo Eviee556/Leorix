@@ -125,7 +125,9 @@ Paint, Smear, Wrinkle, Noise, Simplify) have no engine yet. 2D tool settings lik
 | Seams drawn red and sharp edges cyan in the viewport, depth-tested | done |
 | Unwrap (U): islands cut at seams, LSCM flattening, shelf packing into 0..1 | done |
 | Verified: flat and developable surfaces unwrap with 0 degree angle distortion | done |
-| Not yet: UV editing (moving verts/islands in UV space), Smart UV, live unwrap, sharp edges affecting shading | open |
+| UV editing on the canvas: select islands or vertices, drag to move, Rotate / Scale about the selection centre, undoable | done |
+| Smart UV Project: faces grouped by normal angle (limit adjustable), each group its own island, packed into 0..1 | done |
+| Not yet: live unwrap, sharp edges affecting shading | open |
 
 ## Ported from index.html this round
 | Area | State |
@@ -185,8 +187,8 @@ app because of how it's structured differently:
 | Curves (Bezier, NURBS, path, circle) and curve-to-mesh | not started |
 | Control rig presets and export for Unreal / Unity / Godot | partial - humanoid rig, UE5/Unity/Mixamo/Godot naming and skinned glTF/GLB export exist; control rigs don't |
 | Gyro-style control rig widgets (control objects driving bones) | not started - constraints exist now, the widgets do not |
-| Texture painting directly onto the 3D model (paint in the viewport, not the canvas) | not started - needs UV-space projection from the viewport |
-| UV editing: move verts/islands in UV space, Smart UV Project, live unwrap | not started - unwrap and display work, editing does not |
+| Texture painting directly onto the 3D model: Sculpt Mode Paint brush paints the active layer through the model's UVs, brush sized to the viewport ring, seam-aware, dirty-tile undo, assigned material slots refresh live | done |
+| UV editing: live unwrap while seams change | not started - island/vertex editing and Smart UV Project are done |
 | Corona, V-Ray, Redshift engines | proprietary SDKs, not publicly redistributable |
 | AMD HIP / ROCm render backend | needs MSVC + the HIP SDK; would be an optional plugin DLL |
 | GPU (Vulkan RT) rendering | the tracer runs on the CPU; the GPU backend is detected but unused |

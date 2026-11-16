@@ -56,7 +56,7 @@ inline const SculptBrushDef kSculptBrushes[] = {
     {"Mask",               Icon::SculptMask,        BrushCategory::General,     "M",       1.00f, true,  "Paints a mask that protects vertices"},
     {"Draw Face Sets",     Icon::SculptFaceSets,    BrushCategory::General,     "",        1.00f, false, "Paints face sets for isolating regions"},
     // Paint
-    {"Paint",              Icon::SculptPaint,       BrushCategory::Paint,       "",        1.00f, false, "Paints vertex color"},
+    {"Paint",              Icon::SculptPaint,       BrushCategory::Paint,       "",        1.00f, false, "Paints the active texture map straight onto the model"},
     {"Smear",              Icon::SculptSmear,       BrushCategory::Paint,       "",        1.00f, false, "Smears vertex color"},
     // Leorix extras
     {"Wrinkle",            Icon::SculptWrinkle,     BrushCategory::Leorix,      "",        0.40f, true,  "Parallel micro-folds for skin and fabric"},

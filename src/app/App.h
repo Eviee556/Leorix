@@ -132,6 +132,7 @@ private:
     void DrawCameraGizmo();
     ViewLighting BuildLighting() const;
     PickResult lastPick;
+    int        lastPickObject = -1;     // scene index lastPick belongs to
 
     TransformOp xform;
     bool  sculpting = false;
@@ -177,6 +178,16 @@ private:
     float uvOpacity = 55.0f, uvSeamWidth = 2.0f;
     float uvWireColor[3] = {0.55f, 0.60f, 0.70f};
     float uvSeamColor[3] = {0.79f, 0.35f, 0.31f};   // #c9584e, the original's default
+    // UV editing on the 2D canvas: one selection flag per face corner of the active object's mesh
+    bool  uvEditMode = false, uvSelectIslands = true;
+    std::vector<uint8_t> uvSel;
+    std::vector<Float2>  uvGestureBase;     // loopUVs when the current move/rotate/scale began
+    bool  uvDragging = false; Float2 uvDragStart{};
+    float uvRotateDeg = 0.0f, uvScale = 1.0f;   // panel drag values for the gesture in progress
+    float smartAngle = 66.0f;
+    // painting on the 3D model (Sculpt Mode, Paint brush) into the active map layer
+    bool  paintingModel = false; double modelPaintRefreshAt = 0;
+    const MeshObject* uvSelOwner = nullptr;   // the object uvSel was made on
     int   tool2D = 6;
     float brushSize = 28, brushOpacity = 100, brushHardness = 70;
     float color[3] = {201 / 255.0f, 138 / 255.0f, 75 / 255.0f};
@@ -228,11 +239,18 @@ private:
     void RebuildUVLayout();
     void BakeUVToLayer(bool seamsOnly);
     void MarkEdges(bool seam, bool set);     // seam/sharp, mark or clear, on the edge selection
-    void UnwrapSelected();
+    void UnwrapSelected(bool smart = false); // smart: Smart UV Project instead of seam-based Unwrap
+    bool UVCanvasEdit(ImVec2 a, ImVec2 b);   // UV editing input on the canvas; true when it used the mouse
+    void BeginUVGesture();
+    void EndUVGesture(const char* label);  // pushes one undo step for the move/rotate/scale
+    void PaintOnModel(bool begin);           // viewport brush -> UV -> active layer
+    void PaintStrokeEnd();                   // shared by the canvas and the viewport
+    void RefreshPaintedSlots(int mapIndex);  // re-copies a painted map into material slots that use it
     void RunEditOp(char op);                 // Edit Mode: 'E' extrude, 'X' delete, 'M' merge at center, 'D' duplicate faces
     void SeparateSelected();                 // Edit Mode P: move the selected faces into a new object
     bool EdgeOpsAvailable() const;           // edit mode + edge select + something selected
-    void PaintStroke(ImVec2 canvasPos, bool begin);
+    // sizePx > 0: a stroke from the 3D viewport, always a round brush of that size in map pixels
+    void PaintStroke(ImVec2 canvasPos, bool begin, float sizePx = 0.0f);
     void SyncMapTexture(MapDoc& m);
     void ApplyMapsToMaterial();
     void HistoryPanel();
