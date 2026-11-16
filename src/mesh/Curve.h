@@ -24,7 +24,7 @@ struct CurvePath {
     int   resolution = 12;                 // samples per span
     float bevelDepth = 0.0f;               // tube radius; 0 = no geometry, just the path
     int   bevelResolution = 2;             // tube sides = 4 + 2 * resolution, like Blender
-    int   bevelObject = -1;                // scene index of a curve used as the cross-section; -1 = round
+    int   bevelObject = -1;                // object id of a curve used as the cross-section; -1 = round
 
     // NURBS: the points are control points (no handles), evaluated as a rational B-spline.
     bool  nurbs = false;

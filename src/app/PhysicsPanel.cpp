@@ -17,6 +17,7 @@ struct PhysEntry {
     Cloth cloth;
     Transform transform;
     std::vector<Float3> positions;   // cloth objects only
+    bool full = true;                // false: settings only, the bakes are left as they are
 };
 using PhysSnap = std::vector<PhysEntry>;
 PhysSnap Snapshot(Scene& scene) {
@@ -25,6 +26,16 @@ PhysSnap Snapshot(Scene& scene) {
         bool cloth = o->cloth.enabled || o->cloth.Baked();
         s.push_back({o.get(), o->rigidBody, o->cloth, o->transform, cloth ? o->mesh.positions : std::vector<Float3>{}});
     }
+    return s;
+}
+// One object's settings without its bakes, for slider and checkbox edits: a full snapshot of a
+// dense cloth bake is hundreds of MB and would push every older step out of the undo stack.
+PhysSnap Settings(MeshObject* o) {
+    auto rc = std::move(o->rigidBody.cache);
+    auto cc = std::move(o->cloth.cache);
+    auto cr = std::move(o->cloth.rest);
+    PhysSnap s{{o, o->rigidBody, o->cloth, o->transform, {}, false}};
+    o->rigidBody.cache = std::move(rc); o->cloth.cache = std::move(cc); o->cloth.rest = std::move(cr);
     return s;
 }
 size_t SnapBytes(const PhysSnap& s) {
@@ -42,6 +53,16 @@ void App::PhysicsPanel() {
     auto restore = [this](const PhysSnap& s) {
         for (const auto& e : s) {
             if (scene.IndexOf(e.obj) < 0) continue;   // the object was deleted since
+            if (!e.full) {   // settings only: keep whatever bake the object has now
+                RigidBody rb = e.rigidBody;
+                rb.cache = std::move(e.obj->rigidBody.cache); rb.cacheStart = e.obj->rigidBody.cacheStart; rb.rest = e.obj->rigidBody.rest;
+                Cloth cl = e.cloth;
+                cl.cache = std::move(e.obj->cloth.cache); cl.rest = std::move(e.obj->cloth.rest);
+                cl.cacheStart = e.obj->cloth.cacheStart; cl.shown = e.obj->cloth.shown;
+                e.obj->rigidBody = std::move(rb);
+                e.obj->cloth = std::move(cl);
+                continue;
+            }
             e.obj->rigidBody = e.rigidBody;
             e.obj->cloth = e.cloth;
             e.obj->transform = e.transform;
@@ -55,7 +76,8 @@ void App::PhysicsPanel() {
     };
     auto record = [&](const char* label, PhysSnap before) {
         auto a = std::make_shared<PhysSnap>(std::move(before));
-        auto b = std::make_shared<PhysSnap>(Snapshot(scene));
+        const bool settingsOnly = a->size() == 1 && !(*a)[0].full;
+        auto b = std::make_shared<PhysSnap>(settingsOnly ? Settings((*a)[0].obj) : Snapshot(scene));
         undoStack.Push(label, [restore, a] { restore(*a); }, [restore, b] { restore(*b); }, SnapBytes(*a) + SnapBytes(*b));
     };
 
@@ -63,7 +85,7 @@ void App::PhysicsPanel() {
     // Drags record one undo step when released; clicks and combos record at once.
     static PhysSnap dragBefore;
     auto track = [&](const char* label) {
-        if (ImGui::IsItemActivated()) dragBefore = Snapshot(scene);
+        if (ImGui::IsItemActivated()) dragBefore = Settings(o);
         if (ImGui::IsItemDeactivatedAfterEdit()) record(label, std::move(dragBefore));
     };
     ImGui::TextColored(kBrass, "RIGID BODY"); ImGui::Separator();
@@ -72,16 +94,16 @@ void App::PhysicsPanel() {
     } else {
         RigidBody& rb = o->rigidBody;
         bool en = rb.enabled;
-        if (ImGui::Checkbox("Rigid Body", &en)) { PhysSnap b = Snapshot(scene); rb.enabled = en; record(en ? "Add Rigid Body" : "Remove Rigid Body", std::move(b)); }
+        if (ImGui::Checkbox("Rigid Body", &en)) { PhysSnap b = Settings(o); rb.enabled = en; record(en ? "Add Rigid Body" : "Remove Rigid Body", std::move(b)); }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Let this object fall, collide and bounce when you bake. Cloth also collides with it.");
         if (rb.enabled) {
             int type = rb.passive ? 1 : 0;
             const char* types[] = {"Active (falls and moves)", "Passive (floor or wall)"};
             ImGui::SetNextItemWidth(-1);
-            if (ImGui::Combo("##rbtype", &type, types, 2)) { PhysSnap b = Snapshot(scene); rb.passive = type == 1; record("Rigid Body Type", std::move(b)); }
+            if (ImGui::Combo("##rbtype", &type, types, 2)) { PhysSnap b = Settings(o); rb.passive = type == 1; record("Rigid Body Type", std::move(b)); }
             int shape = (int)rb.shape;
             const char* shapes[] = {RigidShapeName(RigidShape::Box), RigidShapeName(RigidShape::Sphere), RigidShapeName(RigidShape::ConvexHull)};
-            if (ImGui::Combo("Shape", &shape, shapes, 3)) { PhysSnap b = Snapshot(scene); rb.shape = (RigidShape)shape; record("Rigid Body Shape", std::move(b)); }
+            if (ImGui::Combo("Shape", &shape, shapes, 3)) { PhysSnap b = Settings(o); rb.shape = (RigidShape)shape; record("Rigid Body Shape", std::move(b)); }
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("Box and Sphere fit the object's bounds; Convex Hull wraps its outer points");
             ImGui::BeginDisabled(rb.passive);
             ImGui::DragFloat("Mass (kg)", &rb.mass, 0.05f, 0.001f, 1e6f, "%.3f", ImGuiSliderFlags_AlwaysClamp); track("Rigid Body Mass");
@@ -95,7 +117,7 @@ void App::PhysicsPanel() {
         ImGui::Spacing(); ImGui::TextColored(kBrass, "CLOTH"); ImGui::Separator();
         Cloth& cl = o->cloth;
         bool ce = cl.enabled;
-        if (ImGui::Checkbox("Cloth", &ce)) { PhysSnap b = Snapshot(scene); cl.enabled = ce; record(ce ? "Add Cloth" : "Remove Cloth", std::move(b)); }
+        if (ImGui::Checkbox("Cloth", &ce)) { PhysSnap b = Settings(o); cl.enabled = ce; record(ce ? "Add Cloth" : "Remove Cloth", std::move(b)); }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Make this mesh hang, drape and fold like fabric when you bake");
         if (cl.enabled) {
             ImGui::DragFloat("Cloth Mass (kg)", &cl.mass, 0.01f, 0.001f, 1e6f, "%.3f", ImGuiSliderFlags_AlwaysClamp); track("Cloth Mass");
@@ -105,11 +127,11 @@ void App::PhysicsPanel() {
             ImGui::SliderFloat("Cloth Friction", &cl.friction, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp); track("Cloth Friction");
             ImGui::DragFloat("Thickness (m)", &cl.thickness, 0.001f, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); track("Cloth Thickness");
             ImGui::Text("Pinned vertices: %d", (int)cl.pins.size());
-            if (ImGui::Button("Pin Top Edge")) { PhysSnap b = Snapshot(scene); int n = PinClothTop(*o); record("Pin Cloth", std::move(b)); ShowStatus("Pinned " + std::to_string(n) + " vertices"); }
+            if (ImGui::Button("Pin Top Edge")) { PhysSnap b = Settings(o); int n = PinClothTop(*o); record("Pin Cloth", std::move(b)); ShowStatus("Pinned " + std::to_string(n) + " vertices"); }
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("Hold the highest vertices in place, like a curtain on its rail");
             ImGui::SameLine();
             if (ImGui::Button("Pin Selected")) {
-                PhysSnap b = Snapshot(scene);
+                PhysSnap b = Settings(o);
                 cl.pins.assign(o->selVerts.begin(), o->selVerts.end());
                 std::sort(cl.pins.begin(), cl.pins.end());
                 record("Pin Cloth", std::move(b));
@@ -117,7 +139,7 @@ void App::PhysicsPanel() {
             }
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("Hold the vertices selected in Edit Mode in place");
             ImGui::SameLine();
-            if (ImGui::Button("Unpin")) { PhysSnap b = Snapshot(scene); cl.pins.clear(); record("Unpin Cloth", std::move(b)); }
+            if (ImGui::Button("Unpin")) { PhysSnap b = Settings(o); cl.pins.clear(); record("Unpin Cloth", std::move(b)); }
             if (cl.Baked()) {
                 ImGui::TextDisabled("Baked: frames %d - %d", cl.cacheStart, cl.cacheStart + (int)cl.cache.size() - 1);
                 if (ImGui::Button("Apply as Shape")) {

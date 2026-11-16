@@ -65,6 +65,9 @@ static Icon ModeIcon(Mode3D m) {
 }
 
 void App::SetMode3D(Mode3D m) {
+    // Editing a baked cloth's vertices would be overwritten by playback, so keep its shape and drop the bake.
+    if (m == Mode3D::Edit || m == Mode3D::Sculpt || m == Mode3D::Retopology)
+        if (MeshObject* o = scene.Active(); o && o->cloth.Baked()) { DropClothBake(*o, true); ShowStatus("Kept the cloth's current shape and dropped its bake"); }
     mode3D = m;
     viewport.modeLabel = Mode3DName(m);
 }
@@ -948,7 +951,9 @@ void App::ProcessPendingImport() {
         ShowStatus(r.message);
     }
 
-    if (!exportPath.empty() && scene.HasMesh()) {
+    if (!exportPath.empty() && scene.HasMesh() && scene.Active()->isControl) {
+        ShowStatus("Rig controls are only wire handles; select a mesh to export");
+    } else if (!exportPath.empty() && scene.HasMesh()) {
         std::string error;
         const MeshObject* eo = scene.Active();
         Mesh linkedMesh; Armature linkedArm; const Action* linkedAct = nullptr;   // a mesh deformed by another object's bones
@@ -1857,22 +1862,31 @@ void App::UpdateTransform(bool) {
         } else {
             // a moved baked object drops its bake; undo hands the bake back with the old transform
             auto bake = std::make_shared<RigidBody>(o->rigidBody);
+            auto clothBake = std::make_shared<Cloth>(o->cloth);   // its cache and rest, for undo
             if (o->rigidBody.Baked()) { o->rigidBody.cache.clear(); bakeCleared = true; }
             if (o->cloth.Baked()) { DropClothBake(*o, false); bakeCleared = true; }
             Transform before = xform.savedTransform, after = o->transform;
             undoStack.Push(names[xform.mode],
-                [this, objIndex, before, bake] {
+                [this, objIndex, before, bake, clothBake] {
                     if (objIndex >= (int)scene.objects.size()) return;
                     MeshObject& ob = *scene.objects[objIndex];
                     ob.transform = before;
                     if (bake->Baked()) { ob.rigidBody.cache = bake->cache; ob.rigidBody.cacheStart = bake->cacheStart; }
+                    if (clothBake->Baked() && clothBake->rest.size() == ob.mesh.positions.size()) {
+                        ob.cloth.cache = clothBake->cache; ob.cloth.rest = clothBake->rest;
+                        ob.cloth.cacheStart = clothBake->cacheStart; ob.cloth.shown = -1;
+                        ApplyRigidBodyCache(scene, playback.frame);   // show the restored cloth frame
+                    }
                 },
-                [this, objIndex, after, bake] {
+                [this, objIndex, after, bake, clothBake] {
                     if (objIndex >= (int)scene.objects.size()) return;
-                    scene.objects[objIndex]->transform = after;
-                    if (bake->Baked()) scene.objects[objIndex]->rigidBody.cache.clear();
+                    MeshObject& ob = *scene.objects[objIndex];
+                    ob.transform = after;
+                    if (bake->Baked()) ob.rigidBody.cache.clear();
+                    if (clothBake->Baked()) DropClothBake(ob, false);
                 },
-                bake->cache.size() * sizeof(RigidTransform));
+                bake->cache.size() * sizeof(RigidTransform) +
+                    (clothBake->rest.size() + clothBake->cache.size() * clothBake->rest.size()) * sizeof(Float3));
         }
         xform = TransformOp{};
         ShowStatus(bakeCleared ? "Moved a baked object: its bake was cleared, bake again" : "Transform applied");
@@ -3283,11 +3297,13 @@ void App::JoinMeshes() {
     if (!target) { ShowStatus("Nothing selected"); return; }
     // joined geometry would be wiped the next time the curve rebuilds its tube
     if (target->isCurve) { ShowStatus("Convert the curve to a mesh before joining into it"); return; }
+    if (target->isControl) { ShowStatus("Rig controls can't be joined; make a mesh the active object"); return; }
 
     // everything selected except the active object, which everything merges into
     std::vector<int> sources;
     for (int i = 0; i < (int)scene.objects.size(); ++i)
-        if (i != scene.activeIndex && scene.objects[i]->selected && !scene.objects[i]->mesh.positions.empty())
+        if (i != scene.activeIndex && scene.objects[i]->selected && !scene.objects[i]->mesh.positions.empty() &&
+            !scene.objects[i]->isControl)   // a control is a wire with no faces, and its IK would lose its target
             sources.push_back(i);
     if (sources.empty()) { ShowStatus("Select at least two objects to join (Shift+click in the hierarchy)"); return; }
 

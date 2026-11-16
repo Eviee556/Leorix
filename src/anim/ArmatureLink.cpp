@@ -157,6 +157,10 @@ Mesh ControlWire(ControlShape shape, float size) {
 
 std::vector<MeshObject*> AddControlRig(Scene& scene, MeshObject& armObj) {
     Armature& arm = armObj.armature;
+    // constraints left pointing at deleted controls do nothing; drop them so the rig can be rebuilt
+    auto gone = [&](uint32_t id) { return id && !scene.FindById(id); };
+    for (Bone& b : arm.bones)
+        std::erase_if(b.constraints, [&](const BoneConstraint& c) { return gone(c.targetObject) || gone(c.poleObject); });
     int role[21];
     std::fill(std::begin(role), std::end(role), -1);
     for (int i = 0; i < (int)arm.bones.size(); ++i) {
