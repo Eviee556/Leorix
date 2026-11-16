@@ -143,7 +143,7 @@ void* CappedAlloc(void* ud, void* ptr, size_t oldSize, size_t newSize) {
 }
 } // namespace
 
-ScriptResult RunMeshScript(const std::string& code) {
+ScriptResult RunMeshScript(const std::string& code, float frame, int fps) {
     ScriptResult result;
     MemoryBudget budget;
     lua_State* L = lua_newstate(CappedAlloc, &budget);
@@ -160,6 +160,11 @@ ScriptResult RunMeshScript(const std::string& code) {
     lua_pushlightuserdata(L, &ctx);
     lua_setfield(L, LUA_REGISTRYINDEX, "leorix_ctx");
     OpenMeshLib(L);
+    // Timeline globals, so a script can animate by being re-run each frame.
+    if (fps < 1) fps = 24;
+    lua_pushnumber(L, frame); lua_setglobal(L, "frame");
+    lua_pushinteger(L, fps); lua_setglobal(L, "fps");
+    lua_pushnumber(L, (frame - 1.0f) / (float)fps); lua_setglobal(L, "time");
     lua_sethook(L, InstructionHook, LUA_MASKCOUNT, kHookEvery);
 
     int status = luaL_loadbuffer(L, code.c_str(), code.size(), "leorix");

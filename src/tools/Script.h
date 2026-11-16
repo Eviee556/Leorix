@@ -20,8 +20,9 @@ struct ScriptResult {
 //   m = mesh()                       v = m:vert(x, y, z)                 m:face(a, b, c[, d, ...])
 //   m:build()                        -- adds it to the scene
 //   -- helpers: print(...), PI, math.*
+//   -- timeline: frame (current frame, starts at 1), fps, time (seconds since frame 1)
 // Limits: ~100M Lua instructions and 512 MB of Lua memory per run; exceeding either fails the run.
-ScriptResult RunMeshScript(const std::string& code);
+ScriptResult RunMeshScript(const std::string& code, float frame = 1.0f, int fps = 24);
 
 // Merges every mesh one run created into a single mesh, keeping each mesh's own UVs
 // (a mesh without UVs gets the usual fallback projection on its own).

@@ -14,6 +14,7 @@ enum class BlockType {
     PutTogether,                                       // Mix
     Number, Random, Math,                              // Numbers
     ShowInScene,                                       // Finish
+    Time, Mirror, StackUp, Scatter,                    // added later; kept at the end so the table order matches
     Count
 };
 
@@ -38,6 +39,8 @@ const BlockInfo& GetBlockInfo(BlockType t);
 const char* const* BlockCategories(int& count);    // display order of the "Add a block" list
 const char* MathOpName(int op);                    // 0 add, 1 take away, 2 times, 3 divide by
 constexpr int kMathOpCount = 4;
+const char* MirrorWayName(int way);               // Mirror reuses Block::op: 0 left/right, 1 up/down, 2 front/back
+constexpr int kMirrorWayCount = 3;
 constexpr int kMaxCopies = 1000;
 constexpr size_t kMaxVerts = 2000000;
 
@@ -46,7 +49,7 @@ struct Block {
     BlockType type = BlockType::Box;
     float x = 0, y = 0;                // canvas position (UI only)
     std::vector<float> values;         // one per input, used when that input has no wire
-    int  op = 0;                       // Math only
+    int  op = 0;                       // Math: the sum; Mirror: which way
     std::string error;                 // set by Evaluate, shown on the block
 };
 
@@ -56,6 +59,7 @@ struct VisualGraph {
     std::vector<Block> blocks;
     std::vector<Wire>  wires;
     int nextId = 1;
+    float frame = 1.0f; int fps = 24;  // timeline, read by the Time block (set by the app, not saved)
 
     int    Add(BlockType t, float x = 0, float y = 0);
     Block* Find(int id);
@@ -79,3 +83,8 @@ struct BuildResult {
 BuildResult EvaluateGraph(VisualGraph& g);
 // Number value of a block's output (for the self-test and the on-block preview).
 bool EvaluateNumber(VisualGraph& g, int id, float& out, std::string& why);
+
+// .leorixblocks files (JSON). Loading checks everything: unknown blocks and bad wires are skipped
+// with a note, numbers are clamped to each slot's range, and on a hard failure `g` is left untouched.
+std::string SaveGraph(const VisualGraph& g);
+bool LoadGraph(VisualGraph& g, const std::string& text, std::string& message);

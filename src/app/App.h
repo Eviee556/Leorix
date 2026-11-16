@@ -64,6 +64,7 @@ public:
     void QueueTextureFiles(const std::vector<std::string>& files);
     void QueueHdri(const std::string& path) { std::lock_guard<std::mutex> lock(importMutex); pendingHdri = path; }
     void QueueProjectPath(const std::string& path, bool saving);
+    void QueueBlocksPath(const std::string& path, bool saving) { std::lock_guard<std::mutex> lock(importMutex); (saving ? pendingBlocksSave : pendingBlocksOpen) = path; }
     void SetSunElevation(float deg) { world.sunElevation = deg; }
     void SetExposure(float e) { world.exposure = e; }
     // Headless render: trace, write the PNG, then quit. Also handy for batch jobs.
@@ -198,12 +199,17 @@ private:
     std::string pendingImportPath, pendingImportError, pendingExportPath;
     std::vector<std::string> pendingTextureFiles;
     std::string pendingProjectSave, pendingProjectOpen, projectPath, pendingHdri;
+    std::string pendingBlocksSave, pendingBlocksOpen, blocksPath;
     ImportKind  queuedKind = ImportKind::None;
     std::string scriptCode, scriptOutput;
+    bool scriptLive = false; float scriptLastFrame = -1; MeshObject* scriptLiveObj = nullptr;   // "Update every frame"
     // Visual Scripting panel state (graph + canvas pan + the wire being dragged).
     VisualGraph visualGraph; bool visualStarted = false;
     ImVec2 visualPan{0, 0}; int visualDragFrom = -1;
     std::string visualMessage; bool visualMessageOk = true; std::vector<std::string> visualNotes;
+    // shortcut: live objects are matched by pointer, so a deleted object whose memory is reused could be updated; store an object id if that ever matters.
+    bool visualLive = false; float visualLastFrame = -1; MeshObject* visualLiveObj = nullptr;   // "Update every frame"
+    bool LiveObjectExists(const MeshObject* o) const { for (auto& p : scene.objects) if (p.get() == o) return true; return false; }
     std::string statusMessage; double statusUntil = 0;
 
     // ---- App.cpp
@@ -223,7 +229,8 @@ private:
     void BakeUVToLayer(bool seamsOnly);
     void MarkEdges(bool seam, bool set);     // seam/sharp, mark or clear, on the edge selection
     void UnwrapSelected();
-    void RunEditOp(char op);                 // Edit Mode: 'E' extrude, 'X' delete, 'M' merge at center
+    void RunEditOp(char op);                 // Edit Mode: 'E' extrude, 'X' delete, 'M' merge at center, 'D' duplicate faces
+    void SeparateSelected();                 // Edit Mode P: move the selected faces into a new object
     bool EdgeOpsAvailable() const;           // edit mode + edge select + something selected
     void PaintStroke(ImVec2 canvasPos, bool begin);
     void SyncMapTexture(MapDoc& m);
