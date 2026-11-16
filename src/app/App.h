@@ -344,6 +344,8 @@ private:
     void TimelinePanel();
     void ApplyAnimation(float frame);     // evaluate every object's action at this frame
     void UpdateSkinning(MeshObject& o);
+    void ArmatureLinkUI(MeshObject& o);      // bind other meshes to these bones, add control rig
+    void DrawControls(ImDrawList* dl, ImVec2 mouse, bool hovered, int& pickedObject);   // control-rig wires
     void InsertKeyframes(bool location, bool rotation, bool scale);
     void BakeAnimation();
     void HandleViewShortcuts(bool viewportHovered);

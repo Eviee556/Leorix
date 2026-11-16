@@ -194,7 +194,8 @@ json SaveArmature(const Armature& a) {
             cons.push_back({{"type", (int)c.type}, {"enabled", c.enabled}, {"target", c.target}, {"point", J3(c.point)},
                             {"usePole", c.usePole}, {"poleTarget", c.poleTarget}, {"polePoint", J3(c.polePoint)},
                             {"limit", json::array({c.limit[0], c.limit[1], c.limit[2]})},
-                            {"minRot", J3(c.minRot)}, {"maxRot", J3(c.maxRot)}});
+                            {"minRot", J3(c.minRot)}, {"maxRot", J3(c.maxRot)},
+                            {"targetObject", c.targetObject}, {"poleObject", c.poleObject}});
         bones.push_back({{"name", b.name}, {"parent", b.parent}, {"head", J3(b.head)}, {"tail", J3(b.tail)},
                          {"poseRotation", J3(b.poseRotation)}, {"poseLocation", J3(b.poseLocation)},
                          {"poseScale", J3(b.poseScale)}, {"envelope", b.envelope}, {"deform", b.deform},
@@ -231,6 +232,8 @@ void LoadArmature(const json& j, Armature& a) {
             const json& lim = Arr(y, "limit");
             for (int k = 0; k < 3 && k < (int)lim.size(); ++k) if (lim[k].is_boolean()) c.limit[k] = lim[k].get<bool>();
             c.minRot = V3(y, "minRot", c.minRot); c.maxRot = V3(y, "maxRot", c.maxRot);
+            c.targetObject = (uint32_t)I(y, "targetObject", 0, 0, 1 << 30);   // checked once every object is loaded
+            c.poleObject = (uint32_t)I(y, "poleObject", 0, 0, 1 << 30);
             b.constraints.push_back(c);
         }
         a.bones.push_back(std::move(b));
@@ -362,6 +365,7 @@ json SaveScene(mz_zip_archive& zip, const Scene& scene, const PlaybackState* pla
                                        {"scale", J3(o.transform.scale)}}},
                         {"data", base + ".bin"}, {"material", jm}, {"modifiers", mods},
                         {"isCurve", o.isCurve},
+                        {"id", o.id}, {"armatureObject", o.armatureObject}, {"isControl", o.isControl},
                         {"curve", {{"points", curvePts}, {"handleL", curveL}, {"handleR", curveR}, {"handleType", curveT}, {"radius", curveRad},
                                    {"cyclic", o.curve.cyclic}, {"resolution", o.curve.resolution},
                                    {"bevelDepth", o.curve.bevelDepth}, {"bevelResolution", o.curve.bevelResolution}}},
@@ -378,6 +382,13 @@ json SaveScene(mz_zip_archive& zip, const Scene& scene, const PlaybackState* pla
     json js = {{"objects", objs}, {"activeObject", scene.activeIndex}, {"cameras", cams}, {"activeCamera", scene.activeCamera}};
     if (playback) js["playback"] = {{"fps", playback->fps}, {"frame", playback->frame}, {"loop", playback->loop}};
     return js;
+}
+
+// Weights must name bones that exist and hold finite values.
+void ClampWeights(Armature& a, int nb) {
+    for (VertexWeights& w : a.weights)
+        for (int k = 0; k < 4; ++k)
+            if (w.bone[k] >= nb || w.bone[k] < -1 || !std::isfinite(w.weight[k])) { w.bone[k] = -1; w.weight[k] = 0; }
 }
 
 // Loads one object. Returns false (with a reason) when its mesh data is unusable.
@@ -463,12 +474,13 @@ bool LoadObject(mz_zip_archive& zip, const json& x, MeshObject& o, std::string& 
     }
 
     LoadArmature(Obj(x, "armature"), o.armature);
+    o.id = (uint32_t)I(x, "id", 0, 0, 1 << 30);
+    o.armatureObject = (uint32_t)I(x, "armatureObject", 0, 0, 1 << 30);
+    o.isControl = B(x, "isControl", false);
     Armature& a = o.armature;
     const int nb = (int)a.bones.size();
     if (a.weights.size() != a.restPositions.size() || a.restPositions.size() != nv) { a.weights.clear(); a.restPositions.clear(); }
-    for (VertexWeights& w : a.weights)
-        for (int k = 0; k < 4; ++k)
-            if (w.bone[k] >= nb || w.bone[k] < -1 || !std::isfinite(w.weight[k])) { w.bone[k] = -1; w.weight[k] = 0; }
+    if (!o.armatureObject) ClampWeights(a, nb);   // a linked mesh is checked against its armature's bones later
     LoadAction(Obj(x, "action"), o.action, nb);
 
     const json& rb = Obj(x, "rigidBody");
@@ -506,6 +518,21 @@ void LoadScene(mz_zip_archive& zip, const json& js, Scene& out, PlaybackState* p
         out.objects.push_back(std::move(o));
     }
     if (skipped > 1) notes += " (+" + std::to_string(skipped - 1) + " more)";
+    // Ids must be unique; links that point nowhere (or at an object without bones) are dropped.
+    for (size_t i = 0; i < out.objects.size(); ++i)
+        for (size_t j = 0; j < i; ++j)
+            if (out.objects[i]->id && out.objects[i]->id == out.objects[j]->id) { out.objects[i]->id = 0; break; }
+    for (auto& o : out.objects) {
+        if (o->armatureObject) {
+            const MeshObject* src = out.FindById(o->armatureObject);
+            if (!src || src == o.get() || src->armature.bones.empty()) o->armatureObject = 0;
+            ClampWeights(o->armature, o->armatureObject ? (int)src->armature.bones.size() : (int)o->armature.bones.size());
+        }
+        for (Bone& b : o->armature.bones)
+            for (BoneConstraint& c : b.constraints)
+                for (uint32_t* t : {&c.targetObject, &c.poleObject})
+                    if (*t && !out.FindById(*t)) *t = 0;
+    }
     for (auto& o : out.objects)   // targets are object indices; one that no longer exists means "none"
         for (Modifier& md : o->modifiers)
             if (md.shrinkTarget >= (int)out.objects.size()) md.shrinkTarget = -1;

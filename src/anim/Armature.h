@@ -35,6 +35,11 @@ struct BoneConstraint {
     // Limit Rotation: per-axis limits (radians) on the bone's own pose rotation.
     bool   limit[3] = {true, true, true};
     Float3 minRot{-0.7854f, -0.7854f, -0.7854f}, maxRot{0.7854f, 0.7854f, 0.7854f};
+    // Object targets (scene object ids, 0 = none), used when no target bone is set. The scene
+    // resolves them before Evaluate: `point` / `polePoint` become the object's position and
+    // `objectRot` its rotation, both in this armature's object space.
+    uint32_t targetObject = 0, poleObject = 0;
+    Mat4     objectRot;   // runtime only, for Copy Rotation from an object
 };
 const char* ConstraintTypeName(BoneConstraint::Type t);
 
@@ -97,3 +102,9 @@ int ApplyRigNaming(Armature& arm, RigNaming n);
 // Appends a T-pose humanoid (hips, spine, chest, neck, head, arms, legs) fitted to the bounds,
 // facing +Z with the character's left on +X. Returns the index of its root (hips).
 int AddHumanoidRig(Armature& arm, const Float3& bmin, const Float3& bmax, RigNaming n);
+// Canonical humanoid role of a bone name in any convention: 0..4 hips, spine, chest, neck, head;
+// 5..12 left shoulder, upper arm, forearm, hand, thigh, shin, foot, toe; 13..20 the same on the
+// right. -1 when the name is not a known humanoid bone.
+int HumanoidRole(const std::string& name);
+// One vertex skinned by linear blend: the weighted bone matrices applied to `rest`.
+Float3 SkinPoint(const std::vector<Mat4>& mats, const VertexWeights& w, const Float3& rest);

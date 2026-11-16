@@ -51,6 +51,14 @@ struct MeshObject {
     Action   action;            // this object's keyframes
     RigidBody rigidBody;        // physics settings and baked cache
     std::vector<Float3> skinned;// deformed positions for the current pose
+    // Stable identity for links between objects; list indices shift on delete/undo, ids do not.
+    // 0 = not assigned yet (Scene::IdOf assigns lazily). Copies must reset it.
+    uint32_t id = 0;
+    // Another object whose armature deforms this mesh (by id, 0 = none). This mesh keeps its own
+    // weights and rest positions in `armature`; the bones come from that object.
+    uint32_t armatureObject = 0;
+    bool     isControl = false;  // a control-rig widget: drawn as wire, never rendered or exported
+    std::vector<float> rigKey;   // runtime: what the linked skin was last computed from
     // Edit-mode selection
     std::unordered_set<uint32_t> selVerts;
     std::unordered_set<uint64_t> selEdges;
@@ -147,6 +155,18 @@ struct Scene {
             for (const Modifier& m : o->modifiers)
                 if (m.enabled && m.type == ModifierType::CurveDeform) { o->stackDirty = true; ++n; break; }
         return n;
+    }
+    MeshObject* FindById(uint32_t id) const {
+        if (id == 0) return nullptr;
+        for (const auto& o : objects) if (o->id == id) return o.get();
+        return nullptr;
+    }
+    // The object's id, assigning a fresh one (above every id in use) the first time it is asked.
+    uint32_t IdOf(MeshObject& obj) const {
+        if (obj.id != 0) return obj.id;
+        uint32_t top = 0;
+        for (const auto& o : objects) top = std::max(top, o->id);
+        return obj.id = top + 1;
     }
     int IndexOf(const MeshObject* obj) const {
         for (int i = 0; i < (int)objects.size(); ++i) if (objects[i].get() == obj) return i;

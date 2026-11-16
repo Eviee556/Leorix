@@ -4,6 +4,7 @@
 #include "app/App.h"
 #include "app/Icons.h"
 #include "app/RigPanel.h"
+#include "anim/ArmatureLink.h"
 #include "imgui.h"
 #include "mesh/IO.h"
 #include "mesh/Primitives.h"
@@ -142,6 +143,7 @@ void App::MeshStatsOverlay(ImVec2 origin, ImVec2 size) {
 // so it renders inside the viewport clip rect with the current camera.
 void App::EditModePick(bool viewportHovered) {
     if (scene.objects.empty()) return;
+    SyncRigs(scene);   // controls moved, or a linked mesh / its armature object moved
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImVec2 mouse = ImGui::GetIO().MousePos;
     bool editMode = mode3D == Mode3D::Edit;
@@ -163,7 +165,7 @@ void App::EditModePick(bool viewportHovered) {
     float bestDepth = FLT_MAX;
     for (int i = 0; i < (int)scene.objects.size(); ++i) {
         MeshObject& obj = *scene.objects[i];
-        if (!obj.visible) continue;
+        if (!obj.visible || obj.isControl) continue;   // controls are wire overlays, drawn below
         bool isActive = (i == scene.activeIndex);
         bool objEdit = editMode && isActive && !obj.isCurve;   // a curve edits its points, not its tube
         bool objRetopo = retopoMode && isActive;
@@ -173,6 +175,7 @@ void App::EditModePick(bool viewportHovered) {
         if (p.hit && p.depth < bestDepth) { bestDepth = p.depth; pickedObject = i; if (isActive || !editMode) { lastPick = p; lastPickObject = i; } }
     }
     DrawCameraGizmo();
+    DrawControls(dl, mouse, viewportHovered, pickedObject);
 
     // curve objects: the evaluated path plus its control points
     for (int i = 0; i < (int)scene.objects.size(); ++i) {
@@ -948,7 +951,10 @@ void App::ProcessPendingImport() {
     if (!exportPath.empty() && scene.HasMesh()) {
         std::string error;
         const MeshObject* eo = scene.Active();
-        if (ExportMeshAnimated(exportPath, eo->mesh, &eo->armature, &eo->action, playback.fps, error)) {
+        Mesh linkedMesh; Armature linkedArm; const Action* linkedAct = nullptr;   // a mesh deformed by another object's bones
+        const bool linked = LinkedRigForExport(scene, *eo, linkedMesh, linkedArm, &linkedAct);
+        if (ExportMeshAnimated(exportPath, linked ? linkedMesh : eo->mesh, linked ? &linkedArm : &eo->armature,
+                               linked ? linkedAct : &eo->action, playback.fps, error)) {
             size_t slash = exportPath.find_last_of("/\\");
             ShowStatus("Exported " + (slash == std::string::npos ? exportPath : exportPath.substr(slash + 1)));
         } else ShowStatus(error);
@@ -2340,10 +2346,7 @@ void App::HandleViewShortcuts(bool viewportHovered) {
 }
 
 // ---------------------------------------------------------------- armature
-void App::UpdateSkinning(MeshObject& o) {
-    if (o.armature.enabled && o.armature.Bound()) o.armature.Skin(o.skinned);
-    else o.skinned.clear();
-}
+void App::UpdateSkinning(MeshObject& o) { SkinWithLinks(scene, o); }   // also meshes linked to o's bones
 
 void App::ArmaturePanel() {
     if (!ImGui::Begin("Armature", &showArmature)) { ImGui::End(); return; }
@@ -2403,6 +2406,7 @@ void App::ArmaturePanel() {
         pushArm(label, std::move(before));
     });
     if (!rigMsg.empty()) ShowStatus(rigMsg);
+    ArmatureLinkUI(*o);
 
     ImGui::Spacing(); ImGui::TextColored(kBrass, "BONES"); ImGui::Separator();
     int removeBone = -1;
@@ -4102,6 +4106,7 @@ void App::DuplicateSelected() {
         auto copy = std::make_unique<MeshObject>(*scene.objects[i]);
         copy->name = scene.UniqueName(scene.objects[i]->name);
         copy->rigidBody.cache.clear();   // a copy must not replay the original's baked path
+        copy->id = 0;                    // a copy is a new object; links keep pointing at the original
         copy->selected = true;
         copy->active = false;
         scene.objects.push_back(std::move(copy));

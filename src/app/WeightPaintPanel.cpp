@@ -1,6 +1,7 @@
 // Weight Paint mode: brush strokes on the active bone's weights, the tool settings, and undo.
 // The brush math lives in anim/WeightPaint so the self-test can check it without a window.
 #include "app/App.h"
+#include "anim/ArmatureLink.h"
 #include "imgui.h"
 #include <algorithm>
 #include <cmath>
@@ -30,11 +31,13 @@ void App::WeightStroke(bool begin) {
     MeshObject* o = scene.Active();
     if (!o || !lastPick.hit || lastPickObject != scene.activeIndex) return;
     Armature& arm = o->armature;
+    const MeshObject* src = BoneSource(scene, *o);   // own bones, or the armature object it is bound to
+    const int boneCount = src ? (int)src->armature.bones.size() : 0;
     if (!arm.Bound() || arm.weights.size() != o->mesh.positions.size()) {
         if (begin) ShowStatus("Weight Paint needs a mesh parented to an armature (Armature panel > Parent)");
         return;
     }
-    if (activeBone < 0 || activeBone >= (int)arm.bones.size()) {
+    if (activeBone < 0 || activeBone >= boneCount) {
         if (begin) ShowStatus("Pick a bone to paint in the Weight Paint settings");
         return;
     }
@@ -60,7 +63,13 @@ void App::WeightStroke(bool begin) {
              : (WeightBrush)weightPaint.mode;
     dab.bone = activeBone;
     dab.mirrorX = weightPaint.mirrorX;
-    if (ApplyWeightDab(arm, BrushPositions(*o), o->mesh.tris, weightPaint.brush, dab, &o->mesh.positions)) UpdateSkinning(*o);
+    // A linked mesh has no bones of its own: paint through a stand-in that borrows them (mirror needs the names).
+    Armature borrowed;
+    Armature* target = &arm;
+    if (src != o) { borrowed.bones = src->armature.bones; borrowed.weights.swap(arm.weights); borrowed.restPositions.swap(arm.restPositions); target = &borrowed; }
+    bool changed = ApplyWeightDab(*target, BrushPositions(*o), o->mesh.tris, weightPaint.brush, dab, &o->mesh.positions);
+    if (target == &borrowed) { arm.weights.swap(borrowed.weights); arm.restPositions.swap(borrowed.restPositions); }
+    if (changed) UpdateSkinning(*o);
 }
 
 void App::WeightStrokeEnd() {
@@ -78,11 +87,14 @@ void App::WeightSettingsUI() {
         return;
     }
     Armature& arm = o->armature;
-    const char* boneName = activeBone >= 0 && activeBone < (int)arm.bones.size() ? arm.bones[activeBone].name.c_str() : "(pick a bone)";
+    const MeshObject* src = BoneSource(scene, *o);
+    static const std::vector<Bone> kNoBones;
+    const std::vector<Bone>& bones = src ? src->armature.bones : kNoBones;
+    const char* boneName = activeBone >= 0 && activeBone < (int)bones.size() ? bones[activeBone].name.c_str() : "(pick a bone)";
     if (ImGui::BeginCombo("Bone", boneName)) {
-        for (int i = 0; i < (int)arm.bones.size(); ++i) {
+        for (int i = 0; i < (int)bones.size(); ++i) {
             ImGui::PushID(i);
-            if (ImGui::Selectable(arm.bones[i].name.c_str(), activeBone == i)) activeBone = i;
+            if (ImGui::Selectable(bones[i].name.c_str(), activeBone == i)) activeBone = i;
             ImGui::PopID();
         }
         ImGui::EndCombo();
