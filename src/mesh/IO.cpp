@@ -286,6 +286,43 @@ static void BakeTrack(tinygltf::Model& model, tinygltf::Animation& anim, const A
     WriteTrack(model, anim, k);
 }
 
+// Inverse of an affine Mat4 (row-major, translation in m[3], m[7], m[11]).
+static Mat4 AffineInverse(const Mat4& a) {
+    const float* m = a.m;
+    float c00 = m[5] * m[10] - m[6] * m[9], c01 = m[2] * m[9] - m[1] * m[10], c02 = m[1] * m[6] - m[2] * m[5];
+    float c10 = m[6] * m[8] - m[4] * m[10], c11 = m[0] * m[10] - m[2] * m[8], c12 = m[2] * m[4] - m[0] * m[6];
+    float c20 = m[4] * m[9] - m[5] * m[8], c21 = m[1] * m[8] - m[0] * m[9], c22 = m[0] * m[5] - m[1] * m[4];
+    float det = m[0] * c00 + m[1] * c10 + m[2] * c20;
+    float id = std::fabs(det) > 1e-20f ? 1.0f / det : 0.0f;
+    Mat4 r;
+    float R[9] = {c00 * id, c01 * id, c02 * id, c10 * id, c11 * id, c12 * id, c20 * id, c21 * id, c22 * id};
+    for (int i = 0; i < 3; ++i) {
+        r.m[i * 4] = R[i * 3]; r.m[i * 4 + 1] = R[i * 3 + 1]; r.m[i * 4 + 2] = R[i * 3 + 2];
+        r.m[i * 4 + 3] = -(R[i * 3] * m[3] + R[i * 3 + 1] * m[7] + R[i * 3 + 2] * m[11]);
+    }
+    return r;
+}
+
+// A joint's parent-relative TRS taken from Armature::Evaluate, so constraints (IK, Track To, limits...)
+// are exported as posed. Joint rest frames sit at each head with no rotation: joint world = M_i * T(head_i).
+static void EvaluatedJointTRS(const Armature& a, const std::vector<Mat4>& M, int i, int p, Float3& t, Quat& q, Float3& s) {
+    Mat4 w = M[i] * Mat4::Translate(a.bones[i].head);
+    if (p >= 0) w = AffineInverse(M[p] * Mat4::Translate(a.bones[p].head)) * w;
+    const float* m = w.m;
+    t = {m[3], m[7], m[11]};
+    s = {std::sqrt(m[0] * m[0] + m[4] * m[4] + m[8] * m[8]), std::sqrt(m[1] * m[1] + m[5] * m[5] + m[9] * m[9]),
+         std::sqrt(m[2] * m[2] + m[6] * m[6] + m[10] * m[10])};
+    float sx = s.x > 1e-12f ? s.x : 1, sy = s.y > 1e-12f ? s.y : 1, sz = s.z > 1e-12f ? s.z : 1;
+    float r00 = m[0] / sx, r01 = m[1] / sy, r02 = m[2] / sz;
+    float r10 = m[4] / sx, r11 = m[5] / sy, r12 = m[6] / sz;
+    float r20 = m[8] / sx, r21 = m[9] / sy, r22 = m[10] / sz;
+    float tr = r00 + r11 + r22;
+    if (tr > 0) { float k = std::sqrt(tr + 1) * 2; q = {(r21 - r12) / k, (r02 - r20) / k, (r10 - r01) / k, 0.25f * k}; }
+    else if (r00 > r11 && r00 > r22) { float k = std::sqrt(1 + r00 - r11 - r22) * 2; q = {0.25f * k, (r01 + r10) / k, (r02 + r20) / k, (r21 - r12) / k}; }
+    else if (r11 > r22) { float k = std::sqrt(1 + r11 - r00 - r22) * 2; q = {(r01 + r10) / k, 0.25f * k, (r12 + r21) / k, (r02 - r20) / k}; }
+    else { float k = std::sqrt(1 + r22 - r00 - r11) * 2; q = {(r02 + r20) / k, (r12 + r21) / k, 0.25f * k, (r10 - r01) / k}; }
+}
+
 static bool ExportGLTF(const std::string& path, const Mesh& mesh, const Armature* arm, const Action* action,
                        int fps, std::string& error, bool binary) {
     const bool skinned = arm && !arm->bones.empty() && arm->Bound() && arm->restPositions.size() == mesh.positions.size();
@@ -349,10 +386,15 @@ static bool ExportGLTF(const std::string& path, const Mesh& mesh, const Armature
                 t = {rel.x + l.x, rel.y + l.y, rel.z + l.z}; q = BoneQuat(r); sc = s;
             };
         };
+        bool constrained = false;   // constrained rigs are exported from Armature::Evaluate, the rest exactly from the pose
+        for (const Bone& b : arm->bones) for (const BoneConstraint& c : b.constraints) constrained |= c.enabled;
+        std::vector<Mat4> posed;
+        if (constrained) arm->Evaluate(posed);
         for (int i = 0; i < nb; ++i) {
             const Bone& b = arm->bones[i];
             Float3 t, sc; Quat q;
-            boneTRS(restRel(i))(b.poseLocation, b.poseRotation, b.poseScale, t, q, sc);
+            if (constrained) EvaluatedJointTRS(*arm, posed, i, parentOf(i), t, q, sc);
+            else boneTRS(restRel(i))(b.poseLocation, b.poseRotation, b.poseScale, t, q, sc);
             tinygltf::Node n; n.name = b.name;
             n.translation = {t.x, t.y, t.z}; n.rotation = {q.x, q.y, q.z, q.w}; n.scale = {sc.x, sc.y, sc.z};
             model.nodes.push_back(n);
@@ -378,7 +420,39 @@ static bool ExportGLTF(const std::string& path, const Mesh& mesh, const Armature
         model.skins.push_back(skin);
         model.nodes[0].skin = 0;
 
-        if (action)
+        if (action && constrained) {
+            // Constraints couple bones (an IK target's keys move the whole chain), so every joint is baked
+            // over the range of all bone keys from a posed copy of the armature.
+            int f0 = INT_MAX, f1 = INT_MIN;
+            for (const Channel& c : action->channels)
+                if (c.target == ChannelTarget::Bone && !c.keys.empty()) { f0 = std::min(f0, c.keys.front().frame); f1 = std::max(f1, c.keys.back().frame); }
+            if (f0 <= f1) {
+                Armature a2 = *arm;
+                std::vector<BakedTrack> tracks(nb);
+                for (int i = 0; i < nb; ++i) { tracks[i].node = firstJoint + i; tracks[i].hasT = tracks[i].hasR = tracks[i].hasS = true; }
+                for (int f = f0; f <= f1; ++f) {
+                    for (int i = 0; i < nb; ++i) {
+                        const Bone& b = arm->bones[i];
+                        Float3 v[3] = {b.poseLocation, b.poseRotation, b.poseScale};
+                        const ChannelProp props[3] = {ChannelProp::Location, ChannelProp::Rotation, ChannelProp::Scale};
+                        for (int pr = 0; pr < 3; ++pr) {
+                            float* o[3] = {&v[pr].x, &v[pr].y, &v[pr].z};
+                            for (int ax = 0; ax < 3; ++ax)
+                                if (const Channel* c = action->Get(ChannelTarget::Bone, i, props[pr], ax)) c->Evaluate((float)f, *o[ax]);
+                        }
+                        a2.bones[i].poseLocation = v[0]; a2.bones[i].poseRotation = v[1]; a2.bones[i].poseScale = v[2];
+                    }
+                    a2.Evaluate(posed);
+                    for (int i = 0; i < nb; ++i) {
+                        Float3 t, sc; Quat q;
+                        EvaluatedJointTRS(*arm, posed, i, parentOf(i), t, q, sc);
+                        tracks[i].times.push_back((f - std::min(1, f0)) / rate);   // frame 1 is t = 0, as BakeTrack
+                        tracks[i].t.push_back(t); tracks[i].r.push_back(q); tracks[i].s.push_back(sc);
+                    }
+                }
+                for (const BakedTrack& k : tracks) WriteTrack(model, anim, k);
+            }
+        } else if (action)
             for (int i = 0; i < nb; ++i) {
                 const Bone& b = arm->bones[i];
                 BakeTrack(model, anim, *action, firstJoint + i, rate, ChannelTarget::Bone, i, b.poseLocation, b.poseRotation, b.poseScale,

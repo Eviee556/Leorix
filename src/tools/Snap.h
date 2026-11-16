@@ -19,3 +19,8 @@ Float3 ClosestPointOnTriangle(const Float3& p, const Float3& a, const Float3& b,
 // `skipObject`, in world space. Returns false when the mode is not a geometry mode or nothing
 // is in the scene.
 bool SnapToGeometry(const Scene& scene, int skipObject, SnapTo mode, const Float3& want, Float3& out);
+
+// Keeps only the constrained axis of a move (0 X, 1 Y, 2 Z); -1 leaves it free.
+inline Float3 AxisMask(const Float3& d, int axis) {
+    return axis == 0 ? Float3{d.x, 0, 0} : axis == 1 ? Float3{0, d.y, 0} : axis == 2 ? Float3{0, 0, d.z} : d;
+}

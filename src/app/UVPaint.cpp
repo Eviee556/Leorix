@@ -105,7 +105,9 @@ void App::PaintOnModel(bool begin) {
     if (!mesh.HasLoopUVs()) { if (begin) ShowStatus("This model has no UVs yet: Unwrap or Smart UV Project it first"); return; }
 
     Float2 uv;
-    if (!SurfaceUV(mesh, lastPick.tri, o->transform.InverseApply(lastPick.point), uv)) return;
+    // a posed rig is picked on its skinned positions (MeshView), so measure the hit on those too
+    const bool skinned = o->armature.enabled && o->armature.Bound() && o->skinned.size() == mesh.positions.size();
+    if (!SurfaceUV(mesh, lastPick.tri, o->transform.InverseApply(lastPick.point), uv, skinned ? &o->skinned : nullptr)) return;
     // screen radius -> surface units (as sculpting measures it) -> map pixels at this face
     Vec3 eye = viewport.CameraEye(), fwd = viewport.CameraForward();
     const Float3& hp = lastPick.point;

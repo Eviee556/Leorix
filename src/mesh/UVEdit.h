@@ -31,7 +31,8 @@ void TransformUVSelection(Mesh& mesh, const std::vector<Float2>& base, const std
 
 // UV at object-space point `p` on triangle `tri`, from the triangle's corner UVs. False when the
 // mesh has no face-corner UVs, the index is out of range or the triangle is degenerate.
-bool SurfaceUV(const Mesh& mesh, uint32_t tri, const Float3& p, Float2& uv);
+// `pos` overrides mesh.positions (e.g. skinned positions, so the hit is measured on the posed surface).
+bool SurfaceUV(const Mesh& mesh, uint32_t tri, const Float3& p, Float2& uv, const std::vector<Float3>* pos = nullptr);
 // Texture pixels per object-space unit on triangle `tri` for a w x h map (0 if degenerate), so a
 // brush radius measured on the surface converts to a radius in map pixels.
 float TexelsPerUnit(const Mesh& mesh, uint32_t tri, int w, int h);

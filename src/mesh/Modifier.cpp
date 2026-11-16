@@ -193,6 +193,23 @@ Mesh DoSubdivide(const Mesh& in, const Modifier& mod) {
         Mesh out;
         out.name = cur.name;
         out.positions = cur.positions;
+        // Corner UVs per ring, rebuilt the way PolygonRings fans its triangles back into polygons.
+        const bool uvs = cur.HasLoopUVs();
+        std::vector<std::vector<Float2>> ringUV;
+        if (uvs) {
+            std::unordered_map<uint32_t, std::vector<size_t>> byPoly;
+            for (size_t ti = 0; ti < cur.tris.size(); ++ti) byPoly[cur.tris[ti].poly].push_back(ti);
+            std::vector<uint32_t> order;
+            for (auto& kv : byPoly) order.push_back(kv.first);
+            std::sort(order.begin(), order.end());
+            for (uint32_t pid : order) {
+                const auto& ts = byPoly[pid];
+                std::vector<Float2> r = {cur.loopUVs[ts[0] * 3], cur.loopUVs[ts[0] * 3 + 1], cur.loopUVs[ts[0] * 3 + 2]};
+                for (size_t i = 1; i < ts.size(); ++i) r.push_back(cur.loopUVs[ts[i] * 3 + 2]);
+                ringUV.push_back(std::move(r));
+            }
+        }
+        size_t ringIndex = 0;
 
         // Catmull-Clark style: every polygon becomes one quad per corner, meeting at the centroid.
         std::unordered_map<uint64_t, uint32_t> edgePoint;
@@ -223,10 +240,22 @@ Mesh DoSubdivide(const Mesh& in, const Modifier& mod) {
             }
             for (uint32_t v : ring) vertFacePoints[v].push_back(cIdx);
 
+            const std::vector<Float2>* ru = uvs && ringIndex < ringUV.size() && ringUV[ringIndex].size() == ring.size()
+                                                 ? &ringUV[ringIndex] : nullptr;
+            ++ringIndex;
+            Float2 cUV{0, 0};
+            if (ru) { for (const Float2& q : *ru) { cUV.u += q.u; cUV.v += q.v; } cUV.u /= ring.size(); cUV.v /= ring.size(); }
+            auto midUV = [](Float2 a, Float2 b) { return Float2{(a.u + b.u) * 0.5f, (a.v + b.v) * 0.5f}; };
             for (size_t i = 0; i < ring.size(); ++i) {
-                uint32_t prev = mids[(i + ring.size() - 1) % ring.size()];
+                size_t ip = (i + ring.size() - 1) % ring.size(), in = (i + 1) % ring.size();
+                uint32_t prev = mids[ip];
                 AddPolygon(out, {ring[i], mids[i], cIdx, prev}, out.polyCount);
                 ++out.polyCount;
+                if (uvs) {   // AddPolygon fans the quad as (0,1,2) (0,2,3); UVs stay linear, as "keep corners"
+                    Float2 q0 = ru ? (*ru)[i] : Float2{0, 0}, q1 = ru ? midUV((*ru)[i], (*ru)[in]) : q0,
+                           q3 = ru ? midUV((*ru)[ip], (*ru)[i]) : q0, q2 = ru ? cUV : q0;
+                    for (Float2 q : {q0, q1, q2, q0, q2, q3}) out.loopUVs.push_back(q);
+                }
             }
         }
 
