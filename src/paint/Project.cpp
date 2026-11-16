@@ -319,7 +319,8 @@ json SaveScene(mz_zip_archive& zip, const Scene& scene, const PlaybackState* pla
         const std::string base = "objects/O" + std::to_string(n + 1);
         BlobOut blob;
         blob.U32(kBlobMagic); blob.U32(1);
-        blob.Vec(m.positions); blob.Vec(m.normals); blob.Vec(m.uvs); blob.Vec(m.loopUVs); blob.Vec(m.tris);
+        // a baked cloth is saved in its rest shape; the bake itself is not stored
+        blob.Vec(o.cloth.Baked() && o.cloth.rest.size() == m.positions.size() ? o.cloth.rest : m.positions); blob.Vec(m.normals); blob.Vec(m.uvs); blob.Vec(m.loopUVs); blob.Vec(m.tris);
         blob.U32(m.polyCount);
         blob.Vec(std::vector<uint64_t>(m.seamEdges.begin(), m.seamEdges.end()));
         blob.Vec(std::vector<uint64_t>(m.sharpEdges.begin(), m.sharpEdges.end()));
@@ -369,7 +370,10 @@ json SaveScene(mz_zip_archive& zip, const Scene& scene, const PlaybackState* pla
                         {"armature", SaveArmature(o.armature)}, {"action", SaveAction(o.action)},
                         {"rigidBody", {{"enabled", o.rigidBody.enabled}, {"passive", o.rigidBody.passive},
                                        {"mass", o.rigidBody.mass}, {"friction", o.rigidBody.friction},
-                                       {"bounciness", o.rigidBody.bounciness}, {"shape", (int)o.rigidBody.shape}}}});
+                                       {"bounciness", o.rigidBody.bounciness}, {"shape", (int)o.rigidBody.shape}}},
+                        {"cloth", {{"enabled", o.cloth.enabled}, {"mass", o.cloth.mass}, {"stretch", o.cloth.stretch},
+                                   {"bend", o.cloth.bend}, {"damping", o.cloth.damping}, {"friction", o.cloth.friction},
+                                   {"thickness", o.cloth.thickness}, {"pins", o.cloth.pins}}}});
     }
     json cams = json::array();
     for (size_t i = 0; i < scene.cameras.size(); ++i)
@@ -478,6 +482,16 @@ bool LoadObject(mz_zip_archive& zip, const json& x, MeshObject& o, std::string& 
     o.rigidBody.friction = F(rb, "friction", 0.5f, 0, 10);
     o.rigidBody.bounciness = F(rb, "bounciness", 0, 0, 1);
     o.rigidBody.shape = (RigidShape)I(rb, "shape", (int)RigidShape::ConvexHull, 0, (int)RigidShape::ConvexHull);
+    const json& cj = Obj(x, "cloth");
+    o.cloth.enabled = B(cj, "enabled", false);
+    o.cloth.mass = F(cj, "mass", 0.3f, 0.001f, 1e6f);
+    o.cloth.stretch = F(cj, "stretch", 1, 0, 1);
+    o.cloth.bend = F(cj, "bend", 0.1f, 0, 1);
+    o.cloth.damping = F(cj, "damping", 0.5f, 0, 0.99f);
+    o.cloth.friction = F(cj, "friction", 0.5f, 0, 1);
+    o.cloth.thickness = F(cj, "thickness", 0.02f, 0, 1);
+    for (const json& p : Arr(cj, "pins"))   // only whole numbers that name a vertex
+        if (p.is_number_unsigned() && p.get<uint64_t>() < nv) o.cloth.pins.push_back((uint32_t)p.get<uint64_t>());
 
     const json& mr = Obj(x, "multires");
     int levels = I(mr, "levels", 0, 0, 5);

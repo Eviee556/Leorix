@@ -1852,6 +1852,7 @@ void App::UpdateTransform(bool) {
             // a moved baked object drops its bake; undo hands the bake back with the old transform
             auto bake = std::make_shared<RigidBody>(o->rigidBody);
             if (o->rigidBody.Baked()) { o->rigidBody.cache.clear(); bakeCleared = true; }
+            if (o->cloth.Baked()) { DropClothBake(*o, false); bakeCleared = true; }
             Transform before = xform.savedTransform, after = o->transform;
             undoStack.Push(names[xform.mode],
                 [this, objIndex, before, bake] {
@@ -4123,6 +4124,7 @@ void App::DuplicateSelected() {
         auto copy = std::make_unique<MeshObject>(*scene.objects[i]);
         copy->name = scene.UniqueName(scene.objects[i]->name);
         copy->rigidBody.cache.clear();   // a copy must not replay the original's baked path
+        DropClothBake(*copy, false);     // nor its cloth bake: back to the rest shape
         copy->id = 0;
         scene.AssignId(*copy);
         copy->selected = true;

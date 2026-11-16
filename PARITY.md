@@ -182,7 +182,7 @@ app because of how it's structured differently:
 | Webcomic: panel grids, balloons, page guides, bleed/safe area | not started |
 | Cross-object armature parenting (one armature deforming several meshes) | not started - an armature currently belongs to the object it deforms |
 | Multires level switching is nearest-neighbour resampled, not a true displacement hierarchy | open - detail survives a level change but is approximated when the level moves |
-| Cloth simulation | not started |
+| Cloth simulation: XPBD edge and bending constraints, pins (top edge or selected vertices), mass, damping, friction, thickness; collides with rigid bodies (following their bake); baked per frame with Bake / Free Bake / Apply as Shape; undoable; settings and pins saved in projects | done - no self-collision, colliders are their Box/Sphere/Convex Hull shapes |
 | Weight painting (manual, on top of automatic weights): Weight Paint mode, Add/Subtract/Replace/Smooth, falloff curves, X mirror with .L/.R twin bones, blue-red heatmap, Normalize All, Clean, one undo step per stroke | done |
 | Rigid body / physics simulation: Active/Passive bodies, Box/Sphere/Convex Hull shapes, mass, friction, bounciness, gravity; baked per frame so scrubbing is deterministic; Bake, Free Bake, Apply Transform; undoable; settings saved in projects | done - no edge-edge contacts, no constraints/joints, passive bodies do not follow keyframes |
 | NURBS curves, box select for curve points, bevel profile objects | not started - Bezier, path and circle curves with round bevels are done |

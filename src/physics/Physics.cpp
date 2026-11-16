@@ -2,6 +2,8 @@
 #include "mesh/Scene.h"
 #include <algorithm>
 #include <cmath>
+#include <unordered_map>
+#include <unordered_set>
 
 const char* RigidShapeName(RigidShape s) {
     switch (s) {
@@ -372,6 +374,52 @@ RigidTransform Pose(const Body& b) {
     M3 R = FromQ(b.q);
     return {ToF(b.x - R * b.shape.com), ToEuler(R)};
 }
+
+// Writes cloth positions into the base mesh and asks the viewport and modifiers to catch up.
+void SetClothPositions(MeshObject& o, const std::vector<Float3>& p) {
+    if (p.size() != o.mesh.positions.size()) return;
+    o.mesh.positions = p;
+    o.mesh.ComputeNormals();
+    o.MarkTopoDirty();
+    o.stackDirty = true;
+}
+
+// A collider for cloth: a rigid body's shape posed at one frame.
+struct Collider {
+    Shape shape;
+    V x;      // shape centre in world space
+    M3 R;
+};
+Collider PoseCollider(const MeshObject& o, const Shape& sh, int frame) {
+    const RigidBody& rb = o.rigidBody;
+    RigidTransform t{o.transform.position, o.transform.rotation};
+    if (rb.Baked()) t = rb.cache[std::clamp(frame - rb.cacheStart, 0, (int)rb.cache.size() - 1)];
+    Collider c;
+    c.shape = sh;
+    c.R = FromQ(FromEuler(t.rotation));
+    c.x = c.R * sh.com + ToV(t.position);
+    return c;
+}
+// Pushes p out of the collider to `thick` from its surface. Returns the push direction, or zero.
+V PushOut(const Collider& c, V& p, float thick) {
+    V l = c.R.T(p - c.x);
+    if (c.shape.type == RigidShape::Sphere) {
+        float d = Len(l), want = c.shape.radius + thick;
+        if (d >= want) return {};
+        V n = d > 1e-6f ? l * (1 / d) : V{0, 1, 0};
+        p = c.R * (n * want) + c.x;
+        return c.R * n;
+    }
+    // Box and hull: the plane the point is furthest outside of. It is within `thick` of the
+    // convex shape only when every plane says so.
+    float best = -1e30f; V n;
+    for (const Plane& pl : c.shape.planes) { float d = Dot(pl.n, l) - pl.d; if (d > best) { best = d; n = pl.n; } }
+    if (c.shape.planes.empty() || best >= thick) return {};
+    p = c.R * (l + n * (thick - best)) + c.x;
+    return c.R * n;
+}
+
+struct Link { uint32_t i, j; float rest; };
 } // namespace
 
 int BakeRigidBodies(Scene& scene, const PhysicsSettings& s) {
@@ -381,7 +429,7 @@ int BakeRigidBodies(Scene& scene, const PhysicsSettings& s) {
         RigidBody& rb = o.rigidBody;
         if (rb.Baked()) { o.transform.position = rb.rest.position; o.transform.rotation = rb.rest.rotation; }
         rb.cache.clear();
-        if (!rb.enabled || o.isCurve) continue;
+        if (!rb.enabled || o.isCurve || o.cloth.enabled) continue;   // a cloth object is simulated as cloth
         rb.rest = {o.transform.position, o.transform.rotation};
         rb.cacheStart = s.frameStart;
         Body b;
@@ -430,6 +478,15 @@ void ApplyRigidBodyCache(Scene& scene, float frame) {
         up->transform.position = rb.cache[i].position;
         up->transform.rotation = rb.cache[i].rotation;
     }
+    for (auto& up : scene.objects) {
+        Cloth& cl = up->cloth;
+        if (!cl.Baked()) continue;
+        int i = std::clamp((int)std::lround(frame) - cl.cacheStart, 0, (int)cl.cache.size() - 1);
+        if (i == cl.shown) continue;
+        if (cl.cache[i].size() != up->mesh.positions.size()) { cl.cache.clear(); cl.rest.clear(); cl.shown = -1; continue; }   // mesh edited since
+        SetClothPositions(*up, cl.cache[i]);
+        cl.shown = i;
+    }
 }
 
 void FreeRigidBodyBake(Scene& scene) {
@@ -440,4 +497,132 @@ void FreeRigidBodyBake(Scene& scene) {
         up->transform.rotation = rb.rest.rotation;
         rb.cache.clear();
     }
+    for (auto& up : scene.objects) if (up->cloth.Baked()) DropClothBake(*up, false);
+}
+
+int BakeCloth(Scene& scene, const PhysicsSettings& s) {
+    // Colliders: every object with a rigid body (active ones follow their bake).
+    std::vector<std::pair<const MeshObject*, Shape>> colliders;
+    for (auto& up : scene.objects) {
+        const MeshObject& o = *up;
+        if (o.rigidBody.enabled && !o.cloth.enabled && !o.isCurve) colliders.push_back({&o, BuildShape(o, o.rigidBody.shape)});
+    }
+    const int fps = std::clamp(s.fps, 1, 1000);
+    const int sub = std::max(1, (int)std::lround(480.0 / fps));   // about 480 steps per second
+    const float h = 1.0f / (float)(fps * sub);
+    const V g = ToV(s.gravity);
+    int baked = 0;
+    for (auto& up : scene.objects) {
+        MeshObject& o = *up;
+        Cloth& cl = o.cloth;
+        if (cl.Baked()) DropClothBake(o, false);
+        if (!cl.enabled || o.isCurve || o.mesh.tris.empty()) continue;
+        const size_t n = o.mesh.positions.size();
+        cl.rest = o.mesh.positions;
+        cl.cacheStart = s.frameStart;
+        cl.shown = -1;
+
+        // Stretch links on every triangle edge; bending links between the far corners of two
+        // triangles sharing an edge (quad diagonals become shear links this way too).
+        std::vector<Link> links, bends;
+        std::unordered_map<uint64_t, uint32_t> edgeFar;   // edge -> far corner of the first triangle
+        std::unordered_set<uint64_t> seen;
+        auto restLen = [&](uint32_t a, uint32_t b) { return Len(ToV(o.transform.Apply(cl.rest[a])) - ToV(o.transform.Apply(cl.rest[b]))); };
+        for (const Tri& t : o.mesh.tris) {
+            if (t.a >= n || t.b >= n || t.c >= n) continue;
+            const uint32_t c[3] = {t.a, t.b, t.c};
+            for (int e = 0; e < 3; ++e) {
+                uint32_t a = c[e], b = c[(e + 1) % 3], far = c[(e + 2) % 3];
+                uint64_t key = Mesh::EdgeKey(a, b);
+                auto it = edgeFar.find(key);
+                if (it == edgeFar.end()) { edgeFar[key] = far; links.push_back({a, b, restLen(a, b)}); }
+                else if (it->second != far && seen.insert(Mesh::EdgeKey(it->second, far)).second)
+                    bends.push_back({it->second, far, restLen(it->second, far)});
+            }
+        }
+
+        std::vector<V> x(n), prev(n), v(n);
+        for (size_t i = 0; i < n; ++i) x[i] = ToV(o.transform.Apply(cl.rest[i]));
+        const float mass = std::clamp(std::isfinite(cl.mass) ? cl.mass : 0.3f, 0.001f, 1e6f);
+        std::vector<float> w(n, (float)n / mass);   // inverse mass per vertex
+        for (uint32_t p : cl.pins) if (p < n) w[p] = 0;
+        // Compliance from stiffness (1 rigid, 0 very soft), divided by the step squared as XPBD does.
+        auto compliance = [](float k) { k = std::clamp(k, 0.0f, 1.0f); return 1e-3f * (1 - k) / (k + 0.01f); };
+        const float aS = compliance(cl.stretch) / (h * h), aB = compliance(cl.bend) / (h * h);
+        const float keep = std::pow(1 - std::clamp(cl.damping, 0.0f, 0.99f), h);
+        const float thick = std::clamp(cl.thickness, 0.0f, 1.0f), fric = std::clamp(cl.friction, 0.0f, 1.0f);
+        auto solve = [&](const std::vector<Link>& ls, float alpha) {
+            for (const Link& l : ls) {
+                float ws = w[l.i] + w[l.j];
+                if (ws <= 0) continue;
+                V d = x[l.i] - x[l.j];
+                float len = Len(d);
+                if (len < 1e-9f) continue;
+                V corr = d * (-(len - l.rest) / (ws + alpha) / len);
+                x[l.i] = x[l.i] + corr * w[l.i];
+                x[l.j] = x[l.j] - corr * w[l.j];
+            }
+        };
+
+        int frames = std::clamp(s.frameEnd - s.frameStart + 1, 1, kMaxBakeFrames);
+        // Guard memory (the cache) and work (steps x constraints x colliders) so a bake can't hang the app.
+        frames = (int)std::min<double>(frames, std::max(1.0, 3e7 / (double)n));
+        const double perStep = (double)links.size() + bends.size() + (double)n * (1 + colliders.size());
+        frames = (int)std::max(1.0, std::min<double>(frames, 4e10 / (perStep * sub)));
+        cl.cache.reserve(frames);
+        auto record = [&] {
+            std::vector<Float3> f(n);
+            for (size_t i = 0; i < n; ++i) f[i] = o.transform.InverseApply(ToF(x[i]));
+            cl.cache.push_back(std::move(f));
+        };
+        record();
+        std::vector<Collider> posed;
+        for (int f = 1; f < frames; ++f) {
+            posed.clear();
+            for (auto& c : colliders) posed.push_back(PoseCollider(*c.first, c.second, s.frameStart + f));
+            for (int k = 0; k < sub; ++k) {
+                for (size_t i = 0; i < n; ++i) {
+                    prev[i] = x[i];
+                    if (w[i] == 0) continue;
+                    v[i] = (v[i] + g * h) * keep;
+                    x[i] = x[i] + v[i] * h;
+                }
+                solve(links, aS);
+                solve(bends, aB);
+                for (size_t i = 0; i < n; ++i) {
+                    if (w[i] == 0) continue;
+                    for (const Collider& c : posed) {
+                        V nrm = PushOut(c, x[i], thick);
+                        if (Dot(nrm, nrm) == 0) continue;
+                        V d = x[i] - prev[i];   // friction: take away part of the sliding motion
+                        x[i] = x[i] - (d - nrm * Dot(d, nrm)) * fric;
+                    }
+                }
+                for (size_t i = 0; i < n; ++i) v[i] = w[i] == 0 ? V{} : (x[i] - prev[i]) * (1 / h);
+            }
+            record();
+        }
+        ++baked;
+    }
+    return baked;
+}
+
+void DropClothBake(MeshObject& o, bool keepShape) {
+    Cloth& cl = o.cloth;
+    if (!keepShape && cl.Baked()) SetClothPositions(o, cl.rest);
+    cl.cache.clear();
+    cl.rest.clear();
+    cl.shown = -1;
+}
+
+int PinClothTop(MeshObject& o) {
+    Cloth& cl = o.cloth;
+    cl.pins.clear();
+    if (o.mesh.positions.empty()) return 0;
+    float lo = 1e30f, hi = -1e30f;
+    for (const Float3& p : o.mesh.positions) { float y = o.transform.Apply(p).y; lo = std::min(lo, y); hi = std::max(hi, y); }
+    const float cut = hi - std::max(0.02f * (hi - lo), 1e-4f);
+    for (uint32_t i = 0; i < o.mesh.positions.size(); ++i)
+        if (o.transform.Apply(o.mesh.positions[i]).y >= cut) cl.pins.push_back(i);
+    return (int)cl.pins.size();
 }

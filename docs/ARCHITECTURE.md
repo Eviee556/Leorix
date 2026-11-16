@@ -87,7 +87,7 @@ src/
 ├── render/            materials, CPU path tracer, HDRI presets, GPU backend detection
 ├── paint/             2D maps, layer stacks, blend modes, brushes, .leorix project I/O
 ├── anim/              armatures, skinning, keyframe animation
-├── physics/           rigid body solver and baked simulation cache
+├── physics/           rigid body and cloth solvers, baked simulation caches
 ├── tools/             Lua scripting, sculpt brush images, tool catalogs, modal transform op
 ├── gpu/               Vulkan context, GPU textures
 └── core/              undo/redo stack
@@ -547,6 +547,17 @@ exact closest-point test for spheres against boxes. Bodies that stay still for h
 sleep until something fast touches them, which keeps stacks from creeping. Edge-on-edge contacts
 are not generated, and passive bodies stay where they were at the start of the bake. A project
 saves the settings and each object's pre-bake transform, not the cache.
+
+**Cloth** (`physics/Physics.cpp`, same panel). A `Cloth` turns a mesh into fabric. The bake runs
+after the rigid bodies at about 480 steps per second with small-step XPBD: every triangle edge is
+a stretch constraint, and the far corners of two triangles sharing an edge are a bending
+constraint, each softened by a compliance taken from its stiffness slider. Pinned vertices have no
+inverse mass. After the constraints each vertex is pushed out of every object with a rigid body,
+using its Box, Sphere or Convex Hull shape posed at that frame (so cloth follows a baked falling
+body), to the cloth's thickness, and friction removes part of the sliding motion. The cache holds
+object-space positions per frame; playback writes them into the base mesh, and the rest shape is
+kept so Free Bake, moving the object or duplicating it puts it back. A project saves the settings,
+the pins and the rest shape, not the cache. There is no self-collision.
 
 ---
 
