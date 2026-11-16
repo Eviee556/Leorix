@@ -550,6 +550,51 @@ static int SelfTest() {
         check(same, "skinned glb joints reproduce the armature pose");
         std::filesystem::remove(glb);
     }
+    // Rigging: two-bone IK, constraints and naming presets
+    {
+        auto near3 = [](Float3 a, Float3 b, float tol) {
+            return std::fabs(a.x - b.x) < tol && std::fabs(a.y - b.y) < tol && std::fabs(a.z - b.z) < tol;
+        };
+        Armature arm;
+        int up = arm.AddBone("upper", {0, 0, 0}, {0, 1, 0});
+        int lo = arm.AddBone("lower", {0, 1, 0}, {0, 2, 0}, up);
+        int tgt = arm.AddBone("target", {1, 1, 0}, {1, 1.2f, 0});
+        BoneConstraint ik; ik.type = BoneConstraint::IK; ik.target = tgt;
+        arm.bones[lo].constraints.push_back(ik);
+        std::vector<Mat4> m;
+        arm.Evaluate(m);
+        Float3 end = m[lo].Apply(arm.bones[lo].tail), joint = m[up].Apply(arm.bones[up].tail);
+        check(near3(end, {1, 1, 0}, 1e-3f), "ik: reaches a reachable target");
+        check(near3(m[lo].Apply(arm.bones[lo].head), joint, 1e-3f), "ik: chain stays connected");
+        arm.bones[tgt].poseLocation = {2, -1, 0};            // target head now at (3, 0, 0), out of reach
+        arm.Evaluate(m);
+        check(near3(m[lo].Apply(arm.bones[lo].tail), {2, 0, 0}, 1e-3f), "ik: unreachable target gives full extension toward it");
+
+        Armature one;
+        one.AddBone("b", {0, 0, 0}, {0, 1, 0});
+        BoneConstraint lim; lim.type = BoneConstraint::LimitRotation;
+        lim.minRot = {-0.5f, -0.5f, -0.5f}; lim.maxRot = {0.5f, 0.5f, 0.5f};
+        one.bones[0].constraints.push_back(lim);
+        one.bones[0].poseRotation = {0, 0, 1.5f};
+        one.Evaluate(m);
+        check(near3(m[0].Apply({0, 1, 0}), Mat4::RotateXYZ({0, 0, 0.5f}).Apply({0, 1, 0}), 1e-4f), "limit rotation clamps");
+        one.bones[0].constraints[0] = BoneConstraint{};
+        one.bones[0].constraints[0].type = BoneConstraint::TrackTo;
+        one.bones[0].constraints[0].point = {3, 0, 0};
+        one.Evaluate(m);
+        check(near3(m[0].Apply({0, 1, 0}), {1, 0, 0}, 1e-4f), "track to aims the bone at the target");
+
+        Armature rig;
+        AddHumanoidRig(rig, {-0.5f, 0, -0.2f}, {0.5f, 2, 0.2f}, RigNaming::Plain);
+        auto has = [&](const char* n) { for (const Bone& b : rig.bones) if (b.name == n) return true; return false; };
+        bool parentsOk = true;
+        for (int i = 0; i < (int)rig.bones.size(); ++i) parentsOk &= rig.bones[i].parent < i;
+        check(rig.bones.size() == 21 && parentsOk && has("upper_arm.L") && has("shin.R"), "humanoid rig: 21 bones, plain names");
+        int renamed = ApplyRigNaming(rig, RigNaming::UE5);
+        check(renamed == 20 && has("upperarm_l") && has("calf_r") && has("pelvis"), "rig naming: plain -> UE5");
+        ApplyRigNaming(rig, RigNaming::Mixamo);
+        check(has("mixamorig:LeftForeArm") && has("mixamorig:RightUpLeg"), "rig naming: UE5 -> Mixamo");
+    }
     std::printf(failures ? "self-test FAILED (%d)\n" : "self-test passed\n", failures);
     return failures ? 1 : 0;
 }

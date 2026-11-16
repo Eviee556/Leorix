@@ -3,6 +3,7 @@
 #include "tools/Snap.h"
 #include "app/App.h"
 #include "app/Icons.h"
+#include "app/RigPanel.h"
 #include "imgui.h"
 #include "mesh/IO.h"
 #include "mesh/Primitives.h"
@@ -2326,6 +2327,13 @@ void App::ArmaturePanel() {
         before.enabled = !arm.enabled;
         pushArm("Toggle Deformation", std::move(before));
     }
+    std::string rigMsg = RigPresetUI(arm, o->mesh, [&](const char* label, const std::function<void(Armature&)>& fn) {
+        Armature before = arm;
+        fn(arm);
+        UpdateSkinning(*o);
+        pushArm(label, std::move(before));
+    });
+    if (!rigMsg.empty()) ShowStatus(rigMsg);
 
     ImGui::Spacing(); ImGui::TextColored(kBrass, "BONES"); ImGui::Separator();
     int removeBone = -1;
@@ -2395,6 +2403,9 @@ void App::ArmaturePanel() {
         }
         ImGui::SameLine();
         if (ImGui::Button("Insert Keyframe  (I)")) InsertKeyframes(true, true, true);
+        int con = BoneConstraintsUI(arm, activeBone, b, track);
+        if (con) UpdateSkinning(*o);
+        if (con == 2) pushBone("Edit Constraint", frameStart);
     }
     ImGui::Spacing();
     Hint("Automatic weights use distance falloff (envelope), not Blender's heat solver: instant and "

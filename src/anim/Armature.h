@@ -17,6 +17,27 @@ struct Mat4 {
     Float3 Apply(const Float3& p) const;
 };
 
+// A bone constraint, evaluated by Armature::Evaluate after the bone's own pose, like Blender's
+// constraint stack. Targets are bones of the same armature; with no target bone, `point`
+// (object space) is used instead.
+struct BoneConstraint {
+    enum Type { CopyLocation, CopyRotation, TrackTo, LimitRotation, IK };
+    Type   type = IK;
+    bool   enabled = true;
+    int    target = -1;               // bone index (its posed head is the target), or -1 for `point`
+    Float3 point{0, 1, 0};
+    // IK: solves this bone and its parent (two-bone chain). The pole sets the bend direction:
+    // poleTarget >= 0 uses that bone's head, otherwise polePoint; without a pole the chain keeps
+    // bending the way it already bends.
+    bool   usePole = false;
+    int    poleTarget = -1;
+    Float3 polePoint{0, 0, 1};
+    // Limit Rotation: per-axis limits (radians) on the bone's own pose rotation.
+    bool   limit[3] = {true, true, true};
+    Float3 minRot{-0.7854f, -0.7854f, -0.7854f}, maxRot{0.7854f, 0.7854f, 0.7854f};
+};
+const char* ConstraintTypeName(BoneConstraint::Type t);
+
 struct Bone {
     std::string name = "Bone";
     int    parent = -1;
@@ -28,6 +49,7 @@ struct Bone {
     bool   selected = false;
     float  envelope = 1.0f;                // weighting radius multiplier
     bool   deform = true;
+    std::vector<BoneConstraint> constraints;
 };
 
 // Up to four influences per vertex, like every real-time skinning pipeline.
@@ -42,7 +64,9 @@ struct Armature {
     int  AddBone(const std::string& name, Float3 head, Float3 tail, int parent = -1);
     void Remove(int index);
 
-    // World (object-space) matrix of each bone in its current pose.
+    // World (object-space) matrix of each bone in its current pose, constraints included.
+    // Order: forward kinematics (with Limit Rotation), then IK solved on that pose, then the other
+    // constraints bone by bone, so children follow their constrained parents.
     void Evaluate(std::vector<Mat4>& out) const;
 
     // "Automatic weights": distance falloff to each bone segment, normalized over the closest
@@ -58,3 +82,18 @@ struct Armature {
 
 // Distance from a point to a bone's segment, used by the weighting and by bone picking.
 float DistanceToSegment(const Float3& p, const Float3& a, const Float3& b);
+
+// Analytic two-bone IK. root/joint/end are the chain's current positions; the result keeps both
+// bone lengths, puts the end on the target (or as far toward it as the chain reaches) and bends
+// toward `pole` (or the current bend when pole is null).
+void SolveTwoBoneIK(const Float3& root, const Float3& joint, const Float3& end, const Float3& target,
+                    const Float3* pole, Float3& newJoint, Float3& newEnd);
+
+// Humanoid rig naming. The same 21-bone humanoid set is known under each convention.
+enum class RigNaming { Plain, UE5, Unity, Mixamo, Godot, Count };
+const char* RigNamingName(RigNaming n);
+// Renames every bone whose name is a known humanoid bone (in any convention). Returns how many.
+int ApplyRigNaming(Armature& arm, RigNaming n);
+// Appends a T-pose humanoid (hips, spine, chest, neck, head, arms, legs) fitted to the bounds,
+// facing +Z with the character's left on +X. Returns the index of its root (hips).
+int AddHumanoidRig(Armature& arm, const Float3& bmin, const Float3& bmax, RigNaming n);

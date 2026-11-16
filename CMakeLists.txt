@@ -122,6 +122,7 @@ add_executable(leorix
   src/tools/Snap.cpp
   src/tools/VisualScript.cpp
   src/app/VisualScriptPanel.cpp
+  src/app/RigPanel.cpp
   src/mesh/Mesh.cpp
   src/mesh/EditOps.cpp
   src/mesh/Primitives.cpp
