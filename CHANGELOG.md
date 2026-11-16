@@ -4,6 +4,16 @@ All notable changes to Leorix Native are listed here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-11-16
+
+### Added
+- Weight Paint mode: Add, Subtract, Replace and Smooth brushes for the active bone with the sculpt falloff curves, X mirror that paints the `.L`/`.R` twin bone, a blue-to-red weight heatmap in the viewport, Normalize All and Clean, and one undo step per stroke. Edited weights are saved in projects.
+- Bezier curve editing: Auto, Vector, Aligned and Free handles; a curve Edit Mode with G/R/S, E to extrude an end point and X to delete; cyclic curves; per-point radius for taper; bevel tubes swept with rotation-minimising frames so they never flip; Convert to Mesh; and a Path preset. Curves are saved in projects.
+- Rigid-body physics: Active and Passive bodies with Box, Sphere or Convex Hull shapes, mass, friction, bounciness and gravity, baked per timeline frame so playback is repeatable. Bake, Free Bake and Apply Transform at Current Frame are undoable. Physics settings are saved in projects; the bake itself is not, so re-bake after opening.
+
+### Changed
+- Existing curves are now Bezier with Auto handles instead of a Catmull-Rom spline, so meshes bent with Curve Deform can shift slightly.
+
 ## [0.4.0] - 2026-11-15
 
 ### Added
@@ -75,5 +85,6 @@ All notable changes to Leorix Native are listed here. The format follows
 ### Changed
 - TransformOp and New Project state moved out of `App`.
 
+[0.5.0]: https://github.com/Eviee556/Leorix/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Eviee556/Leorix/releases/tag/v0.4.0
 [0.3.0]: https://github.com/Eviee556/Leorix/releases/tag/v0.3.0

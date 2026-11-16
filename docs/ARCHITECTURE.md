@@ -19,7 +19,7 @@ out where something is still a simplification.
 5. [The mesh data model](#5-the-mesh-data-model)
 6. [Import and export](#6-import-and-export)
 7. [The 3D viewport](#7-the-3d-viewport)
-8. [Edit operators, sculpting, modifiers and animation](#8-edit-operators-sculpting-modifiers-and-animation)
+8. [Edit operators, sculpting, modifiers, animation, curves and physics](#8-edit-operators-sculpting-modifiers-animation-curves-and-physics)
 9. [The CPU path tracer](#9-the-cpu-path-tracer)
 10. [Texture painting](#10-texture-painting)
 11. [The .leorix project container](#11-the-leorix-project-container)
@@ -414,7 +414,7 @@ Design points:
 
 ---
 
-## 8. Edit operators, sculpting, modifiers and animation
+## 8. Edit operators, sculpting, modifiers, animation, curves and physics
 
 **Edit Mode operators** (`mesh/EditOps.*`). Extrude (E), Delete (X) and Merge at Center (M)
 change topology, so they're written as pure functions over the `Mesh` and return the selection
