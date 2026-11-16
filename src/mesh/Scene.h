@@ -50,6 +50,7 @@ struct MeshObject {
     Armature armature;          // empty until bones are added
     Action   action;            // this object's keyframes
     RigidBody rigidBody;        // physics settings and baked cache
+    Cloth     cloth;            // cloth settings and baked vertex cache
     std::vector<Float3> skinned;// deformed positions for the current pose
     // Edit-mode selection
     std::unordered_set<uint32_t> selVerts;

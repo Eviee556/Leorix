@@ -1106,6 +1106,84 @@ static int SelfTest() {
         check(same, "physics: rigid body settings survive a project round trip");
         std::error_code ec; fs::remove(proj, ec);
     }
+    // Cloth: hanging, draping on a box, determinism, project round trip
+    {
+        PhysicsSettings ps; ps.fps = 24; ps.frameStart = 1; ps.frameEnd = 48;   // 2 s
+        Scene sc;
+        MeshObject* cl = sc.AddMesh(BuildPrimitive(Primitive::Grid, DefaultParams(Primitive::Grid)), "Cloth");   // 2 x 2 m, flat
+        cl->cloth.enabled = true;
+        float zMax = -1e30f;
+        for (const Float3& p : cl->mesh.positions) zMax = std::max(zMax, p.z);
+        for (uint32_t i = 0; i < cl->mesh.positions.size(); ++i) if (cl->mesh.positions[i].z > zMax - 1e-4f) cl->cloth.pins.push_back(i);
+        const std::vector<Float3> rest = cl->mesh.positions;
+        check(BakeCloth(sc, ps) == 1 && cl->cloth.cache.size() == 48, "cloth: bake fills one entry per frame");
+        const std::vector<Float3>& last = cl->cloth.cache.back();
+        float lowest = 1e30f, strain = 0;
+        for (const Float3& p : last) lowest = std::min(lowest, p.y);
+        for (const Tri& t : cl->mesh.tris)
+            for (auto [a, b] : {std::pair{t.a, t.b}, {t.b, t.c}, {t.c, t.a}}) {
+                Float3 r{rest[a].x - rest[b].x, rest[a].y - rest[b].y, rest[a].z - rest[b].z};
+                Float3 d{last[a].x - last[b].x, last[a].y - last[b].y, last[a].z - last[b].z};
+                float lr = std::sqrt(r.x * r.x + r.y * r.y + r.z * r.z), ld = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+                strain = std::max(strain, std::fabs(ld - lr) / lr);
+            }
+        std::printf("  cloth: hanging lowest point %.3f m, worst edge strain %.3f\n", lowest, strain);
+        check(lowest < -1.5f && strain < 0.05f, "cloth: a pinned cloth hangs without stretching");
+        bool pinsStay = true;
+        for (uint32_t p : cl->cloth.pins) pinsStay &= std::fabs(last[p].z - rest[p].z) < 1e-5f && std::fabs(last[p].y - rest[p].y) < 1e-5f;
+        check(pinsStay, "cloth: pinned vertices stay put");
+
+        std::vector<std::vector<Float3>> first = cl->cloth.cache;
+        ApplyRigidBodyCache(sc, 48);
+        check(cl->mesh.positions[0].y == last[0].y, "cloth: playback writes the cached shape");
+        BakeCloth(sc, ps);
+        bool identical = first.size() == cl->cloth.cache.size();
+        for (size_t f = 0; identical && f < first.size(); ++f)
+            identical = std::memcmp(first[f].data(), cl->cloth.cache[f].data(), first[f].size() * sizeof(Float3)) == 0;
+        check(identical, "cloth: two bakes are identical");
+
+        // settings and pins survive a project round trip, and a baked cloth is saved in its rest shape
+        namespace fs = std::filesystem;
+        const std::string proj = (fs::temp_directory_path() / "leorix_selftest_cloth.leorix").string();
+        cl->cloth.stretch = 0.8f; cl->cloth.bend = 0.3f; cl->cloth.thickness = 0.03f;
+        ApplyRigidBodyCache(sc, 48);
+        PaintProject pp; pp.New(16, 16); BrushSettings br; PlaybackState pb;
+        bool saved = SaveLeorixProject(proj, pp, br, {}, &sc, &pb).ok;
+        Scene back; PaintProject pp2;
+        bool same = saved && LoadLeorixProject(proj, pp2, br, g_vk, nullptr, &back, nullptr).ok && back.objects.size() == 1;
+        if (same) {
+            const MeshObject& b = *back.objects[0];
+            same = b.cloth.enabled && b.cloth.stretch == 0.8f && b.cloth.bend == 0.3f && b.cloth.thickness == 0.03f &&
+                   b.cloth.pins == cl->cloth.pins && b.mesh.positions.size() == rest.size() && b.mesh.positions[0].y == rest[0].y;
+        }
+        check(same, "cloth: settings and pins survive a project round trip");
+        std::error_code ec; fs::remove(proj, ec);
+        FreeRigidBodyBake(sc);
+        check(!cl->cloth.Baked() && cl->mesh.positions[5].y == rest[5].y, "cloth: free bake restores the rest shape");
+
+        // a cloth dropped on a passive box drapes over it without passing through
+        Scene sd;
+        MeshObject* box = sd.AddMesh(BuildPrimitive(Primitive::Cube, DefaultParams(Primitive::Cube)), "Box");
+        box->transform.scale = {0.5f, 0.5f, 0.5f};   // 1 m cube, top at y = 0.5
+        box->rigidBody.enabled = true; box->rigidBody.passive = true; box->rigidBody.shape = RigidShape::Box;
+        MeshObject* drape = sd.AddMesh(BuildPrimitive(Primitive::Grid, DefaultParams(Primitive::Grid)), "Drape");
+        drape->transform.scale = {0.75f, 1, 0.75f};   // 1.5 m square
+        drape->transform.position = {0, 1.0f, 0};
+        drape->cloth.enabled = true;
+        PhysicsSettings pd = ps; pd.frameEnd = 36;
+        BakeRigidBodies(sd, pd);
+        check(BakeCloth(sd, pd) == 1, "cloth: bake a cloth over a box");
+        const float th = drape->cloth.thickness;
+        float deepest = 0, topY = 1e30f;
+        for (const Float3& lp : drape->cloth.cache.back()) {
+            Float3 p = drape->transform.Apply(lp);
+            float inside = std::min({0.5f - std::fabs(p.x), 0.5f - std::fabs(p.y), 0.5f - std::fabs(p.z)});   // > 0 inside the box
+            deepest = std::max(deepest, inside);
+            if (std::fabs(p.x) < 0.3f && std::fabs(p.z) < 0.3f) topY = std::min(topY, p.y);
+        }
+        std::printf("  cloth: on a box, deepest point inside %.4f m, centre rests at y %.3f\n", deepest, topY);
+        check(deepest <= th && topY > 0.5f && topY < 0.6f, "cloth: drapes over a passive box without passing through");
+    }
     std::printf(failures ? "self-test FAILED (%d)\n" : "self-test passed\n", failures);
     return failures ? 1 : 0;
 }

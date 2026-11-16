@@ -1850,6 +1850,7 @@ void App::UpdateTransform(bool) {
                            verts->size() * sizeof(Float3) * 2);
         } else {
             if (o->rigidBody.Baked()) { o->rigidBody.cache.clear(); bakeCleared = true; }
+            if (o->cloth.Baked()) { DropClothBake(*o, false); bakeCleared = true; }
             Transform before = xform.savedTransform, after = o->transform;
             undoStack.Push(names[xform.mode],
                 [this, objIndex, before] { if (objIndex < (int)scene.objects.size()) scene.objects[objIndex]->transform = before; },
@@ -4102,6 +4103,7 @@ void App::DuplicateSelected() {
         auto copy = std::make_unique<MeshObject>(*scene.objects[i]);
         copy->name = scene.UniqueName(scene.objects[i]->name);
         copy->rigidBody.cache.clear();   // a copy must not replay the original's baked path
+        DropClothBake(*copy, false);     // nor its cloth bake: back to the rest shape
         copy->selected = true;
         copy->active = false;
         scene.objects.push_back(std::move(copy));
