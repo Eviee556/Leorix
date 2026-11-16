@@ -26,9 +26,8 @@ std::set<int> SelectedPoints(const MeshObject& o) {
 } // namespace
 
 const CurvePath* App::CurveProfile(const MeshObject& o) const {
-    int b = o.curve.bevelObject;
-    if (b < 0 || b >= (int)scene.objects.size() || scene.objects[b].get() == &o || !scene.objects[b]->isCurve) return nullptr;
-    return &scene.objects[b]->curve;
+    const MeshObject* p = o.curve.bevelObject > 0 ? scene.FindById((uint32_t)o.curve.bevelObject) : nullptr;
+    return p && p != &o && p->isCurve ? &p->curve : nullptr;
 }
 
 void App::RebuildProfileUsers(const MeshObject& profile) {
@@ -176,7 +175,7 @@ void App::CurveSettingsUI() {
     {
         // Bevel profile: another curve's shape (its X/Z plane) swept along this one
         const CurvePath* prof = CurveProfile(*o);
-        const char* cur = prof ? scene.objects[o->curve.bevelObject]->name.c_str() : "Round";
+        const char* cur = prof ? scene.FindById((uint32_t)o->curve.bevelObject)->name.c_str() : "Round";
         if (ImGui::BeginCombo("Bevel Profile", cur)) {
             int pick = -2;
             if (ImGui::Selectable("Round", !prof)) pick = -1;
@@ -184,7 +183,7 @@ void App::CurveSettingsUI() {
                 const MeshObject& c = *scene.objects[i];
                 if (&c == o || !c.isCurve) continue;
                 ImGui::PushID(i);
-                if (ImGui::Selectable(c.name.c_str(), prof == &c.curve)) pick = i;
+                if (ImGui::Selectable(c.name.c_str(), prof == &c.curve)) pick = (int)c.id;
                 ImGui::PopID();
             }
             ImGui::EndCombo();

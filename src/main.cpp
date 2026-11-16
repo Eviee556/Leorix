@@ -925,7 +925,7 @@ static int SelfTest() {
         pr->isCurve = true; SetNurbsCircle(pr->curve, 0.2f); pr->curve.bevelDepth = 0.05f;
         pr->mesh = CurveToMesh(pr->curve);
         MeshObject* nc = ns.AddMesh(Mesh{}, "Rail");
-        nc->isCurve = true; nc->curve = ep; nc->curve.order = 3; nc->curve.bevelObject = 0; nc->curve.Sync();
+        nc->isCurve = true; nc->curve = ep; nc->curve.order = 3; nc->curve.bevelObject = (int)pr->id; nc->curve.Sync();
         nc->mesh = CurveToMesh(nc->curve, &pr->curve);
         bool nsaved = SaveLeorixProject(proj2, pp, br, {}, &ns, &pb).ok;
         Scene nb; PaintProject pp3; PlaybackState pb3;
@@ -934,12 +934,39 @@ static int SelfTest() {
             const CurvePath& r = nb.objects[1]->curve;
             const CurvePath& q = nb.objects[0]->curve;
             std::vector<Float3> a = q.Evaluate(), b = pr->curve.Evaluate();
-            nsame = r.nurbs && r.order == 3 && r.endpoint && r.bevelObject == 0 && r.weight == nc->curve.weight &&
+            nsame = r.nurbs && r.order == 3 && r.endpoint && r.bevelObject == (int)nb.objects[0]->id && r.weight == nc->curve.weight &&
                     q.nurbs && q.knots == pr->curve.knots && a.size() == b.size() && near3(a[5], b[5], 1e-5f) &&
                     nb.objects[1]->mesh.positions.size() == nc->mesh.positions.size();
         }
         check(nsame, "nurbs: order, weights, knots and bevel profile survive a project round trip");
         fs::remove(proj2);
+        // the profile is held by id, so deleting an earlier object doesn't re-point it
+        {
+            Scene ds;
+            ds.AddMesh(Mesh{}, "Spacer");
+            MeshObject* dp = ds.AddMesh(Mesh{}, "Profile"); dp->isCurve = true; dp->curve = pr->curve;
+            MeshObject* dr = ds.AddMesh(Mesh{}, "Rail"); dr->isCurve = true; dr->curve = nc->curve; dr->curve.bevelObject = (int)dp->id;
+            ds.Remove(0);
+            const MeshObject* f = ds.FindById((uint32_t)dr->curve.bevelObject);
+            check(f == dp, "curve: bevel profile survives deleting an earlier object");
+        }
+        // order 6 with explicit knots: points + 6 knots survive a round trip
+        {
+            Scene ks;
+            MeshObject* k6 = ks.AddMesh(Mesh{}, "Order6");
+            k6->isCurve = true;
+            k6->curve.nurbs = true; k6->curve.order = 6; k6->curve.endpoint = false;
+            for (int i = 0; i < 7; ++i) k6->curve.points.push_back({(float)i, (float)(i % 2), 0});
+            k6->curve.Sync();
+            k6->curve.knots.clear();
+            for (int i = 0; i < 13; ++i) k6->curve.knots.push_back((float)i * 0.5f);
+            Scene kb; PaintProject kp; PlaybackState kpb;
+            bool kok = SaveLeorixProject(proj2, pp, br, {}, &ks, &pb).ok &&
+                       LoadLeorixProject(proj2, kp, br, g_vk, nullptr, &kb, &kpb).ok && kb.objects.size() == 1 &&
+                       kb.objects[0]->curve.knots == k6->curve.knots;
+            check(kok, "nurbs: order 6 keeps its points + 6 explicit knots through a project round trip");
+            fs::remove(proj2);
+        }
     }
     // Polish: deflated undo tiles, stable modifier targets, Live Unwrap
     {
@@ -1371,6 +1398,9 @@ static int SelfTest() {
             }
             check(ok, "control rig: controls and their targets survive a project round trip");
             fs::remove(cproj, ec);
+            // deleting every control and adding the rig again works (dangling constraints are dropped)
+            for (int i = (int)cs.objects.size() - 1; i >= 0; --i) if (cs.objects[i]->isControl) cs.Remove(i);
+            check(AddControlRig(cs, *body).size() == 10, "control rig: can be added again after its controls are deleted");
         } else check(false, "control rig: controls and bones found");
     }
     // Cloth: hanging, draping on a box, determinism, project round trip

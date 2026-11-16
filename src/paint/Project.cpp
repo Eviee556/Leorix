@@ -373,7 +373,7 @@ json SaveScene(mz_zip_archive& zip, const Scene& scene, const PlaybackState* pla
                         {"curve", {{"points", curvePts}, {"handleL", curveL}, {"handleR", curveR}, {"handleType", curveT}, {"radius", curveRad},
                                    {"cyclic", o.curve.cyclic}, {"resolution", o.curve.resolution},
                                    {"bevelDepth", o.curve.bevelDepth}, {"bevelResolution", o.curve.bevelResolution},
-                                   {"bevelObject", o.curve.bevelObject}, {"nurbs", cv.nurbs}, {"order", cv.order},
+                                   {"bevelObject", scene.IndexOfId(o.curve.bevelObject)}, {"nurbs", cv.nurbs}, {"order", cv.order},
                                    {"endpoint", cv.endpoint}, {"weight", cv.weight}, {"knots", cv.knots}}},
                         {"multires", {{"levels", o.multires.valid ? o.multires.levels : 0}, {"viewLevel", o.multires.viewLevel}}},
                         {"armature", SaveArmature(o.armature, scene)}, {"action", SaveAction(o.action)},
@@ -553,6 +553,7 @@ void LoadScene(mz_zip_archive& zip, const json& js, Scene& out, PlaybackState* p
     auto toId = [&](int idx) { return idx >= 0 && idx < (int)savedToId.size() && savedToId[idx] ? savedToId[idx] : -1; };
     for (auto& o : out.objects)
         for (Modifier& md : o->modifiers) { md.shrinkTarget = toId(md.shrinkTarget); md.curveTarget = toId(md.curveTarget); }
+    for (auto& o : out.objects) if (o->isCurve) o->curve.bevelObject = toId(o->curve.bevelObject);
     // Armature links and object-target constraints are file indices + 1 (0 = none) until here.
     for (auto& o : out.objects) {
         if (o->armatureObject) {

@@ -566,7 +566,7 @@ int BakeCloth(Scene& scene, const PhysicsSettings& s) {
 
         int frames = std::clamp(s.frameEnd - s.frameStart + 1, 1, kMaxBakeFrames);
         // Guard memory (the cache) and work (steps x constraints x colliders) so a bake can't hang the app.
-        frames = (int)std::min<double>(frames, std::max(1.0, 3e7 / (double)n));
+        frames = (int)std::min<double>(frames, std::max(1.0, 3e6 / (double)n));
         const double perStep = (double)links.size() + bends.size() + (double)n * (1 + colliders.size());
         frames = (int)std::max(1.0, std::min<double>(frames, 4e10 / (perStep * sub)));
         cl.cache.reserve(frames);
