@@ -57,10 +57,10 @@ from descriptions, so names and behavior may differ from the original.
 | Shift+RMB horizontal drag rotates the environment | done |
 | Recalculate Normals Outside (Shift+N) / Flip Normals | done |
 | Armature, automatic weights, linear blend skinning, Pose Mode | done |
-| Two-bone IK (analytic, pole target or keeps its bend) and bone constraints: IK, Track To, Copy Location, Copy Rotation, Limit Rotation | done - constraints are not saved in .leorix yet (armatures are not saved there either) |
+| Two-bone IK (analytic, pole target or keeps its bend) and bone constraints: IK, Track To, Copy Location, Copy Rotation, Limit Rotation | done - saved in .leorix projects |
 | Rig presets: Add Humanoid Rig (21 bones) and Rename Bones to Plain / UE5 / Unity / Mixamo / Godot names | done |
 | Keyframes (object + bone loc/rot/scale), Timeline, playback, Bake | done |
-| `.leorix` project save/load (ENGINE_SPEC container) | done, lossless round trip |
+| `.leorix` project save/load (ENGINE_SPEC container) | done, lossless round trip of the 2D maps and the whole 3D scene (meshes, materials and textures, modifiers, armatures, constraints, keyframes, cameras) |
 | Undo/redo: paint tiles, layer structure, 3D transforms, add/delete, edit ops, sculpt strokes, materials, maps, armatures, keyframes | done |
 | **Join Meshes (Ctrl+J)**: merges selected objects into the active one, transforming into its local space; UVs, seam and sharp flags and polygon ids all carry over; undoable | done |
 | **Normals are consistent automatically**: every import runs a topological orientation pass (walk the shells, flip disagreeing neighbours, orient each shell outward by signed volume). There is no "Recalculate Normals" button because there is nothing to recalculate | done |

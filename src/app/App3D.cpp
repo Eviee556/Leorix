@@ -892,14 +892,20 @@ void App::ProcessPendingImport() {
 
     if (!projSave.empty()) {
         if (projSave.size() < 7 || projSave.substr(projSave.size() - 7) != ".leorix") projSave += ".leorix";
-        ProjectSaveInfo r = SaveLeorixProject(projSave, paint, brush2D, visualStarted ? SaveGraph(visualGraph) : std::string());
+        ProjectSaveInfo r = SaveLeorixProject(projSave, paint, brush2D, visualStarted ? SaveGraph(visualGraph) : std::string(),
+                                                   &scene, &playback);
         if (r.ok) { projectPath = projSave; paint.name = projSave; }
         ShowStatus(r.message);
     }
     if (!projOpen.empty()) {
         std::string blocks;
-        ProjectSaveInfo r = LoadLeorixProject(projOpen, paint, brush2D, vk, &blocks);
+        SetMode3D(Mode3D::Object);   // edit/sculpt/pose state refers to objects that may be replaced
+        ProjectSaveInfo r = LoadLeorixProject(projOpen, paint, brush2D, vk, &blocks, &scene, &playback);
         if (r.ok) {
+            scriptLiveObj = visualLiveObj = nullptr;
+            activeBone = -1;
+            uvLayout.valid = false;
+            for (auto& o : scene.objects) UpdateSkinning(*o);
             if (!blocks.empty()) {
                 visualMessageOk = LoadGraph(visualGraph, blocks, visualMessage);
                 visualStarted = visualStarted || visualMessageOk;
