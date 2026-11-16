@@ -9,6 +9,9 @@
 #include "mesh/Multires.h"
 #include "tools/Script.h"
 #include "render/PathTracer.h"
+#include "render/HdriPresets.h"
+#include <fstream>
+#include <sstream>
 #include "tools/Sculpt.h"
 #include "tools/VisualScript.h"
 #include "tools/Snap.h"
@@ -107,6 +110,9 @@ static int Fail(const std::string& message) {
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Leorix could not start", message.c_str(), nullptr);
     return 1;
 }
+
+static bool SceneFromScript(const std::string& code, Scene& scene, RayTraceWorld& w, HdriImage& hdri,
+                            RayTraceSettings& st, std::string& log);
 
 static int SelfTest() {
     std::printf("== Leorix mesh self-test ==\n");
@@ -1312,6 +1318,44 @@ static int SelfTest() {
         std::printf("  cloth: on a box, deepest point inside %.4f m, centre rests at y %.3f\n", deepest, topY);
         check(deepest <= th && topY > 0.5f && topY < 0.6f, "cloth: drapes over a passive box without passing through");
     }
+    // Scene scripts: material/camera/world/curve reach the render scene, and a headless render writes a PNG
+    {
+        const char* code =
+            "material{color={0.9,0.2,0.1}, roughness=0.3, emission={1,0.5,0.2}, strength=4, smooth=true}\n"
+            "ico_sphere(1, 2)\n"
+            "material{glass=1.5}\n"
+            "curve({{-1,0,0},{0,1,0},{1,0,0}}, {radius=0.1})\n"
+            "camera{eye={3,2,4}, target={0,0.5,0}, lens=50, fstop=2.8}\n"
+            "world{preset='GoldenHour', strength=0.8, rotation=90, exposure=1.2}\n";
+        Scene sc; RayTraceWorld w; HdriImage hdri; RayTraceSettings st; std::string log;
+        bool ok = SceneFromScript(code, sc, w, hdri, st, log);
+        check(ok && sc.objects.size() == 2, "scene script: one object per mesh");
+        if (ok && sc.objects.size() == 2) {
+            const MeshObject& a = *sc.objects[0]; const MeshObject& b = *sc.objects[1];
+            check(a.material.baseColor[0] == 0.9f && a.material.emissionColor[1] == 0.5f && a.material.emissiveStrengthRT == 4.0f &&
+                  a.shadeSmooth && b.material.transmission == 1.0f && b.material.transmissionIOR == 1.5f && b.material.baseColor[1] == 0.76f,
+                  "scene script: material() applies to the meshes made after it");
+            const SceneCamera& c = sc.Camera();   // the eye the path tracer uses (PathTracer::Start)
+            float cp = std::cos(c.pitch);
+            Float3 e{c.target.x + std::sin(c.yaw) * cp * c.distance, c.target.y + std::sin(c.pitch) * c.distance,
+                     c.target.z + std::cos(c.yaw) * cp * c.distance};
+            check(std::fabs(e.x - 3) + std::fabs(e.y - 2) + std::fabs(e.z - 4) < 1e-3f && sc.Camera().focalLengthMm == 50.0f &&
+                  sc.Camera().dof, "scene script: camera{} eye and target round-trip");
+            check(w.hdri && hdri.Loaded() && w.hdriStrength == 0.8f && st.exposure == 1.2f, "scene script: world{} preset and exposure");
+            st.width = 32; st.height = 18; st.samples = 2; st.threads = 2;
+            PathTracer pt;
+            const SceneCamera& cam = sc.Camera();
+            pt.Start(sc, cam, cam.yaw, cam.pitch, cam.distance, cam.target, true, st, w);
+            while (pt.Running()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            namespace fs = std::filesystem;
+            const std::string png = (fs::temp_directory_path() / "leorix_selftest_headless.png").string();
+            std::error_code ec;
+            check(pt.SavePng(png) && fs::file_size(png, ec) > 100, "headless render writes a PNG");
+            fs::remove(png, ec);
+        }
+        Scene bad; RayTraceWorld w2; HdriImage h2; RayTraceSettings st2;
+        check(!SceneFromScript("world{preset='Nowhere'}", bad, w2, h2, st2, log), "scene script: unknown world preset is an error");
+    }
     std::printf(failures ? "self-test FAILED (%d)\n" : "self-test passed\n", failures);
     return failures ? 1 : 0;
 }
@@ -1326,9 +1370,106 @@ static int Convert(const char* in, const char* out) {
     return 0;
 }
 
+// Builds a renderable scene from a Lua scene script: one object per mesh, with the script's
+// material(), camera{} and world{} settings. Shared by --headless-render and the self-test.
+static bool SceneFromScript(const std::string& code, Scene& scene, RayTraceWorld& w, HdriImage& hdri,
+                            RayTraceSettings& st, std::string& log) {
+    ScriptResult r = RunMeshScript(code);
+    log = r.output;
+    if (!r.ok) return false;
+    for (size_t i = 0; i < r.meshes.size(); ++i) {
+        const ScriptMaterial& sm = r.materials[i];
+        MeshObject* o = scene.AddMesh(std::move(r.meshes[i]), "Script mesh " + std::to_string(i + 1));
+        Material& m = o->material;
+        for (int c = 0; c < 3; ++c) { m.baseColor[c] = sm.color[c]; m.emissionColor[c] = sm.emission[c]; }
+        m.roughness = sm.roughness; m.metallic = sm.metallic;
+        m.emissiveStrengthRT = sm.strength;
+        m.transmission = sm.transmission; m.transmissionIOR = sm.ior;
+        o->shadeSmooth = sm.smooth;
+        o->selected = false;
+    }
+    const ScriptView& v = r.view;
+    SceneCamera& cam = scene.Camera();
+    if (v.hasCamera) {   // eye/target -> the orbit form SceneCamera stores (inverse of Eye())
+        Float3 d{v.eye.x - v.target.x, v.eye.y - v.target.y, v.eye.z - v.target.z};
+        float dist = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+        if (dist < 1e-4f) { log += "camera: eye and target are the same point\n"; return false; }
+        cam.target = v.target;
+        cam.distance = dist;
+        cam.pitch = std::asin(std::clamp(d.y / dist, -1.0f, 1.0f));
+        cam.yaw = std::atan2(d.x, d.z);   // the tracer's convention: eye = target + (sin yaw, ., cos yaw) * cos pitch * dist
+        cam.focalLengthMm = v.lens;
+        cam.dof = v.fStop > 0;
+        cam.fStop = v.fStop > 0 ? v.fStop : cam.fStop;
+        cam.focusDistance = v.focus > 0 ? v.focus : dist;
+    }
+    const float el = v.sunElevation * 3.14159265f / 180.0f, az = v.sunAzimuth * 3.14159265f / 180.0f;
+    w.sunDir = {std::cos(el) * std::sin(az), std::sin(el), std::cos(el) * std::cos(az)};
+    w.sunStrength = v.sunStrength;
+    w.skyStrength = v.skyStrength;
+    for (int c = 0; c < 3; ++c) { w.sunColor[c] = v.sunColor[c]; w.skyColor[c] = v.skyColor[c]; w.horizonColor[c] = v.horizonColor[c]; }
+    if (v.hdriPreset >= 0) {
+        GenerateHdri((HdriPreset)v.hdriPreset, hdri, 2048);
+        w.hdri = &hdri; w.hdriStrength = v.hdriStrength; w.hdriRotation = v.hdriRotation * 3.14159265f / 180.0f;
+    }
+    st.exposure = v.exposure;
+    return true;
+}
+
+// leorix --headless-render scene.lua|scene.leorix out.png [--width W --height H --spp N --save p.leorix]
+// Path-traces without opening a window or touching the GPU.
+static int HeadlessRender(int argc, char** argv, const std::string& in, const std::string& out) {
+    RayTraceSettings st;
+    st.width = 1600; st.height = 900; st.samples = 256; st.maxBounces = 8;
+    std::string savePath;
+    for (int i = 1; i + 1 < argc; ++i) {
+        std::string a = argv[i];
+        if (a == "--width") st.width = std::clamp(std::atoi(argv[i + 1]), 16, 8192);
+        if (a == "--height") st.height = std::clamp(std::atoi(argv[i + 1]), 16, 8192);
+        if (a == "--spp") st.samples = std::clamp(std::atoi(argv[i + 1]), 1, 100000);
+        if (a == "--save") savePath = argv[i + 1];
+    }
+    Scene scene; RayTraceWorld w; HdriImage hdri;
+    PaintProject pp; pp.New(16, 16); BrushSettings br; PlaybackState pb;
+    std::string ext = std::filesystem::path(in).extension().string();
+    if (ext == ".lua") {
+        std::ifstream f(in, std::ios::binary);
+        if (!f) { std::printf("cannot read %s\n", in.c_str()); return 1; }
+        std::stringstream ss; ss << f.rdbuf();
+        std::string log;
+        bool ok = SceneFromScript(ss.str(), scene, w, hdri, st, log);
+        std::printf("%s", log.c_str());
+        if (!ok) return 1;
+    } else {
+        ProjectSaveInfo info = LoadLeorixProject(in, pp, br, g_vk, nullptr, &scene, &pb);
+        if (!info.ok) { std::printf("cannot open %s: %s\n", in.c_str(), info.message.c_str()); return 1; }
+    }
+    if (!scene.HasMesh()) { std::printf("nothing to render\n"); return 1; }
+    if (!savePath.empty()) {
+        ProjectSaveInfo info = SaveLeorixProject(savePath, pp, br, {}, &scene, &pb);
+        std::printf("%s %s\n", info.ok ? "saved" : "could not save", savePath.c_str());
+    }
+    const SceneCamera& cam = scene.Camera();
+    PathTracer pt;
+    auto t0 = std::chrono::steady_clock::now();
+    pt.Start(scene, cam, cam.yaw, cam.pitch, cam.distance, cam.target, true, st, w);
+    int shown = -1;
+    while (pt.Running()) {
+        int pct = (int)(pt.Progress() * 100);
+        if (pct / 10 != shown) { shown = pct / 10; std::printf("  %d%%\n", pct); std::fflush(stdout); }
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+    double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    if (!pt.SavePng(out)) { std::printf("could not write %s\n", out.c_str()); return 1; }
+    std::printf("rendered %s: %dx%d, %d spp, %zu tris, %.1f s\n", out.c_str(), st.width, st.height, st.samples,
+                pt.Stats().triangles, secs);
+    return 0;
+}
+
 int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) if (std::string(argv[i]) == "--selftest") return SelfTest();
     for (int i = 1; i + 2 < argc; ++i) if (std::string(argv[i]) == "--convert") return Convert(argv[i + 1], argv[i + 2]);
+    for (int i = 1; i + 2 < argc; ++i) if (std::string(argv[i]) == "--headless-render") return HeadlessRender(argc, argv, argv[i + 1], argv[i + 2]);
 
     std::string demoMesh; int demoMode = -1; int demoShading = -1;
     float demoSun = -1000.0f, demoExposure = -1.0f; bool demoUV = false;

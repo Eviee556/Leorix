@@ -1,5 +1,6 @@
 #include "tools/Script.h"
 #include "mesh/Primitives.h"
+#include "mesh/Curve.h"
 extern "C" {
 #include "lua.h"
 #include "lauxlib.h"
@@ -17,7 +18,7 @@ constexpr int    kHookEvery     = 1000000;     // instructions between hook call
 constexpr int    kMaxHookCalls  = 100;         // -> ~100M instructions per run
 constexpr size_t kMemoryLimit   = size_t(512) << 20;
 
-struct ScriptCtx { ScriptResult* result; int hookCalls = 0; };
+struct ScriptCtx { ScriptResult* result; int hookCalls = 0; ScriptMaterial material; };
 ScriptCtx* Ctx(lua_State* L) {
     lua_getfield(L, LUA_REGISTRYINDEX, "leorix_ctx");
     auto* c = static_cast<ScriptCtx*>(lua_touserdata(L, -1));
@@ -42,8 +43,15 @@ int l_print(lua_State* L) {
     return 0;
 }
 
+// Every mesh records the material() that was active when it was made.
+void AddMesh(lua_State* L, const Mesh& m) {
+    ScriptCtx* c = Ctx(L);
+    c->result->meshes.push_back(m);
+    c->result->materials.push_back(c->material);
+}
+
 void PushPrimitive(lua_State* L, const Mesh& m) {
-    Ctx(L)->result->meshes.push_back(m);
+    AddMesh(L, m);
     lua_pushinteger(L, static_cast<lua_Integer>(m.VertexCount()));
     lua_pushinteger(L, static_cast<lua_Integer>(m.TriCount()));
 }
@@ -101,10 +109,124 @@ int l_mesh_build(lua_State* L) {
     m->mesh.ComputeBounds();
     m->mesh.ComputeNormals();
     m->mesh.name = "Script mesh";
-    Ctx(L)->result->meshes.push_back(m->mesh);
+    AddMesh(L, m->mesh);
     return 0;
 }
 int l_mesh_gc(lua_State* L) { CheckMesh(L)->~ScriptMesh(); return 0; }
+
+// ---- look: material{}, camera{}, world{}, curve()
+float Num(lua_State* L, int t, const char* k, float d, float lo = -1e6f, float hi = 1e6f) {
+    lua_getfield(L, t, k);
+    float v = lua_isnumber(L, -1) ? (float)lua_tonumber(L, -1) : d;
+    lua_pop(L, 1);
+    return std::isfinite(v) ? std::fmin(std::fmax(v, lo), hi) : d;
+}
+// Reads {a, b, c} at t[k] into out (left alone if missing).
+void Vec3Field(lua_State* L, int t, const char* k, float* out, float lo = -1e6f, float hi = 1e6f) {
+    lua_getfield(L, t, k);
+    if (lua_istable(L, -1))
+        for (int i = 0; i < 3; ++i) {
+            lua_rawgeti(L, -1, i + 1);
+            if (lua_isnumber(L, -1)) { float v = (float)lua_tonumber(L, -1); if (std::isfinite(v)) out[i] = std::fmin(std::fmax(v, lo), hi); }
+            lua_pop(L, 1);
+        }
+    lua_pop(L, 1);
+}
+bool Has(lua_State* L, int t, const char* k) { lua_getfield(L, t, k); bool h = !lua_isnil(L, -1); lua_pop(L, 1); return h; }
+
+int l_material(lua_State* L) {
+    luaL_checktype(L, 1, LUA_TTABLE);
+    ScriptMaterial m;   // unspecified fields go back to the defaults
+    Vec3Field(L, 1, "color", m.color, 0, 1);
+    m.roughness = Num(L, 1, "roughness", m.roughness, 0, 1);
+    m.metallic = Num(L, 1, "metallic", m.metallic, 0, 1);
+    Vec3Field(L, 1, "emission", m.emission, 0, 1);
+    m.strength = Num(L, 1, "strength", m.strength, 0, 1000);
+    if (Has(L, 1, "glass")) { m.transmission = 1.0f; m.ior = Num(L, 1, "glass", 1.45f, 1.0f, 3.0f); }
+    lua_getfield(L, 1, "smooth"); m.smooth = lua_toboolean(L, -1); lua_pop(L, 1);
+    Ctx(L)->material = m;
+    return 0;
+}
+
+int l_camera(lua_State* L) {
+    luaL_checktype(L, 1, LUA_TTABLE);
+    ScriptView& v = Ctx(L)->result->view;
+    v.hasCamera = true;
+    Vec3Field(L, 1, "eye", &v.eye.x);
+    Vec3Field(L, 1, "target", &v.target.x);
+    v.lens = Num(L, 1, "lens", v.lens, 8, 300);
+    v.fStop = Num(L, 1, "fstop", 0, 0, 64);
+    v.focus = Num(L, 1, "focus", 0, 0, 1e5f);
+    return 0;
+}
+
+int l_world(lua_State* L) {
+    luaL_checktype(L, 1, LUA_TTABLE);
+    ScriptView& v = Ctx(L)->result->view;
+    static const char* names[] = {"StudioSoftbox", "NoonSky", "GoldenHour", "Overcast", "Night",
+                                  "InteriorWindow", "Warehouse", "ForestClearing"};
+    lua_getfield(L, 1, "preset");
+    if (lua_type(L, -1) == LUA_TSTRING) {
+        const char* n = lua_tostring(L, -1);
+        v.hdriPreset = -1;
+        for (int i = 0; i < 8; ++i) if (std::strcmp(n, names[i]) == 0) v.hdriPreset = i;
+        if (v.hdriPreset < 0) return luaL_error(L, "world(): unknown preset '%s'", n);
+    } else if (lua_isnumber(L, -1)) {
+        v.hdriPreset = (int)std::fmin(std::fmax(lua_tonumber(L, -1), -1), 7);
+    }
+    lua_pop(L, 1);
+    v.hdriStrength = Num(L, 1, "strength", v.hdriStrength, 0, 100);
+    v.hdriRotation = Num(L, 1, "rotation", v.hdriRotation);
+    v.sunElevation = Num(L, 1, "sun_elevation", v.sunElevation, -90, 90);
+    v.sunAzimuth = Num(L, 1, "sun_azimuth", v.sunAzimuth);
+    v.sunStrength = Num(L, 1, "sun_strength", v.sunStrength, 0, 1000);
+    Vec3Field(L, 1, "sun_color", v.sunColor, 0, 10);
+    Vec3Field(L, 1, "sky_color", v.skyColor, 0, 10);
+    Vec3Field(L, 1, "horizon_color", v.horizonColor, 0, 10);
+    v.skyStrength = Num(L, 1, "sky_strength", v.skyStrength, 0, 100);
+    v.exposure = Num(L, 1, "exposure", v.exposure, 0.01f, 100);
+    return 0;
+}
+
+// curve({{x,y,z}, ...}, {radius=, cyclic=, nurbs=, sides=, taper={...}, resolution=}) sweeps a tube
+// with Leorix's curve code (Bezier with Auto handles, or NURBS) and adds it like a primitive.
+int l_curve(lua_State* L) {
+    luaL_checktype(L, 1, LUA_TTABLE);
+    CurvePath c;
+    lua_Integer n = luaL_len(L, 1);
+    if (n < 2 || n > 100000) return luaL_error(L, "curve() needs between 2 and 100000 points");
+    for (lua_Integer i = 1; i <= n; ++i) {
+        lua_rawgeti(L, 1, i);
+        if (!lua_istable(L, -1)) return luaL_error(L, "curve(): point %I is not {x, y, z}", i);
+        float p[3] = {0, 0, 0};
+        for (int k = 0; k < 3; ++k) { lua_rawgeti(L, -1, k + 1); p[k] = (float)luaL_checknumber(L, -1); lua_pop(L, 1); }
+        c.points.push_back({p[0], p[1], p[2]});
+        lua_pop(L, 1);
+    }
+    c.bevelDepth = 0.05f;
+    if (lua_istable(L, 2)) {
+        c.bevelDepth = Num(L, 2, "radius", c.bevelDepth, 0.0001f, 1e4f);
+        c.resolution = (int)Num(L, 2, "resolution", (float)c.resolution, 1, 64);
+        c.bevelResolution = (int)Num(L, 2, "sides", (float)c.bevelResolution, 0, 16);
+        lua_getfield(L, 2, "cyclic"); c.cyclic = lua_toboolean(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 2, "nurbs"); c.nurbs = lua_toboolean(L, -1); lua_pop(L, 1);
+        lua_getfield(L, 2, "taper");
+        if (lua_istable(L, -1))
+            for (lua_Integer i = 1; i <= n; ++i) {
+                lua_rawgeti(L, -1, i);
+                c.radius.push_back(lua_isnumber(L, -1) ? (float)std::fmax(0.0, lua_tonumber(L, -1)) : 1.0f);
+                lua_pop(L, 1);
+            }
+        lua_pop(L, 1);
+    }
+    c.Sync();
+    Mesh m = CurveToMesh(c);
+    if (m.tris.empty()) return luaL_error(L, "curve(): the points are too close together to sweep");
+    m.ComputeBounds();
+    if (m.normals.size() != m.positions.size()) m.ComputeNormals();
+    PushPrimitive(L, m);
+    return 2;
+}
 
 void OpenMeshLib(lua_State* L) {
     luaL_newmetatable(L, kMeshMT);
@@ -117,6 +239,7 @@ void OpenMeshLib(lua_State* L) {
         {"print", l_print}, {"mesh", l_mesh_new},
         {"cube", l_cube}, {"plane", l_plane}, {"sphere", l_sphere}, {"ico_sphere", l_ico},
         {"cylinder", l_cylinder}, {"cone", l_cone}, {"torus", l_torus}, {"circle", l_circle}, {"grid", l_grid},
+        {"material", l_material}, {"camera", l_camera}, {"world", l_world}, {"curve", l_curve},
         {nullptr, nullptr}};
     lua_pushglobaltable(L);
     luaL_setfuncs(L, globals, 0);
