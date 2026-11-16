@@ -15,7 +15,8 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/overview.png" alt="Leorix Native: the 2D/UV canvas, 3D viewport in Rendered shading, and material and render panels" width="900">
+  <img src="docs/images/hero.png" alt="Lantern Isle: a floating island at night with a glowing cottage, lanterns, a glass orb and a waterfall above a sea of clouds" width="900"><br>
+  <sub>Rendered in Leorix Native's path tracer from a procedural Lua scene. See <a href="docs/showcase">docs/showcase</a>.</sub>
 </p>
 
 Leorix Native is a desktop app for building, texturing, rigging and rendering 3D models. It ships as a
@@ -41,6 +42,11 @@ texture painter and a sandboxed Lua scripting API.
 - **Command-line tools.** Headless format conversion and a self-test run by CTest (primitives, OBJ round trip, edit ops, sculpt, undo and path-tracer convergence checks), plus render-to-PNG at startup.
 
 ## Gallery
+
+<p align="center">
+  <img src="docs/images/overview.png" alt="Leorix Native: the 2D/UV canvas, 3D viewport in Rendered shading, and material and render panels" width="900"><br>
+  <sub>The app: 2D/UV canvas, 3D viewport in Rendered shading, material and render panels.</sub>
+</p>
 
 | Material Preview | Path-traced render |
 |:---:|:---:|
@@ -117,6 +123,9 @@ leorix.exe --brush stamp.png                load a custom sculpt brush image
 leorix.exe --convert in.fbx out.glb         headless format conversion
 leorix.exe --open model.obj --hdri env.hdr --render out.png
                                             open, path-trace to PNG, then quit
+leorix.exe --headless-render scene.lua out.png [--width W --height H --spp N --save p.leorix]
+                                            path-trace a Lua scene or .leorix project to PNG,
+                                            with no window and no GPU
 leorix.exe --selftest                       run the headless self-test suite
 ```
 
