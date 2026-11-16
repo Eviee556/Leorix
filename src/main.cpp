@@ -8,6 +8,12 @@
 #include "render/PathTracer.h"
 #include "tools/Sculpt.h"
 #include "tools/VisualScript.h"
+#include "tools/Snap.h"
+#include "anim/Armature.h"
+#include "anim/Animation.h"
+#define TINYGLTF_NO_STB_IMAGE        // match IO.cpp, which holds the implementation
+#define TINYGLTF_NO_STB_IMAGE_WRITE
+#include "tiny_gltf.h"
 #include <cmath>
 #include "gpu/VulkanContext.h"
 #include "imgui.h"
@@ -464,6 +470,85 @@ static int SelfTest() {
         float hi = -1e9f;
         if (tr.ok && !tr.meshes.empty()) for (const Float3& q : tr.meshes[0].positions) hi = std::max(hi, q.x);
         check(tr.ok && std::fabs(hi - 2.5f) < 1e-4f, "script: frame, time and fps globals");
+    }
+    // Snapping: rotate/scale increments and geometry targets
+    {
+        const float deg = 3.14159265f / 180.0f;
+        check(std::fabs(SnapAngle(11.5f * deg, false) - 15 * deg) < 1e-5f && std::fabs(SnapAngle(11.5f * deg, true) - 10 * deg) < 1e-5f &&
+              std::fabs(SnapAngle(-22.0f * deg, false) + 15 * deg) < 1e-5f, "snap: rotate 15 / 5 degree steps");
+        check(std::fabs(SnapScale(1.234f) - 1.2f) < 1e-5f && std::fabs(SnapScale(0.01f) - 0.1f) < 1e-5f, "snap: scale 0.1 steps");
+        Scene sc;
+        sc.AddMesh(BuildPrimitive(Primitive::Cube, DefaultParams(Primitive::Cube)), "Target")->transform.position = {5, 0, 0};
+        sc.AddMesh(BuildPrimitive(Primitive::Cube, DefaultParams(Primitive::Cube)), "Moving");   // skipped
+        auto near = [](Float3 a, Float3 b) { return std::fabs(a.x - b.x) + std::fabs(a.y - b.y) + std::fabs(a.z - b.z) < 1e-4f; };
+        Float3 got;
+        check(SnapToGeometry(sc, 1, SnapTo::Vertex, {5.9f, 0.8f, 1.2f}, got) && near(got, {6, 1, 1}), "snap: nearest vertex");
+        check(SnapToGeometry(sc, 1, SnapTo::EdgeCenter, {5.9f, 0.1f, 1.2f}, got) && near(got, {6, 0, 1}), "snap: edge center");
+        check(SnapToGeometry(sc, 1, SnapTo::Edge, {6.3f, 1.4f, 0.1f}, got) && near(got, {6, 1, 0.1f}), "snap: closest point on edge");
+        check(SnapToGeometry(sc, 1, SnapTo::Face, {6.5f, 0.2f, 0.3f}, got) && near(got, {6, 0.2f, 0.3f}), "snap: closest point on face");
+        check(!SnapToGeometry(sc, 1, SnapTo::Increment, {0, 0, 0}, got), "snap: increment is not a geometry target");
+    }
+    // Skinned GLB export: 2-bone rig with keys reloads with skin, joints, weights and animation
+    {
+        Mesh body = BuildPrimitive(Primitive::Cube, DefaultParams(Primitive::Cube));
+        Armature arm;
+        arm.AddBone("Root", {0, -1, 0}, {0, 0, 0});
+        arm.AddBone("Tip", {0, 0, 0}, {0, 1, 0}, 0);
+        arm.BindAutomaticWeights(body);
+        arm.bones[0].poseLocation = {0.2f, 0, 0};
+        arm.bones[0].poseRotation = {0.3f, 0, 0.1f};
+        arm.bones[1].poseRotation = {0.1f, 0.4f, 0.5f};
+        arm.bones[1].poseScale = {1.1f, 1, 1};
+        Action act;
+        act.Find(ChannelTarget::Bone, 1, ChannelProp::Rotation, 2).Insert(1, 0.0f);
+        act.Find(ChannelTarget::Bone, 1, ChannelProp::Rotation, 2).Insert(10, 1.0f);
+        std::string glb = (std::filesystem::temp_directory_path() / "leorix_selftest_skin.glb").string();
+        std::string err;
+        check(ExportMeshAnimated(glb, body, &arm, &act, 24, err), "skinned glb export");
+        tinygltf::Model gm; tinygltf::TinyGLTF loader; std::string gerr, gwarn;
+        bool loaded = loader.LoadBinaryFromFile(&gm, &gerr, &gwarn, glb);
+        check(loaded && gm.skins.size() == 1 && gm.skins[0].joints.size() == 2 && !gm.animations.empty() &&
+              gm.animations[0].channels.size() == 1 && gm.nodes[0].skin == 0, "skinned glb reloads with 1 skin, 2 joints, 1 animation");
+        bool sums = loaded && !gm.meshes.empty();
+        if (sums) {
+            const tinygltf::Primitive& pr = gm.meshes[0].primitives[0];
+            auto it = pr.attributes.find("WEIGHTS_0");
+            sums = it != pr.attributes.end();
+            if (sums) {
+                const tinygltf::Accessor& a = gm.accessors[it->second];
+                const tinygltf::BufferView& bv = gm.bufferViews[a.bufferView];
+                const float* w = reinterpret_cast<const float*>(gm.buffers[bv.buffer].data.data() + bv.byteOffset + a.byteOffset);
+                sums = a.count == body.VertexCount();
+                for (size_t v = 0; sums && v < a.count; ++v) sums = std::fabs(w[v * 4] + w[v * 4 + 1] + w[v * 4 + 2] + w[v * 4 + 3] - 1) < 1e-4f;
+            }
+        }
+        check(sums, "skinned glb weights sum to 1");
+        // joint world * inverse bind must equal Armature::Evaluate, or the pose would come out wrong
+        bool same = loaded && gm.skins.size() == 1;
+        if (same) {
+            auto rotate = [](const std::vector<double>& q, Float3 v) {   // v' = q v q*
+                double x = q[0], y = q[1], z = q[2], w = q[3];
+                double tx = 2 * (y * v.z - z * v.y), ty = 2 * (z * v.x - x * v.z), tz = 2 * (x * v.y - y * v.x);
+                return Float3{float(v.x + w * tx + y * tz - z * ty), float(v.y + w * ty + z * tx - x * tz), float(v.z + w * tz + x * ty - y * tx)};
+            };
+            auto local = [&](int node, Float3 p) {   // T * R * S
+                const tinygltf::Node& n = gm.nodes[node];
+                p = {float(p.x * n.scale[0]), float(p.y * n.scale[1]), float(p.z * n.scale[2])};
+                p = rotate(n.rotation, p);
+                return Float3{float(p.x + n.translation[0]), float(p.y + n.translation[1]), float(p.z + n.translation[2])};
+            };
+            std::vector<Mat4> mats; arm.Evaluate(mats);
+            Float3 probe{0.3f, 0.7f, -0.4f};
+            for (int b = 0; b < 2; ++b) {
+                Float3 p{probe.x - arm.bones[b].head.x, probe.y - arm.bones[b].head.y, probe.z - arm.bones[b].head.z};   // IBM
+                if (b == 1) p = local(gm.skins[0].joints[1], p);
+                p = local(gm.skins[0].joints[0], p);
+                Float3 want = mats[b].Apply(probe);
+                same = same && std::fabs(p.x - want.x) + std::fabs(p.y - want.y) + std::fabs(p.z - want.z) < 1e-4f;
+            }
+        }
+        check(same, "skinned glb joints reproduce the armature pose");
+        std::filesystem::remove(glb);
     }
     std::printf(failures ? "self-test FAILED (%d)\n" : "self-test passed\n", failures);
     return failures ? 1 : 0;

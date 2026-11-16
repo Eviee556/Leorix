@@ -1,4 +1,8 @@
 #include "mesh/IO.h"
+#include "anim/Animation.h"
+#include "anim/Armature.h"
+#include <climits>
+#include <cmath>
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -196,31 +200,201 @@ static bool ImportGLTF(const std::string& path, Mesh& out, std::string& error, b
     return true;
 }
 
-static bool ExportGLTF(const std::string& path, const Mesh& mesh, std::string& error, bool binary) {
+// Quaternions (x, y, z, w) for glTF rotations.
+struct Quat { float x = 0, y = 0, z = 0, w = 1; };
+static Quat QMul(const Quat& a, const Quat& b) {
+    return {a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+            a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+            a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
+            a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z};
+}
+static Quat QAxis(int axis, float angle) {
+    Quat q; float s = std::sin(angle * 0.5f); q.w = std::cos(angle * 0.5f);
+    (axis == 0 ? q.x : axis == 1 ? q.y : q.z) = s;
+    return q;
+}
+// Bones use Mat4::RotateXYZ = Rx * Ry * Rz; objects use Transform::Apply, which rotates X first.
+static Quat BoneQuat(const Float3& e) { return QMul(QMul(QAxis(0, e.x), QAxis(1, e.y)), QAxis(2, e.z)); }
+static Quat ObjectQuat(const Float3& e) { return QMul(QMul(QAxis(2, e.z), QAxis(1, e.y)), QAxis(0, e.x)); }
+
+// Appends raw data as its own buffer view + accessor; returns the accessor index.
+static int AddAccessor(tinygltf::Model& model, const void* src, size_t bytes, size_t count, int comp, int type,
+                       int target = 0, std::vector<double> mn = {}, std::vector<double> mx = {}) {
+    std::vector<unsigned char>& d = model.buffers[0].data;
+    while (d.size() % 4) d.push_back(0);
+    size_t off = d.size();
+    d.resize(off + bytes);
+    if (bytes) std::memcpy(d.data() + off, src, bytes);
+    tinygltf::BufferView v; v.buffer = 0; v.byteOffset = off; v.byteLength = bytes; if (target) v.target = target;
+    model.bufferViews.push_back(v);
+    tinygltf::Accessor a; a.bufferView = (int)model.bufferViews.size() - 1; a.componentType = comp; a.count = count; a.type = type;
+    a.minValues = std::move(mn); a.maxValues = std::move(mx);
+    model.accessors.push_back(a);
+    return (int)model.accessors.size() - 1;
+}
+
+// One node's baked keys: frame times -> translation / rotation / scale, LINEAR.
+struct BakedTrack {
+    int node = -1;
+    std::vector<float> times;
+    std::vector<Float3> t, s; std::vector<Quat> r;
+    bool hasT = false, hasR = false, hasS = false;
+};
+static void WriteTrack(tinygltf::Model& model, tinygltf::Animation& anim, const BakedTrack& k) {
+    if (k.times.empty()) return;
+    int in = AddAccessor(model, k.times.data(), k.times.size() * 4, k.times.size(), TINYGLTF_COMPONENT_TYPE_FLOAT,
+                         TINYGLTF_TYPE_SCALAR, 0, {k.times.front()}, {k.times.back()});
+    auto add = [&](const void* data, size_t bytes, int type, const char* path) {
+        tinygltf::AnimationSampler sm; sm.input = in; sm.interpolation = "LINEAR";
+        sm.output = AddAccessor(model, data, bytes, k.times.size(), TINYGLTF_COMPONENT_TYPE_FLOAT, type);
+        anim.samplers.push_back(sm);
+        tinygltf::AnimationChannel ch; ch.sampler = (int)anim.samplers.size() - 1; ch.target_node = k.node; ch.target_path = path;
+        anim.channels.push_back(ch);
+    };
+    if (k.hasT) add(k.t.data(), k.t.size() * 12, TINYGLTF_TYPE_VEC3, "translation");
+    if (k.hasR) add(k.r.data(), k.r.size() * 16, TINYGLTF_TYPE_VEC4, "rotation");
+    if (k.hasS) add(k.s.data(), k.s.size() * 12, TINYGLTF_TYPE_VEC3, "scale");
+}
+
+// Bakes every frame between the first and last key of the channels `pick` accepts, so Bezier and
+// easing curves survive glTF's LINEAR sampling. `rest` turns a frame's (loc, rot, scale) into TRS.
+template <class Pick, class Make>
+static void BakeTrack(tinygltf::Model& model, tinygltf::Animation& anim, const Action& action, int node, float rate,
+                      ChannelTarget target, int bone, Float3 loc0, Float3 rot0, Float3 scl0, Pick pick, Make make) {
+    int f0 = INT_MAX, f1 = INT_MIN;
+    for (const Channel& c : action.channels)
+        if (pick(c) && !c.keys.empty()) { f0 = std::min(f0, c.keys.front().frame); f1 = std::max(f1, c.keys.back().frame); }
+    if (f0 > f1) return;
+    BakedTrack k; k.node = node;
+    auto has = [&](ChannelProp pr) {
+        for (int a = 0; a < 3; ++a) { const Channel* c = action.Get(target, bone, pr, a); if (c && !c->keys.empty()) return true; }
+        return false;
+    };
+    k.hasT = has(ChannelProp::Location); k.hasR = has(ChannelProp::Rotation); k.hasS = has(ChannelProp::Scale);
+    auto eval = [&](ChannelProp pr, Float3 v, float f) {
+        float* out[3] = {&v.x, &v.y, &v.z};
+        for (int a = 0; a < 3; ++a) if (const Channel* c = action.Get(target, bone, pr, a)) c->Evaluate(f, *out[a]);
+        return v;
+    };
+    for (int f = f0; f <= f1; ++f) {
+        k.times.push_back((f - std::min(1, f0)) / rate);   // frame 1 is t = 0
+        Float3 t; Quat r; Float3 s;
+        make(eval(ChannelProp::Location, loc0, (float)f), eval(ChannelProp::Rotation, rot0, (float)f),
+             eval(ChannelProp::Scale, scl0, (float)f), t, r, s);
+        k.t.push_back(t); k.r.push_back(r); k.s.push_back(s);
+    }
+    WriteTrack(model, anim, k);
+}
+
+static bool ExportGLTF(const std::string& path, const Mesh& mesh, const Armature* arm, const Action* action,
+                       int fps, std::string& error, bool binary) {
+    const bool skinned = arm && !arm->bones.empty() && arm->Bound() && arm->restPositions.size() == mesh.positions.size();
+    // A skinned mesh is written in its bind pose; the joints carry the current pose.
+    const std::vector<Float3>& pos = skinned ? arm->restPositions : mesh.positions;
+
     tinygltf::Model model; tinygltf::Scene scene; tinygltf::Mesh gmesh; tinygltf::Primitive prim;
-    tinygltf::Buffer buffer;
-    // Interleave positions then indices into one buffer.
-    std::vector<unsigned char>& data = buffer.data;
-    size_t posBytes = mesh.positions.size() * 12;
-    data.resize(posBytes);
-    std::memcpy(data.data(), mesh.positions.data(), posBytes);
-    size_t idxOffset = data.size();
+    model.buffers.emplace_back();
+    Float3 mn{1e30f, 1e30f, 1e30f}, mx{-1e30f, -1e30f, -1e30f};
+    for (const Float3& p : pos) {
+        mn = {std::min(mn.x, p.x), std::min(mn.y, p.y), std::min(mn.z, p.z)};
+        mx = {std::max(mx.x, p.x), std::max(mx.y, p.y), std::max(mx.z, p.z)};
+    }
+    if (pos.empty()) mn = mx = {0, 0, 0};
     std::vector<uint32_t> indices; indices.reserve(mesh.tris.size() * 3);
     for (const auto& t : mesh.tris) { indices.push_back(t.a); indices.push_back(t.b); indices.push_back(t.c); }
-    data.resize(idxOffset + indices.size() * 4);
-    std::memcpy(data.data() + idxOffset, indices.data(), indices.size() * 4);
+    prim.attributes["POSITION"] = AddAccessor(model, pos.data(), pos.size() * 12, pos.size(), TINYGLTF_COMPONENT_TYPE_FLOAT,
+        TINYGLTF_TYPE_VEC3, TINYGLTF_TARGET_ARRAY_BUFFER, {mn.x, mn.y, mn.z}, {mx.x, mx.y, mx.z});
+    prim.indices = AddAccessor(model, indices.data(), indices.size() * 4, indices.size(), TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT,
+        TINYGLTF_TYPE_SCALAR, TINYGLTF_TARGET_ELEMENT_ARRAY_BUFFER);
+    prim.mode = TINYGLTF_MODE_TRIANGLES;
 
-    tinygltf::BufferView posView; posView.buffer = 0; posView.byteOffset = 0; posView.byteLength = posBytes; posView.target = TINYGLTF_TARGET_ARRAY_BUFFER;
-    tinygltf::BufferView idxView; idxView.buffer = 0; idxView.byteOffset = idxOffset; idxView.byteLength = indices.size() * 4; idxView.target = TINYGLTF_TARGET_ELEMENT_ARRAY_BUFFER;
-    tinygltf::Accessor posAcc; posAcc.bufferView = 0; posAcc.componentType = TINYGLTF_COMPONENT_TYPE_FLOAT; posAcc.count = mesh.positions.size(); posAcc.type = TINYGLTF_TYPE_VEC3;
-    Float3 mn = mesh.bmin, mx = mesh.bmax; posAcc.minValues = {mn.x, mn.y, mn.z}; posAcc.maxValues = {mx.x, mx.y, mx.z};
-    tinygltf::Accessor idxAcc; idxAcc.bufferView = 1; idxAcc.componentType = TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT; idxAcc.count = indices.size(); idxAcc.type = TINYGLTF_TYPE_SCALAR;
+    tinygltf::Node meshNode; meshNode.mesh = 0; meshNode.name = mesh.name.empty() ? "Mesh" : mesh.name;
+    model.nodes.push_back(meshNode); scene.nodes.push_back(0);
+    const float rate = (float)std::max(1, fps);
+    tinygltf::Animation anim; anim.name = action && !action->name.empty() ? action->name : "Action";
 
-    prim.attributes["POSITION"] = 0; prim.indices = 1; prim.mode = TINYGLTF_MODE_TRIANGLES;
+    if (skinned) {
+        const int nb = (int)arm->bones.size();
+        auto parentOf = [&](int i) { int p = arm->bones[i].parent; return p >= 0 && p < i ? p : -1; };   // as Armature::Evaluate
+        auto restRel = [&](int i) {
+            const Float3& h = arm->bones[i].head; int p = parentOf(i);
+            return p >= 0 ? Float3{h.x - arm->bones[p].head.x, h.y - arm->bones[p].head.y, h.z - arm->bones[p].head.z} : h;
+        };
+        // Top four influences, normalized. A vertex with none goes to an extra still joint so it
+        // stays put, as Armature::Skin leaves it at rest.
+        std::vector<uint16_t> joints(pos.size() * 4, 0); std::vector<float> weights(pos.size() * 4, 0);
+        bool needStill = false;
+        for (size_t v = 0; v < pos.size(); ++v) {
+            const VertexWeights& vw = arm->weights[v];
+            float total = 0;
+            for (int s = 0; s < 4; ++s) if (vw.bone[s] >= 0 && vw.bone[s] < nb && vw.weight[s] > 0) total += vw.weight[s];
+            if (total <= 1e-6f) { joints[v * 4] = (uint16_t)nb; weights[v * 4] = 1; needStill = true; continue; }
+            for (int s = 0; s < 4; ++s)
+                if (vw.bone[s] >= 0 && vw.bone[s] < nb && vw.weight[s] > 0) {
+                    joints[v * 4 + s] = (uint16_t)vw.bone[s]; weights[v * 4 + s] = vw.weight[s] / total;
+                }
+        }
+        prim.attributes["JOINTS_0"] = AddAccessor(model, joints.data(), joints.size() * 2, pos.size(),
+            TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT, TINYGLTF_TYPE_VEC4, TINYGLTF_TARGET_ARRAY_BUFFER);
+        prim.attributes["WEIGHTS_0"] = AddAccessor(model, weights.data(), weights.size() * 4, pos.size(),
+            TINYGLTF_COMPONENT_TYPE_FLOAT, TINYGLTF_TYPE_VEC4, TINYGLTF_TARGET_ARRAY_BUFFER);
+
+        // Joint rest frames sit at each bone's head with no rotation, so the inverse bind matrix
+        // is a translation by -head, and joint * IBM reproduces Armature::Evaluate exactly.
+        tinygltf::Skin skin; skin.name = "Armature";
+        const int firstJoint = (int)model.nodes.size();
+        std::vector<float> ibm;
+        auto boneTRS = [](Float3 rel) {
+            return [rel](Float3 l, Float3 r, Float3 s, Float3& t, Quat& q, Float3& sc) {
+                t = {rel.x + l.x, rel.y + l.y, rel.z + l.z}; q = BoneQuat(r); sc = s;
+            };
+        };
+        for (int i = 0; i < nb; ++i) {
+            const Bone& b = arm->bones[i];
+            Float3 t, sc; Quat q;
+            boneTRS(restRel(i))(b.poseLocation, b.poseRotation, b.poseScale, t, q, sc);
+            tinygltf::Node n; n.name = b.name;
+            n.translation = {t.x, t.y, t.z}; n.rotation = {q.x, q.y, q.z, q.w}; n.scale = {sc.x, sc.y, sc.z};
+            model.nodes.push_back(n);
+            skin.joints.push_back(firstJoint + i);
+            float m[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, -b.head.x,-b.head.y,-b.head.z,1};   // column-major
+            ibm.insert(ibm.end(), m, m + 16);
+        }
+        for (int i = 0; i < nb; ++i) {
+            int p = parentOf(i);
+            if (p >= 0) model.nodes[firstJoint + p].children.push_back(firstJoint + i);
+            else scene.nodes.push_back(firstJoint + i);
+        }
+        if (needStill) {
+            tinygltf::Node n; n.name = "Unweighted";
+            model.nodes.push_back(n);
+            skin.joints.push_back((int)model.nodes.size() - 1);
+            scene.nodes.push_back((int)model.nodes.size() - 1);
+            float m[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+            ibm.insert(ibm.end(), m, m + 16);
+        }
+        skin.inverseBindMatrices = AddAccessor(model, ibm.data(), ibm.size() * 4, skin.joints.size(),
+            TINYGLTF_COMPONENT_TYPE_FLOAT, TINYGLTF_TYPE_MAT4);
+        model.skins.push_back(skin);
+        model.nodes[0].skin = 0;
+
+        if (action)
+            for (int i = 0; i < nb; ++i) {
+                const Bone& b = arm->bones[i];
+                BakeTrack(model, anim, *action, firstJoint + i, rate, ChannelTarget::Bone, i, b.poseLocation, b.poseRotation, b.poseScale,
+                          [i](const Channel& c) { return c.target == ChannelTarget::Bone && c.boneIndex == i; }, boneTRS(restRel(i)));
+            }
+        // shortcut: object-level keys are not exported for skinned meshes (glTF ignores a skinned
+        // node's own transform); add a parent node for the object if rigs need to travel.
+    } else if (action) {
+        BakeTrack(model, anim, *action, 0, rate, ChannelTarget::Object, -1, {0, 0, 0}, {0, 0, 0}, {1, 1, 1},
+                  [](const Channel& c) { return c.target == ChannelTarget::Object; },
+                  [](Float3 l, Float3 r, Float3 s, Float3& t, Quat& q, Float3& sc) { t = l; q = ObjectQuat(r); sc = s; });
+    }
+    if (!anim.channels.empty()) model.animations.push_back(anim);
+
     gmesh.primitives.push_back(prim);
-    tinygltf::Node node; node.mesh = 0; scene.nodes.push_back(0);
-    model.meshes.push_back(gmesh); model.nodes.push_back(node); model.scenes.push_back(scene);
-    model.buffers.push_back(buffer); model.bufferViews = {posView, idxView}; model.accessors = {posAcc, idxAcc};
+    model.meshes.push_back(gmesh); model.scenes.push_back(scene);
     model.asset.version = "2.0"; model.asset.generator = "Leorix"; model.defaultScene = 0;
 
     tinygltf::TinyGLTF writer;
@@ -343,9 +517,16 @@ bool ImportMesh(const std::string& path, Mesh& out, std::string& error) {
 bool ExportMesh(const std::string& path, const Mesh& mesh, std::string& error) {
     std::string e = Ext(path);
     if (e == "obj") return ExportOBJ(path, mesh, error);
-    if (e == "gltf") return ExportGLTF(path, mesh, error, false);
-    if (e == "glb") return ExportGLTF(path, mesh, error, true);
+    if (e == "gltf") return ExportGLTF(path, mesh, nullptr, nullptr, 24, error, false);
+    if (e == "glb") return ExportGLTF(path, mesh, nullptr, nullptr, 24, error, true);
     if (e == "usd" || e == "usda") return ExportUSDA(path, mesh, error);
     if (e == "fbx") { error = "FBX export isn't available yet - export OBJ, glTF or USDA instead."; return false; }
     error = "Unsupported export format: ." + e; return false;
+}
+
+bool ExportMeshAnimated(const std::string& path, const Mesh& mesh, const Armature* armature, const Action* action,
+                        int fps, std::string& error) {
+    std::string e = Ext(path);
+    if (e == "gltf" || e == "glb") return ExportGLTF(path, mesh, armature, action, fps, error, e == "glb");
+    return ExportMesh(path, mesh, error);
 }

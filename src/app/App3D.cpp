@@ -1,5 +1,6 @@
 // 3D modes: Object, Sculpt, Edit, Retopology. Tool shelves inside the viewport, header widgets,
 // the 3D Tool Settings panel and the custom image sculpt brush import.
+#include "tools/Snap.h"
 #include "app/App.h"
 #include "app/Icons.h"
 #include "imgui.h"
@@ -912,7 +913,8 @@ void App::ProcessPendingImport() {
 
     if (!exportPath.empty() && scene.HasMesh()) {
         std::string error;
-        if (ExportMesh(exportPath, scene.Active()->mesh, error)) {
+        const MeshObject* eo = scene.Active();
+        if (ExportMeshAnimated(exportPath, eo->mesh, &eo->armature, &eo->action, playback.fps, error)) {
             size_t slash = exportPath.find_last_of("/\\");
             ShowStatus("Exported " + (slash == std::string::npos ? exportPath : exportPath.substr(slash + 1)));
         } else ShowStatus(error);
@@ -1678,30 +1680,17 @@ void App::UpdateTransform(bool) {
 
         // Snapping. Ctrl toggles it while dragging, the way Blender does.
         bool snapNow = snapEnabled != io.KeyCtrl;
-        if (snapNow && xform.movedVerts.empty()) {
-            Float3 want{xform.savedTransform.position.x + delta.x,
-                        xform.savedTransform.position.y + delta.y,
-                        xform.savedTransform.position.z + delta.z};
-            if (snapMode == 1) {
-                // nearest vertex of any other object
-                float best = 1e30f; Float3 bestP = want;
-                for (int i = 0; i < (int)scene.objects.size(); ++i) {
-                    if (i == xform.objectIndex) continue;
-                    MeshObject& other = *scene.objects[i];
-                    for (const Float3& v : other.mesh.positions) {
-                        Float3 w = other.transform.Apply(v);
-                        float dx2 = (w.x - want.x) * (w.x - want.x) + (w.y - want.y) * (w.y - want.y) + (w.z - want.z) * (w.z - want.z);
-                        if (dx2 < best) { best = dx2; bestP = w; }
-                    }
-                }
-                if (best < 1e29f) want = bestP;
-            } else {
-                float inc = std::max(0.0001f, snapMode == 2 ? 1.0f : snapIncrement);
+        if (snapNow) {
+            // Object mode snaps the origin; Edit Mode snaps the selection's median (the pivot).
+            Float3 base = xform.movedVerts.empty() ? xform.savedTransform.position : xform.pivot;
+            Float3 want{base.x + delta.x, base.y + delta.y, base.z + delta.z};
+            SnapTo to = (SnapTo)snapMode;
+            // shortcut: Edit Mode skips its own object (its verts are the ones moving), so it can't snap to its own unselected verts yet.
+            if (!SnapToGeometry(scene, xform.objectIndex, to, want, want) && (to == SnapTo::Increment || to == SnapTo::Grid)) {
+                float inc = std::max(0.0001f, to == SnapTo::Grid ? 1.0f : snapIncrement);
                 want = {std::round(want.x / inc) * inc, std::round(want.y / inc) * inc, std::round(want.z / inc) * inc};
             }
-            delta = {want.x - xform.savedTransform.position.x,
-                     want.y - xform.savedTransform.position.y,
-                     want.z - xform.savedTransform.position.z};
+            delta = {want.x - base.x, want.y - base.y, want.z - base.z};
         }
         if (!xform.movedVerts.empty()) {
             // Vertices live in object space, so undo the object's scale/rotation for the move.
@@ -1720,6 +1709,7 @@ void App::UpdateTransform(bool) {
         float a0 = std::atan2(xform.startMouse.y - pivotScreen.y, xform.startMouse.x - pivotScreen.x);
         float a1 = std::atan2(m.y - pivotScreen.y, m.x - pivotScreen.x);
         float angle = a1 - a0;
+        if (snapEnabled != io.KeyCtrl) angle = SnapAngle(angle, io.KeyShift);   // 15 degree steps, Shift for 5
         int axis = xform.axis >= 0 ? xform.axis : 1;   // free rotate defaults to the up axis
         if (!xform.movedVerts.empty()) {
             float c = std::cos(angle), s = std::sin(angle);
@@ -1749,6 +1739,7 @@ void App::UpdateTransform(bool) {
         float d0 = std::max(8.0f, std::hypot(xform.startMouse.x - pivotScreen.x, xform.startMouse.y - pivotScreen.y));
         float d1 = std::hypot(m.x - pivotScreen.x, m.y - pivotScreen.y);
         float f = std::clamp(d1 / d0, 0.01f, 100.0f);
+        if (snapEnabled != io.KeyCtrl) f = SnapScale(f);
         Float3 factor{f, f, f};
         if (xform.axis == 0) factor = {f, 1, 1};
         else if (xform.axis == 1) factor = {1, f, 1};

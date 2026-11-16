@@ -1,4 +1,5 @@
 #include "app/App.h"
+#include "tools/Snap.h"
 #include "app/Icons.h"
 #include "imgui.h"
 #include "imgui_internal.h"   // DockBuilder + viewport side bars
@@ -394,9 +395,9 @@ void App::MenuBar() {
         ImGui::Separator();
         if (ImGui::BeginMenu("Snapping")) {
             ImGui::MenuItem("Enabled", "Ctrl while dragging", &snapEnabled);
-            static const char* modes[] = {"Increment", "Nearest Vertex", "Grid (1 m)"};
             ImGui::SetNextItemWidth(160);
-            ImGui::Combo("Snap To", &snapMode, modes, 3);
+            ImGui::Combo("Snap To", &snapMode, [](void*, int i) { return SnapToName((SnapTo)i); }, nullptr, (int)SnapTo::Count);
+            ImGui::TextDisabled("Rotate snaps to 15 deg (Shift 5), scale to 0.1");
             ImGui::SetNextItemWidth(160);
             ImGui::SliderFloat("Increment", &snapIncrement, 0.01f, 2.0f, "%.2f m");
             ImGui::EndMenu();

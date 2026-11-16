@@ -14,7 +14,7 @@ from descriptions, so names and behavior may differ from the original.
 | New Project dialog (4 modes, templates, background, comic presets, 3D workspaces) | reconstructed |
 | 3D viewport: orbit/pan/zoom, grid, axes, view gizmo | done |
 | Mesh import: OBJ, FBX (Blender + Maya, binary/ASCII), glTF, GLB, USDA | done |
-| Mesh export: OBJ, glTF, GLB, USDA | done (no FBX export) |
+| Mesh export: OBJ, glTF, GLB, USDA; glTF/GLB carry the armature as a skin and keyframes as a baked animation | done (no FBX export) |
 | Primitives: Blender counts verified, quads kept, no subdivision, flat shaded | done |
 | Quad wireframe: triangulation diagonals never drawn or selectable | done |
 | Per-face-corner UVs, so texturing never splits vertices | done |
@@ -80,7 +80,7 @@ from descriptions, so names and behavior may differ from the original.
 | **Subsurface scattering**: weight, method, per-channel radius, scale, anisotropy, IOR - approximated live in Rendered with wrapped diffuse + back-lit transmission | done |
 | **Curves**: Bezier line, Circle, Spiral objects with Catmull-Rom evaluation, drawn with control points | done |
 | **Curve Deform modifier**: maps a mesh's extent along a curve, with axis and stretch | done |
-| **Snapping** during move: Increment, Nearest Vertex, 1 m Grid; Ctrl toggles while dragging | done |
+| **Snapping**: move snaps to Increment, 1 m Grid, Nearest Vertex, Edge, Edge Center or Face (Object and Edit Mode); rotate snaps to 15° (Shift 5°), scale to 0.1; Ctrl toggles while dragging | done |
 | **Modifier stack (13)**: Array, Mirror, Solidify, Subdivision (Catmull-Clark), Smooth, Weld, Shrinkwrap, Screw/Spin, Remesh (voxel), Displace, Triangulate, Decimate - non-destructive, live preview, reorder, enable/disable, Apply (undoable) | done |
 | Keyframe interpolation: Constant, Linear, Bezier + 9 easing equations (Sinusoidal, Quadratic, Cubic, Quartic, Exponential, Circular, Back, Bounce, Elastic) with Ease In / Out / In-Out | done |
 | Ctrl+Space cycles Object -> Sculpt -> Edit -> Retopology -> Pose | done |
@@ -176,7 +176,6 @@ app because of how it's structured differently:
 | Webcomic: panel grids, balloons, page guides, bleed/safe area | not started |
 | Cross-object armature parenting (one armature deforming several meshes) | not started - an armature currently belongs to the object it deforms |
 | Multires level switching is nearest-neighbour resampled, not a true displacement hierarchy | open - detail survives a level change but is approximated when the level moves |
-| Snapping for rotate and scale, and face/edge snap targets | not started - move snapping works |
 | Curve editing: moving control points in the viewport, handle types, bevel/taper | not started - curves are created from presets and used as deform targets |
 | Cloth simulation | not started |
 | Weight painting (manual, on top of automatic weights) | not started |
@@ -184,7 +183,7 @@ app because of how it's structured differently:
 | Bone constraints (Copy Rotation/Location, Track To, Limit Rotation, IK) | not started - bone *parenting* works, constraints do not |
 | Rigid body / physics simulation | not started |
 | Curves (Bezier, NURBS, path, circle) and curve-to-mesh | not started |
-| Control rig presets and export for Unreal / Unity / Godot | not started - needs a skinned FBX/glTF exporter first |
+| Control rig presets and export for Unreal / Unity / Godot | not started - unblocked: skinned glTF/GLB export now exists, presets don't |
 | Gyro-style control rig widgets (control objects driving bones) | not started - needs constraints first |
 | Texture painting directly onto the 3D model (paint in the viewport, not the canvas) | not started - needs UV-space projection from the viewport |
 | UV editing: move verts/islands in UV space, Smart UV Project, live unwrap | not started - unwrap and display work, editing does not |

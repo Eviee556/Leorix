@@ -332,7 +332,7 @@ flowchart LR
 |---|---|---|---|
 | OBJ | ✅ | ✅ | One vertex per OBJ position, so file counts are preserved exactly. Quads and n-gons round-trip |
 | FBX | ✅ binary + ASCII | — | ufbx converts to right-handed Y-up, metres. Export isn't implemented yet |
-| glTF / GLB | ✅ | ✅ | glTF is triangles by spec, so a glTF round trip comes back triangulated |
+| glTF / GLB | ✅ | ✅ + skin + animation | glTF is triangles by spec, so a glTF round trip comes back triangulated. Rigged objects export as a skin (import reads the mesh only) |
 | USDA | ✅ | ✅ | Reads `def Mesh` blocks (`points`, `faceVertexCounts`, `faceVertexIndices`) in any attribute order |
 | USDC | detected | — | The binary crate format is reported with a clear message |
 
@@ -340,6 +340,14 @@ The USDA reader scopes each attribute lookup to its own `def Mesh` block. Blende
 and indices *before* points, so searching forward from the previous match would miss them. It
 also looks for values *after* the `=` sign, because a `[` appears inside the type name
 (`point3f[] points`) too.
+
+**Skinned glTF export.** A bound armature is written as a glTF skin. The mesh goes out in its bind
+pose (`restPositions`), and each bone becomes a joint node at its head with no rest rotation, so the
+inverse bind matrix is just a translation by `-head`. The joint's TRS is the parent-relative head plus
+the pose, so `joint * inverseBind` reproduces `Armature::Evaluate` exactly; the self-test checks this
+numerically. `JOINTS_0`/`WEIGHTS_0` carry the four influences, renormalised, and vertices with no
+influence go to an extra still joint. Keyframes are baked once per frame into LINEAR samplers, so
+Bezier and easing curves survive. Object-level keys are exported only for unrigged objects.
 
 `leorix.exe --convert in.fbx out.glb` exposes the whole pipeline headlessly, which is also
 how the importers get tested.
