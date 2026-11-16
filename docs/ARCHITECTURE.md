@@ -87,6 +87,7 @@ src/
 ├── render/            materials, CPU path tracer, HDRI presets, GPU backend detection
 ├── paint/             2D maps, layer stacks, blend modes, brushes, .leorix project I/O
 ├── anim/              armatures, skinning, keyframe animation
+├── physics/           rigid body solver and baked simulation cache
 ├── tools/             Lua scripting, sculpt brush images, tool catalogs, modal transform op
 ├── gpu/               Vulkan context, GPU textures
 └── core/              undo/redo stack
@@ -501,6 +502,19 @@ prefixes and suffixes (`.L`, `_l`, `Left`, `mixamorig:Left`).
 **Keyframes** (`anim/Animation.*`). Each channel animates one scalar (object or bone ×
 location/rotation/scale × axis), like Blender's F-curves. There are 12 interpolation modes
 (Constant, Linear, Bezier, and Sine through Elastic) with In/Out/InOut easing.
+
+**Rigid bodies** (`physics/*`, panel in `app/PhysicsPanel.cpp`). Each object carries a
+`RigidBody`: Active or Passive, a shape (Box or Sphere fitted to the bounds, or a Convex Hull
+built from up to ~100 extreme points), mass, friction and bounciness. *Bake* simulates the whole
+scene at about 240 steps per second and stores one position and rotation per timeline frame in
+each active body's cache; playback and scrubbing only read the cache, so the result never changes
+between views. The solver is semi-implicit Euler with sequential impulses (20 iterations, Coulomb
+friction, restitution above 1 m/s, Baumgarte correction with 1 mm slop). Contacts come from a
+face-normal separating-axis test followed by "every vertex of one body inside the other", with an
+exact closest-point test for spheres against boxes. Bodies that stay still for half a second
+sleep until something fast touches them, which keeps stacks from creeping. Edge-on-edge contacts
+are not generated, and passive bodies stay where they were at the start of the bake. A project
+saves the settings and each object's pre-bake transform, not the cache.
 
 ---
 

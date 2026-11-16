@@ -183,7 +183,7 @@ app because of how it's structured differently:
 | Curve editing: moving control points in the viewport, handle types, bevel/taper | not started - curves are created from presets and used as deform targets |
 | Cloth simulation | not started |
 | Weight painting (manual, on top of automatic weights) | not started |
-| Rigid body / physics simulation | not started |
+| Rigid body / physics simulation: Active/Passive bodies, Box/Sphere/Convex Hull shapes, mass, friction, bounciness, gravity; baked per frame so scrubbing is deterministic; Bake, Free Bake, Apply Transform; undoable; settings saved in projects | done - no edge-edge contacts, no constraints/joints, passive bodies do not follow keyframes |
 | Curves (Bezier, NURBS, path, circle) and curve-to-mesh | not started |
 | Control rig presets and export for Unreal / Unity / Godot | partial - humanoid rig, UE5/Unity/Mixamo/Godot naming and skinned glTF/GLB export exist; control rigs don't |
 | Gyro-style control rig widgets (control objects driving bones) | not started - constraints exist now, the widgets do not |

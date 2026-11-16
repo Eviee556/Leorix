@@ -2447,6 +2447,7 @@ void App::ApplyAnimation(float frame) {
         }
         if (poseChanged) UpdateSkinning(o);
     }
+    ApplyRigidBodyCache(scene, frame);   // baked physics wins over keyframes, as in Blender
 }
 
 void App::InsertKeyframes(bool location, bool rotation, bool scale) {
