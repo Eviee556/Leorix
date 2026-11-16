@@ -4,7 +4,29 @@ All notable changes to Leorix Native are listed here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.4.0] - 2026-11-15
+
+### Added
+- Snapping: rotate snaps in 15° steps (5° with Shift) and scale in 0.1 steps; move can snap to the nearest vertex, edge, edge center or face of other objects, in Object and Edit Mode.
+- Skinned glTF/GLB export: armatures export as glTF skins with up to four normalized weights per vertex, and keyframes are baked to glTF animation.
+- Rigging: two-bone IK with a pole target, and bone constraints (IK, Track To, Copy Location, Copy Rotation, Limit Rotation) evaluated before skinning.
+- Add Humanoid Rig (21 bones, sized to the mesh) and Rename Bones presets for Plain, UE5, Unity, Mixamo and Godot naming.
+- UV editing on the 2D canvas: select islands or vertices, then move, rotate and scale them, with undo.
+- Smart UV Project: groups faces by angle, unwraps each group with LSCM and packs the islands.
+- Painting directly on the 3D model with the Sculpt Mode Paint brush, through the model's UVs, with live material updates and tile undo.
+- `.leorix` projects now save the whole 3D scene: meshes, materials and textures, modifier stacks, armatures with constraints and weights, keyframes, cameras and playback settings. Older projects still open.
+- Tutorial book: 56 tutorials, with new ones for Mirror, per-copy Random, Copy Upwards, Scatter Randomly, the Time block and Lua animation (`frame`, `time`, `fps`).
+
+### Fixed
+- Painting on a posed (skinned) model put paint in the wrong place.
+- IK combined with other constraints on the same chain solved against a stale pose.
+- Bone constraints were ignored by skinned glTF export.
+- Geometry snapping broke an axis constraint (G then X).
+- The UV panel's Rotate and Scale could act on another object's UVs.
+- Painting on a multiresolution object always reported missing UVs.
+- A project manifest with a wrongly typed field could crash on load.
+
+## [0.3.0] - 2026-11-15
 
 ### Added
 - Block graphs in the visual scripting editor can be saved and loaded.
@@ -52,3 +74,6 @@ All notable changes to Leorix Native are listed here. The format follows
 
 ### Changed
 - TransformOp and New Project state moved out of `App`.
+
+[0.4.0]: https://github.com/Eviee556/Leorix/releases/tag/v0.4.0
+[0.3.0]: https://github.com/Eviee556/Leorix/releases/tag/v0.3.0

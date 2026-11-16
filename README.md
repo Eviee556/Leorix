@@ -25,17 +25,17 @@ texture painter and a sandboxed Lua scripting API.
 ## Highlights
 
 - **Vulkan renderer and app shell.** Picks the discrete GPU automatically and detects render backends. The UI is a dockable Dear ImGui layout with a custom theme and vector icons.
-- **Mesh pipeline.** Imports OBJ, FBX (binary and ASCII), glTF/GLB and USDA, and exports OBJ, glTF, GLB and USDA. Quads and n-gons survive the round trip. Normals are oriented automatically on import.
-- **Blender-style editing.** Object and Edit Mode, with vertex, edge and face selection and box select. Extrude, Delete and Merge at Center that keep quads and UVs intact. Grab, rotate and scale with axis constraints, snapping, Join, Shift+D duplicate (objects, or faces in Edit Mode) and P to separate faces into a new object.
+- **Mesh pipeline.** Imports OBJ, FBX (binary and ASCII), glTF/GLB and USDA, and exports OBJ, glTF, GLB and USDA, including rigged and animated glTF/GLB for game engines. Quads and n-gons survive the round trip. Normals are oriented automatically on import.
+- **Blender-style editing.** Object and Edit Mode, with vertex, edge and face selection and box select. Extrude, Delete and Merge at Center that keep quads and UVs intact. Grab, rotate and scale with axis constraints and snapping (increments, or the nearest vertex, edge, edge center or face), Join, Shift+D duplicate (objects, or faces in Edit Mode) and P to separate faces into a new object.
 - **Non-destructive modifier stack.** 13 modifiers, including Subdivision Surface (Catmull-Clark), Mirror, Array, Solidify, Shrinkwrap, Screw, Voxel Remesh, Decimate and Curve Deform, previewed live.
 - **Sculpting.** 23 brushes (Draw, Clay Strips, Inflate, Crease, Smooth, Flatten, Scrape, Pinch, Grab, Snake Hook, Elastic and more) with nine falloff curves, X/Y/Z symmetry, auto-smooth, custom image stamps, multiresolution layers and one undo step per stroke.
-- **UV tools.** Mark seams, unwrap islands with LSCM and pack them into the 0..1 square.
-- **Texture painting.** 11 PBR map kinds, each with its own layer stack, and 16 blend modes (including Hue, Saturation, Color and Luminosity). Undo stores only the 128×128 tiles a stroke touched.
+- **UV tools.** Mark seams, unwrap islands with LSCM or Smart UV Project, pack them into the 0..1 square, and move, rotate and scale islands or vertices on the canvas.
+- **Texture painting.** 11 PBR map kinds, each with its own layer stack, and 16 blend modes (including Hue, Saturation, Color and Luminosity). Paint on the 2D canvas or directly on the 3D model. Undo stores only the 128×128 tiles a stroke touched.
 - **Path tracer.** Multithreaded CPU tracer with BVH acceleration, glass with Fresnel, emissive materials, parallax occlusion mapping, next-event estimation with multiple importance sampling for area lights, tangent-space normal mapping, an edge-aware denoiser and eight procedural HDRI environments.
-- **Rigging and animation.** Armatures with automatic weights, Pose Mode, and a keyframe timeline with Bezier interpolation and nine easing curves.
+- **Rigging and animation.** Armatures with automatic weights, Pose Mode, two-bone IK with a pole target, bone constraints (IK, Track To, Copy Location, Copy Rotation, Limit Rotation), a one-click humanoid rig with UE5, Unity, Mixamo and Godot naming presets, and a keyframe timeline with Bezier interpolation and nine easing curves.
 - **Visual scripting for beginners.** Snap together plain-English blocks (Box, Ball, Copy in a Circle, Put Together...) with colour-coded wires; every block explains itself. 21 blocks, including Time, Mirror, Copy Upwards and Scatter Randomly; Random can give every copy its own value, and graphs save as `.leorixblocks` files or inside projects.
 - **Lua scripting.** Build meshes procedurally in a sandbox with no file, OS or network access, with instruction and memory limits so a runaway script can't freeze the app. Scripts can read `frame`, `time` and `fps` and rebuild every frame for procedural animation.
-- **Project files.** `.leorix` is a ZIP container with a JSON manifest and per-layer PNGs, and round-trips without loss.
+- **Project files.** `.leorix` is a ZIP container with a JSON manifest, per-layer PNGs and binary meshes. It saves the whole scene (meshes, materials and textures, modifiers, rigs with constraints, keyframes, cameras) and round-trips without loss.
 - **Command-line tools.** Headless format conversion and a self-test run by CTest (primitives, OBJ round trip, edit ops, sculpt, undo and path-tracer convergence checks), plus render-to-PNG at startup.
 
 ## Gallery
@@ -141,6 +141,7 @@ Modes           Tab Edit Mode, Ctrl+Space cycles Object > Sculpt > Edit > Retopo
 Edit Mode       1 / 2 / 3 vertex / edge / face, E extrude, X delete, M merge, Shift+D duplicate faces, P separate,
                 U unwrap, drag to box select
 Transform       G / R / S with X / Y / Z constraints, Esc cancels, Ctrl toggles snapping
+                (rotate snaps in 15° steps, 5° with Shift; scale in 0.1 steps)
 Objects         Shift+A add, Shift+D duplicate, Ctrl+J join
 Textures        Shift+T loads a texture set and sorts files into slots by name
 Render          F12 render image
@@ -167,7 +168,8 @@ counts are checked by `--selftest`.
 ## Roadmap
 
 Planned work includes a GPU (Vulkan RT) path tracer backend, per-pixel PBR maps in the viewport,
-cloth and rigid-body simulation, bone constraints and IK, 2.5D diorama scenes and a webcomic mode.
+cloth and rigid-body simulation, weight painting, curve editing, control rigs, 2.5D diorama scenes
+and a webcomic mode.
 The full list is in [PARITY.md](PARITY.md).
 
 ## Author
