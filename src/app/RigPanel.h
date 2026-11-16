@@ -4,6 +4,8 @@
 #include "anim/Armature.h"
 #include <functional>
 #include <string>
+#include <utility>
+#include <vector>
 
 // "Add Humanoid Rig" and "Rename Bones" to a naming convention. `edit` applies a change to the
 // armature as one undo step. Returns a status message, empty when nothing happened.
@@ -13,4 +15,6 @@ std::string RigPresetUI(const Armature& arm, const Mesh& mesh,
 // The constraint stack of bone `self`. `track(label)` is called after every drag widget so the
 // caller can record the drag as one undo step. Returns 0 when nothing changed, 1 for a live
 // drag edit, 2 for a discrete edit the caller should record now.
-int BoneConstraintsUI(const Armature& arm, int self, Bone& b, const std::function<void(const char*)>& track);
+// `objects` (id, name) are the scene objects a constraint may target instead of a bone.
+int BoneConstraintsUI(const Armature& arm, int self, Bone& b, const std::function<void(const char*)>& track,
+                      const std::vector<std::pair<uint32_t, std::string>>& objects = {});

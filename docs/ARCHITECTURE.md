@@ -515,6 +515,25 @@ bone (`.L`/`.R`, `_l`/`_r`, `Left`/`Right`). The viewport shows the active bone'
 blue-to-red ramp, each stroke is one undo step, and *Normalize All* / *Clean* tidy the result.
 Weights are stored in `.leorix` projects with the armature.
 
+**One armature, many meshes** (`anim/ArmatureLink.*`, UI in `app/RigLinks.cpp`). A mesh can be
+deformed by another object's bones, like Blender's Armature modifier. The mesh stores the
+armature object's id in `armatureObject` and keeps its own weights and rest positions; the
+bones stay on the armature object. Skinning takes each rest vertex into the armature object's
+space, blends the bone matrices there and brings the result back, so both objects can be moved
+independently. Weights are bound in the armature's space, Weight Paint borrows the armature's
+bone list, export writes the mesh in the armature's space with its bones, and projects save the
+link as a file index that becomes an id again on load. Ids, not list indices, survive deletes
+and undo.
+
+**Control rigs.** Constraints can target a scene object instead of a bone (`targetObject`,
+`poleObject`). Before evaluation the scene writes the object's position (and, for Copy Rotation,
+its rotation) into the armature's space, so `Armature::Evaluate` stays scene-free. *Add Control
+Rig* puts wire widgets (`isControl` objects: line lists, no faces, never rendered) on a humanoid
+rig: hand and foot IK targets with elbow and knee poles, a hip control (Copy Location + Copy
+Rotation) and a chest control (Copy Rotation). The viewport picks a control by distance to its
+wire, and `SyncRigs` re-solves a rig each frame when one of its controls, or a linked mesh's
+transform, has moved.
+
 **Curves** (`mesh/Curve.*`, editing in `app/CurveEdit.cpp`). A curve object keeps a
 `CurvePath`: control points, a left and right handle per point, a handle type per point
 (Auto, Vector, Aligned, Free, as in Blender) and a radius per point. Spans are cubic Bezier.

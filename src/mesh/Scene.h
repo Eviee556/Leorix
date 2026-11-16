@@ -53,6 +53,11 @@ struct MeshObject {
     RigidBody rigidBody;        // physics settings and baked cache
     Cloth     cloth;            // cloth settings and baked vertex cache
     std::vector<Float3> skinned;// deformed positions for the current pose
+    // Another object whose armature deforms this mesh (by id, 0 = none). This mesh keeps its own
+    // weights and rest positions in `armature`; the bones come from that object.
+    uint32_t armatureObject = 0;
+    bool     isControl = false;  // a control-rig widget: drawn as wire, never rendered or exported
+    std::vector<float> rigKey;   // runtime: what the linked skin was last computed from
     // Edit-mode selection
     std::unordered_set<uint32_t> selVerts;
     std::unordered_set<uint64_t> selEdges;
@@ -164,6 +169,11 @@ struct Scene {
         std::vector<Modifier> out = stack;
         for (Modifier& m : out) { m.shrinkTarget = IndexOfId(m.shrinkTarget); m.curveTarget = IndexOfId(m.curveTarget); }
         return out;
+    }
+    MeshObject* FindById(uint32_t id) const {
+        if (id == 0) return nullptr;
+        for (const auto& o : objects) if (o->id == id) return o.get();
+        return nullptr;
     }
     int IndexOf(const MeshObject* obj) const {
         for (int i = 0; i < (int)objects.size(); ++i) if (objects[i].get() == obj) return i;

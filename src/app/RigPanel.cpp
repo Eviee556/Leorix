@@ -44,7 +44,8 @@ std::string RigPresetUI(const Armature& arm, const Mesh& mesh,
     return status;
 }
 
-int BoneConstraintsUI(const Armature& arm, int self, Bone& b, const std::function<void(const char*)>& track) {
+int BoneConstraintsUI(const Armature& arm, int self, Bone& b, const std::function<void(const char*)>& track,
+                      const std::vector<std::pair<uint32_t, std::string>>& objects) {
     const int n = (int)arm.bones.size();
     int result = 0;
     auto live = [&](bool changed) { if (changed) result = std::max(result, 1); };
@@ -62,6 +63,21 @@ int BoneConstraintsUI(const Armature& arm, int self, Bone& b, const std::functio
         }
         return t >= 0 && t < n && t != self;
     };
+    // An object as the target (a control widget, say). Returns true when one is set.
+    auto objectCombo = [&](const char* label, uint32_t& id) {
+        const std::string* cur = nullptr;
+        for (const auto& o : objects) if (o.first == id) cur = &o.second;
+        if (!objects.empty() && ImGui::BeginCombo(label, cur ? cur->c_str() : "(none)")) {
+            if (ImGui::Selectable("(none)", !cur)) { id = 0; result = 2; }
+            for (const auto& o : objects) {
+                ImGui::PushID((int)o.first);
+                if (ImGui::Selectable(o.second.c_str(), id == o.first)) { id = o.first; result = 2; }
+                ImGui::PopID();
+            }
+            ImGui::EndCombo();
+        }
+        return cur != nullptr;
+    };
 
     ImGui::Spacing(); ImGui::TextColored(kBrass, "CONSTRAINTS"); ImGui::Separator();
     int remove = -1;
@@ -77,21 +93,21 @@ int BoneConstraintsUI(const Armature& arm, int self, Bone& b, const std::functio
             case BoneConstraint::CopyLocation:
             case BoneConstraint::TrackTo:
             case BoneConstraint::IK:
-                if (!boneCombo("Target", c.target, "(point)")) {
+                if (!boneCombo("Target", c.target, "(point)") && !objectCombo("Object", c.targetObject)) {
                     live(ImGui::DragFloat3("Point", &c.point.x, 0.01f, 0, 0, "%.3f m"));
                     track("Move Constraint Target");
                 }
                 if (c.type == BoneConstraint::IK) {
                     if (b.parent < 0) ImGui::TextDisabled("IK needs a parent bone: it bends this bone and its parent.");
                     if (ImGui::Checkbox("Pole", &c.usePole)) result = 2;
-                    if (c.usePole && !boneCombo("Pole bone", c.poleTarget, "(point)")) {
+                    if (c.usePole && !boneCombo("Pole bone", c.poleTarget, "(point)") && !objectCombo("Pole object", c.poleObject)) {
                         live(ImGui::DragFloat3("Pole point", &c.polePoint.x, 0.01f, 0, 0, "%.3f m"));
                         track("Move Pole");
                     }
                 }
                 break;
             case BoneConstraint::CopyRotation:
-                boneCombo("Target", c.target, "(pick a bone)");
+                if (!boneCombo("Target", c.target, "(pick a bone)")) objectCombo("Object", c.targetObject);
                 break;
             case BoneConstraint::LimitRotation: {
                 const char* axes[3] = {"X", "Y", "Z"};

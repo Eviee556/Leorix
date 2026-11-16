@@ -120,6 +120,8 @@ add_executable(leorix
   src/tools/Script.cpp
   src/tools/Sculpt.cpp
   src/anim/WeightPaint.cpp
+  src/anim/ArmatureLink.cpp
+  src/app/RigLinks.cpp
   src/tools/Snap.cpp
   src/tools/VisualScript.cpp
   src/app/VisualScriptPanel.cpp

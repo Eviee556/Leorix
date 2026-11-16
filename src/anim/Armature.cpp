@@ -192,9 +192,10 @@ void Armature::Evaluate(std::vector<Mat4>& out) const {
                     m = RotateAbout(h, Sub(m.Apply(b.tail), h), Sub(targetPos(c.target, c.point, i, out), h)) * m;
                     break;
                 case BoneConstraint::CopyRotation: {
-                    if (c.target < 0 || c.target >= n || c.target == i) break;
+                    const bool boneTarget = c.target >= 0 && c.target < n && c.target != i;
+                    if (!boneTarget && c.targetObject == 0) break;
                     // the target's pose rotation (scale stripped); this bone's head stays where it is
-                    Mat4 r = (c.target < i ? out : fk)[c.target];
+                    Mat4 r = boneTarget ? (c.target < i ? out : fk)[c.target] : c.objectRot;
                     for (int col = 0; col < 3; ++col) {
                         Float3 v = Norm({r.m[col], r.m[4 + col], r.m[8 + col]});
                         r.m[col] = v.x; r.m[4 + col] = v.y; r.m[8 + col] = v.z;
@@ -278,20 +279,21 @@ void Armature::Skin(std::vector<Float3>& out) const {
     std::vector<Mat4> mats;
     Evaluate(mats);
     out.resize(restPositions.size());
-    for (size_t v = 0; v < restPositions.size(); ++v) {
-        const Float3& rest = restPositions[v];
-        Float3 acc{0, 0, 0};
-        float applied = 0;
-        for (int s = 0; s < 4; ++s) {
-            int b = weights[v].bone[s];
-            float w = weights[v].weight[s];
-            if (b < 0 || b >= (int)mats.size() || w <= 0) continue;
-            Float3 p = mats[b].Apply(rest);
-            acc.x += p.x * w; acc.y += p.y * w; acc.z += p.z * w;
-            applied += w;
-        }
-        out[v] = applied > 1e-6f ? Float3{acc.x / applied, acc.y / applied, acc.z / applied} : rest;
+    for (size_t v = 0; v < restPositions.size(); ++v) out[v] = SkinPoint(mats, weights[v], restPositions[v]);
+}
+
+Float3 SkinPoint(const std::vector<Mat4>& mats, const VertexWeights& vw, const Float3& rest) {
+    Float3 acc{0, 0, 0};
+    float applied = 0;
+    for (int s = 0; s < 4; ++s) {
+        int b = vw.bone[s];
+        float w = vw.weight[s];
+        if (b < 0 || b >= (int)mats.size() || w <= 0) continue;
+        Float3 p = mats[b].Apply(rest);
+        acc.x += p.x * w; acc.y += p.y * w; acc.z += p.z * w;
+        applied += w;
     }
+    return applied > 1e-6f ? Float3{acc.x / applied, acc.y / applied, acc.z / applied} : rest;
 }
 
 // ---------------------------------------------------------------- humanoid rigs and naming
@@ -323,6 +325,17 @@ std::string HumanoidName(RigNaming n, int k) {
 const char* RigNamingName(RigNaming n) {
     static const char* names[] = {"Plain", "Unreal Engine 5", "Unity (Mecanim)", "Mixamo", "Godot"};
     return (int)n >= 0 && n < RigNaming::Count ? names[(int)n] : "?";
+}
+
+int HumanoidRole(const std::string& name) {
+    static const std::unordered_map<std::string, int> known = [] {
+        std::unordered_map<std::string, int> m;
+        for (int c = 0; c < (int)RigNaming::Count; ++c)
+            for (int k = 0; k < kHumanoid; ++k) m.emplace(HumanoidName((RigNaming)c, k), k);
+        return m;
+    }();
+    auto it = known.find(name);
+    return it == known.end() ? -1 : it->second;
 }
 
 int ApplyRigNaming(Armature& arm, RigNaming n) {
