@@ -1,0 +1,15 @@
+# Normalise text to LF in the repo; checkout follows the platform.
+* text=auto
+*.sh   text eol=lf
+*.ps1  text eol=crlf
+*.sed  text eol=crlf
+
+# Binaries: never diff or convert.
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.hdr    binary
+*.docx   binary
+*.leorix binary
+*.zip    binary
+*.exe    binary

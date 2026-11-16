@@ -1,5 +1,5 @@
 # build output
-leorix.exe
+/leorix.exe
 build/
 out/
 cmake-build-*/
@@ -9,3 +9,7 @@ graphify-out/
 
 # local ImGui window layout
 imgui.ini
+
+# local build logs and installer output
+build-config.log
+/LeorixNative-Setup.exe

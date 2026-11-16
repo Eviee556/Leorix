@@ -10,6 +10,7 @@
   <img alt="Windows" src="https://img.shields.io/badge/platform-Windows-0078D6?logo=windows&logoColor=white">
   <img alt="CMake" src="https://img.shields.io/badge/build-CMake%20%2B%20Ninja-064F8C?logo=cmake&logoColor=white">
   <img alt="Lua 5.4" src="https://img.shields.io/badge/scripting-Lua%205.4-2C2D72?logo=lua&logoColor=white">
+  <a href="https://github.com/OWNER/LeorixNative/actions/workflows/build.yml"><img alt="Build" src="https://github.com/OWNER/LeorixNative/actions/workflows/build.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
 </p>
 
@@ -71,11 +72,17 @@ CMake `FetchContent` downloads all dependencies on the first configure.
 - **[Procedural Generation tutorial book (Word)](docs/Leorix_Procedural_Scripting_Guide.docx)**: 51 illustrated tutorials, from visual blocks to Lua-built cities, landscapes, animation frames and generators. The scripts are in [docs/tutorials/lua](docs/tutorials/lua).
 - **[Visual scripting guide](docs/VISUAL_SCRIPTING.md)**: build models with blocks, no coding needed.
 - **[Scripting guide](docs/SCRIPTING.md)**: the Lua API reference, examples and advanced techniques.
+- **[Changelog](CHANGELOG.md)**: what changed in each version.
 - **[Feature parity map](PARITY.md)**: what's done, what's partial and what's planned.
 
 ## Quick start
 
-**Run:** double-click `leorix.exe`. It's prebuilt, statically linked and needs no install.
+**Install:** download `LeorixNative-Setup.exe` from the [Releases](https://github.com/OWNER/LeorixNative/releases) page and run it.
+It installs for the current user (no admin rights), adds a Start menu shortcut and can be removed from
+Settings > Apps.
+
+**Portable:** `leorix.exe` from the same release is statically linked and runs without installing anything.
+Every CI build also uploads it as the `leorix-windows` artifact.
 
 **Build** (Windows PowerShell with WinLibs MinGW):
 
@@ -90,6 +97,14 @@ cmake --build build
 ```powershell
 cd build; ctest --output-on-failure
 ```
+
+**Build the installer** (uses IExpress, which ships with Windows):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File installer/build_setup.ps1
+```
+
+This writes `LeorixNative-Setup.exe` to the repo root.
 
 ### Command line
 

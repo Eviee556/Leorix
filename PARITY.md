@@ -194,7 +194,7 @@ app because of how it's structured differently:
 | AMD HIP / ROCm render backend | needs MSVC + the HIP SDK; would be an optional plugin DLL |
 | GPU (Vulkan RT) rendering | the tracer runs on the CPU; the GPU backend is detected but unused |
 | Viewport "Rendered" shading is still the raster preview, not the path tracer | open |
-| Volumetrics, caustics-specific sampling, light portals, MIS | not started |
+| Volumetrics, caustics-specific sampling, light portals | not started - MIS is done for area lights (see below) |
 | Next-event estimation for emissive surfaces | done - area sampling + MIS for the diffuse lobe; glossy/glass and textured emitters still rely on BSDF hits |
 | Maps in the viewport: Normal/Roughness/Metallic/AO now shade Material/Rendered modes | done per vertex - per-pixel needs a GPU fill pass |
 | Tangent-space normal maps (viewport and path tracer, OpenGL green-up convention) | done |
