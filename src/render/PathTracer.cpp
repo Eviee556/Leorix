@@ -91,6 +91,8 @@ struct BVH {
     std::vector<int> lights;          // emissive triangles, sampled by area
     std::vector<float> lightCdf;      // running area sum, parallel to lights
     float lightArea = 0.0f;
+    // Private copies of what the workers sample, so texture edits during a render can't free them.
+    std::vector<std::unique_ptr<Material>> materials;
 
     void BuildLights() {
         for (int i = 0; i < (int)tris.size(); ++i) {
@@ -251,6 +253,16 @@ bool PathTracer::Start(const Scene& scene, const SceneCamera& camera, float view
         if (!o.visible || o.isCurve) continue;
         const Mesh& mesh = o.hasDisplay ? o.displayMesh : o.mesh;
         if (mesh.tris.empty()) continue;
+        auto snap = std::make_unique<Material>();
+        for (int i = 0; i < (int)MapSlot::Count; ++i) snap->cpu[i] = o.material.cpu[i];
+        snap->parallax = o.material.parallax;
+        snap->parallaxSteps = o.material.parallaxSteps;
+        snap->parallaxScale = o.material.parallaxScale;
+        snap->specular = o.material.specular;
+        snap->opacity = o.material.opacity;
+        snap->emissiveStrengthRT = o.material.emissiveStrengthRT;
+        const Material* snapPtr = snap.get();
+        bvh->materials.push_back(std::move(snap));
         Mesh shaded = mesh;
         if (shaded.normals.size() != shaded.positions.size()) shaded.ComputeNormals();
         for (const Tri& t : shaded.tris) {
@@ -267,7 +279,7 @@ bool PathTracer::Start(const Scene& scene, const SceneCamera& camera, float view
                 r.nc = Norm(V3(o.transform.Apply(shaded.normals[t.c])) - V3(o.transform.Apply({0, 0, 0})));
             }
             const Material& m = o.material;
-            r.mat = &o.material;
+            r.mat = snapPtr;
             if (shaded.HasLoopUVs()) {
                 size_t li = (size_t)(&t - shaded.tris.data()) * 3;
                 r.ua = shaded.loopUVs[li].u;     r.va = shaded.loopUVs[li].v;

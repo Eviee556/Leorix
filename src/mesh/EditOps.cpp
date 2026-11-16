@@ -59,7 +59,10 @@ void Compact(Mesh& m, const std::unordered_set<uint32_t>& candidates, EditSelect
 std::unordered_set<uint32_t> TouchedVerts(const Mesh& m, const EditSelection& sel, bool includeFaces) {
     std::unordered_set<uint32_t> s;
     for (uint32_t v : sel.verts) if (v < m.positions.size()) s.insert(v);
-    for (uint64_t e : sel.edges) { s.insert(uint32_t(e >> 32)); s.insert(uint32_t(e & 0xFFFFFFFFu)); }
+    for (uint64_t e : sel.edges) {   // a stale selection may name vertices that no longer exist
+        uint32_t a = uint32_t(e >> 32), b = uint32_t(e & 0xFFFFFFFFu);
+        if (a < m.positions.size() && b < m.positions.size()) { s.insert(a); s.insert(b); }
+    }
     if (includeFaces)
         for (const Tri& t : m.tris) if (sel.faces.count(t.poly)) { s.insert(t.a); s.insert(t.b); s.insert(t.c); }
     return s;

@@ -125,6 +125,10 @@ static int SelfTest() {
         double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
         std::printf("  script runaway loop stopped=%d in %.2fs\n", stopped ? 1 : 0, secs);
         check(stopped && secs < 10.0, "script instruction limit");
+        t0 = std::chrono::steady_clock::now();
+        bool nested = fails("while true do pcall(function() while true do end end) end", "took too long");
+        secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+        check(nested && secs < 10.0, "script limit survives pcall");
         check(fails("local s = string.rep('x', 600 * 1024 * 1024)", "out of memory"), "script memory limit");
         ScriptResult u = RunMeshScript("plane()\n" + tri + "m:face(0, 1, 2); m:build()");
         Mesh plane = BuildPrimitive(Primitive::Plane, pp);
@@ -157,6 +161,30 @@ static int SelfTest() {
     for (const Mesh* m : {&ex, &del, &mg})
         for (const Tri& t : m->tris) inRange &= t.a < m->VertexCount() && t.b < m->VertexCount() && t.c < m->VertexCount() && t.poly < m->polyCount;
     check(inRange, "edit ops keep indices in range");
+    // A selection left over from before a modifier removed vertices must not read past the mesh.
+    EditSelection stale;
+    stale.verts = {500, 7};
+    stale.edges.insert(Mesh::EdgeKey(1000, 1001));
+    stale.edges.insert(Mesh::EdgeKey(0, 900));
+    stale.faces.insert(999);
+    Mesh st1 = BuildPrimitive(Primitive::Cube, pp); st1.EnsureUVs();
+    Mesh st2 = st1, st3 = st1;
+    MergeAtCenter(st1, stale); ExtrudeFaces(st2, stale); DeleteSelected(st3, stale);
+    bool staleOk = true;
+    for (const Mesh* m : {&st1, &st2, &st3})
+        for (const Tri& t : m->tris) staleOk &= t.a < m->VertexCount() && t.b < m->VertexCount() && t.c < m->VertexCount();
+    check(staleOk, "edit ops ignore a stale selection");
+    // Undo moves whole objects out of and back into the scene; they must come back by identity.
+    {
+        Scene sc;
+        MeshObject* a = sc.AddMesh(BuildPrimitive(Primitive::Cube, pp), "A");
+        MeshObject* b = sc.AddMesh(BuildPrimitive(Primitive::Plane, pp), "B");
+        auto held = sc.Take(sc.IndexOf(a));
+        bool ok = held.get() == a && sc.objects.size() == 1 && sc.IndexOf(b) == 0 && sc.IndexOf(a) == -1;
+        sc.Insert(0, std::move(held));
+        ok &= sc.IndexOf(a) == 0 && sc.IndexOf(b) == 1 && sc.Active() == a;
+        check(ok, "scene take/insert keeps object identity");
+    }
     // Normal-map tangents: on a +Z plane with u = x, v = y, T must be +X and B +Y; mirroring U
     // flips T but B must still follow +V.
     for (int mirror = 0; mirror < 2; ++mirror) {

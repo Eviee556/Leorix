@@ -213,6 +213,8 @@ void App::EditModePick(bool viewportHovered) {
         }
     }
 
+    // Before the hover check: a stroke released outside the viewport must still become an undo step.
+    if (sculpting && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) { sculpting = false; SculptStrokeEnd(); }
     if (!viewportHovered || xform.active) return;
     // Alt+LMB, the gizmo and the pan/zoom handles steer the view; they must not also select.
     if (viewport.navigating || viewport.overNavWidget || ImGui::GetIO().KeyAlt) return;
@@ -384,14 +386,10 @@ void App::HandleShortcuts3D(bool hoveredViewport) {
     }
     if (mode3D == Mode3D::Object && ImGui::IsKeyPressed(ImGuiKey_X, false) && scene.Active()) {
         int idx = scene.activeIndex;
-        auto mesh = std::make_shared<Mesh>(scene.Active()->mesh);
-        auto name = scene.Active()->name;
-        auto xf = scene.Active()->transform;
+        std::string name = scene.Active()->name;
         ShowStatus("Deleted " + name);
-        scene.Remove(idx);
-        undoStack.Push("Delete " + name,
-            [this, mesh, name, xf] { MeshObject* o = scene.AddMesh(*mesh, name); if (o) o->transform = xf; },
-            [this] { if (scene.Active()) scene.Remove(scene.activeIndex); });
+        MeshObject* obj = scene.Active();
+        PushObjectListUndo("Delete " + name, obj, idx, scene.Take(idx));
         return;
     }
 
@@ -924,6 +922,7 @@ void App::ProcessPendingImport() {
         size_t dot = label.find_last_of('.');
         if (dot != std::string::npos) label = label.substr(0, dot);
         MeshObject* added = scene.AddMesh(std::move(m), label);
+        PushObjectListUndo("Import " + added->name, added, scene.activeIndex);
         showViewport3D = true;
         ShowStatus("Imported " + added->name + " (" + std::to_string(added->mesh.VertexCount()) + " verts)");
         return;
@@ -1011,14 +1010,8 @@ void App::AddPrimitiveMenu() {
     ImGui::SameLine();
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.54f, 0.37f, 0.22f, 1)); ImGui::PushStyleColor(ImGuiCol_ButtonHovered, kBrass);
     if (ImGui::Button("Add", ImVec2(120, 0))) {
-        scene.AddMesh(BuildPrimitive(prim, p), PrimitiveName(prim));
-        {
-            std::string nm = scene.Active() ? scene.Active()->name : PrimitiveName(prim);
-            Primitive pk = prim; PrimitiveParams pp2 = p;
-            undoStack.Push(std::string("Add ") + PrimitiveName(prim),
-                [this] { if (!scene.objects.empty()) scene.Remove((int)scene.objects.size() - 1); },
-                [this, pk, pp2] { scene.AddMesh(BuildPrimitive(pk, pp2), PrimitiveName(pk)); });
-        }
+        MeshObject* added = scene.AddMesh(BuildPrimitive(prim, p), PrimitiveName(prim));
+        PushObjectListUndo(std::string("Add ") + PrimitiveName(prim), added, scene.activeIndex);
         ShowStatus(std::string("Added ") + PrimitiveName(prim));
         showAddPrimitive = false; ImGui::CloseCurrentPopup();
     }
@@ -1049,7 +1042,8 @@ void App::ScriptingPanel() {
         ScriptResult r = RunMeshScript(scriptCode);
         scriptOutput = r.output;
         if (r.ok && !r.meshes.empty()) {
-            scene.AddMesh(MergeScriptMeshes(std::move(r.meshes)), "Script mesh");
+            MeshObject* added = scene.AddMesh(MergeScriptMeshes(std::move(r.meshes)), "Script mesh");
+            PushObjectListUndo("Run Script", added, scene.activeIndex);
             showViewport3D = true;
             ShowStatus("Script created a mesh");
         }
@@ -1871,9 +1865,22 @@ if (ImGui::SliderFloat("HDRI Strength", &hdriStrength, 0.0f, 5.0f, "%.2f")) hdri
 }
 
 // ---------------------------------------------------------------- undo helpers
+// Rough sizes so the undo memory cap also counts armature and keyframe steps.
+template <class T> static size_t UndoBytes(const T&) { return sizeof(T); }
+static size_t UndoBytes(const Armature& a) {
+    return sizeof(Armature) + a.bones.size() * sizeof(Bone) + a.weights.size() * sizeof(VertexWeights) +
+           a.restPositions.size() * sizeof(Float3);
+}
+static size_t UndoBytes(const Action& a) {
+    size_t n = sizeof(Action);
+    for (const Channel& c : a.channels) n += sizeof(Channel) + c.keys.size() * sizeof(Keyframe);
+    return n;
+}
+
 template <class T, class F>
 void App::PushObjectUndo(const std::string& label, T before, T after, F apply, size_t bytes) {
     int idx = scene.activeIndex;
+    if (bytes == 0) bytes = UndoBytes(before) + UndoBytes(after);
     auto b = std::make_shared<T>(std::move(before)), a = std::make_shared<T>(std::move(after));
     auto run = [this, idx, apply](const std::shared_ptr<T>& v) {
         if (idx >= 0 && idx < (int)scene.objects.size()) apply(*scene.objects[idx], *v);
@@ -1881,19 +1888,35 @@ void App::PushObjectUndo(const std::string& label, T before, T after, F apply, s
     undoStack.Push(label, [run, b] { run(b); }, [run, a] { run(a); }, bytes);
 }
 
+// The object itself moves between the scene and the step, so undo/redo bring back that exact object
+// (material, modifiers and all) and find it by identity, not by a list index that may have shifted.
+void App::PushObjectListUndo(const std::string& label, MeshObject* obj, int index, std::unique_ptr<MeshObject> removed) {
+    if (!obj) return;
+    const bool added = !removed;
+    auto held = std::make_shared<std::unique_ptr<MeshObject>>(std::move(removed));
+    auto take = [this, obj, held] { int i = scene.IndexOf(obj); if (i >= 0) *held = scene.Take(i); uvLayout.valid = false; };
+    auto put = [this, index, held] { if (*held) scene.Insert(index, std::move(*held)); uvLayout.valid = false; };
+    size_t bytes = obj->mesh.positions.size() * sizeof(Float3) + obj->mesh.tris.size() * sizeof(Tri);
+    if (added) undoStack.Push(label, take, put, bytes);
+    else undoStack.Push(label, put, take, bytes);
+}
+
 // Runs `change` on the active material's texture slots and records the slots it altered. Only the
 // CPU pixels are kept; the GPU copy is rebuilt from them on undo/redo.
-void App::PushMaterialTextureUndo(const std::string& label, std::function<void()> change) {
+void App::PushMaterialTextureUndo(const std::string& label, std::function<void()> change, int onlySlot) {
     MeshObject* o = scene.Active();
     if (!o) { change(); return; }
     constexpr int N = (int)MapSlot::Count;
     struct Slots { bool changed[N] = {}; TextureData cpu[N]; std::string paths[N]; };
     Slots before, after;
-    for (int i = 0; i < N; ++i) { before.cpu[i] = o->material.cpu[i]; before.paths[i] = o->material.paths[i]; }
+    auto watched = [onlySlot](int i) { return onlySlot < 0 || i == onlySlot; };
+    for (int i = 0; i < N; ++i)
+        if (watched(i)) { before.cpu[i] = o->material.cpu[i]; before.paths[i] = o->material.paths[i]; }
     change();
     size_t bytes = 0;
     bool any = false;
     for (int i = 0; i < N; ++i) {
+        if (!watched(i)) continue;
         const Material& m = o->material;
         bool same = before.paths[i] == m.paths[i] && before.cpu[i].width == m.cpu[i].width &&
                     before.cpu[i].height == m.cpu[i].height && before.cpu[i].pixels == m.cpu[i].pixels;
@@ -2031,7 +2054,7 @@ void App::MaterialPanel() {
                     PushMaterialTextureUndo(std::string("Assign ") + MapSlotName(slot), [&] {
                         ok = SetMaterialMap(vk, mat, slot, src.composite.data(), src.width, src.height,
                                             src.name + " (painted)");
-                    });
+                    }, (int)slot);
                     if (ok)
                         ShowStatus("Assigned " + src.name + " to " + MapSlotName(slot));
                     else ShowStatus("Could not assign that map");
@@ -2606,7 +2629,7 @@ void App::ApplyMapsToMaterial() {
         // SetMaterialMap also fills the CPU copy, which undo restores from and the path tracer samples.
         PushMaterialTextureUndo("Apply Base Color", [&] {
             SetMaterialMap(vk, o->material, MapSlot::BaseColor, m.composite.data(), m.width, m.height, m.name + " (painted)");
-        });
+        }, (int)MapSlot::BaseColor);
         o->mesh.EnsureUVs();
         ShowStatus("Applied " + m.name + " to " + o->name);
         return;
@@ -3177,10 +3200,7 @@ void App::AddArmatureObject() {
     showArmature = true;
     showViewport3D = true;
     SetMode3D(Mode3D::Pose);
-    int index = scene.activeIndex;
-    undoStack.Push("Add Armature",
-        [this, index]() { if (index >= 0 && index < (int)scene.objects.size()) scene.Remove(index); },
-        [this]() { MeshObject* o = scene.AddMesh(Mesh{}, "Armature"); o->armature.AddBone("Bone.1", {0, 0, 0}, {0, 1, 0}, -1); });
+    PushObjectListUndo("Add Armature", obj, scene.activeIndex);
     ShowStatus("Added an armature");
 }
 
@@ -3369,6 +3389,7 @@ void App::ModifierPanel() {
         o->mesh = ApplyModifier(o->mesh, o->modifiers[apply], targets, curves);
         o->modifiers.erase(o->modifiers.begin() + apply);
         o->MarkTopoDirty();
+        o->selVerts.clear(); o->selEdges.clear(); o->selFaces.clear();   // old indices mean nothing in the new mesh
         o->armature.weights.clear();
         o->skinned.clear();
         o->stackDirty = true;
@@ -3887,13 +3908,18 @@ void App::DuplicateSelected() {
     scene.objects.back()->active = true;
 
     size_t count = scene.objects.size() - firstNew;
+    // The copies move into the step on undo and back on redo, found by identity.
+    std::vector<MeshObject*> copies;
+    for (size_t i = firstNew; i < scene.objects.size(); ++i) copies.push_back(scene.objects[i].get());
+    auto held = std::make_shared<std::vector<std::unique_ptr<MeshObject>>>();
     undoStack.Push("Duplicate",
-        [this, firstNew, count] {
-            if (scene.objects.size() >= firstNew + count)
-                scene.objects.erase(scene.objects.begin() + firstNew, scene.objects.begin() + firstNew + count);
-            scene.activeIndex = std::clamp(scene.activeIndex, -1, (int)scene.objects.size() - 1);
+        [this, copies, held] {
+            for (MeshObject* c : copies) { int i = scene.IndexOf(c); if (i >= 0) held->push_back(scene.Take(i)); }
         },
-        [this] { ShowStatus("Redo duplicate: duplicate again with Shift+D"); });
+        [this, held] {
+            for (auto& c : *held) scene.Insert((int)scene.objects.size(), std::move(c));
+            held->clear();
+        });
     ShowStatus("Duplicated " + std::to_string(count) + " object" + (count == 1 ? "" : "s") + " - move the mouse, click to place");
     // Blender goes straight into moving the copy
     BeginTransform(0);
