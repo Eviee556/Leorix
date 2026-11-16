@@ -10,7 +10,7 @@
   <img alt="Windows" src="https://img.shields.io/badge/platform-Windows-0078D6?logo=windows&logoColor=white">
   <img alt="CMake" src="https://img.shields.io/badge/build-CMake%20%2B%20Ninja-064F8C?logo=cmake&logoColor=white">
   <img alt="Lua 5.4" src="https://img.shields.io/badge/scripting-Lua%205.4-2C2D72?logo=lua&logoColor=white">
-  <a href="https://github.com/OWNER/LeorixNative/actions/workflows/build.yml"><img alt="Build" src="https://github.com/OWNER/LeorixNative/actions/workflows/build.yml/badge.svg"></a>
+  <a href="https://github.com/Eviee556/Leorix/actions/workflows/build.yml"><img alt="Build" src="https://github.com/Eviee556/Leorix/actions/workflows/build.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
 </p>
 
@@ -77,7 +77,7 @@ CMake `FetchContent` downloads all dependencies on the first configure.
 
 ## Quick start
 
-**Install:** download `LeorixNative-Setup.exe` from the [Releases](https://github.com/OWNER/LeorixNative/releases) page and run it.
+**Install:** download `LeorixNative-Setup.exe` from the [Releases](https://github.com/Eviee556/Leorix/releases) page and run it.
 It installs for the current user (no admin rights), adds a Start menu shortcut and can be removed from
 Settings > Apps.
 
