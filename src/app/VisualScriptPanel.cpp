@@ -81,11 +81,8 @@ void App::VisualScriptingPanel() {
         BuildResult r = EvaluateGraph(visualGraph);
         visualNotes = r.notes; visualMessage = r.message; visualMessageOk = r.ok;
         if (r.ok) {
-            auto keep = std::make_shared<Mesh>(r.mesh);
-            scene.AddMesh(std::move(r.mesh), "Visual script");
-            undoStack.Push("Build Visual Script",
-                [this] { if (!scene.objects.empty()) scene.Remove((int)scene.objects.size() - 1); },
-                [this, keep] { scene.AddMesh(*keep, "Visual script"); });
+            MeshObject* added = scene.AddMesh(std::move(r.mesh), "Visual script");
+            PushObjectListUndo("Build Visual Script", added, scene.activeIndex);
             showViewport3D = true;
             ShowStatus("Visual script built a model");
         }

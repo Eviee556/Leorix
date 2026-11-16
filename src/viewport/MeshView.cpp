@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
+#include <string_view>
 #include <unordered_map>
 #include <cstdio>
 #include <cstdlib>
@@ -287,8 +288,24 @@ PickResult DrawAndPickMesh(ImDrawList* dl, const Viewport3D& vp, MeshObject& obj
     // low-poly cube); upgrade to per-pixel when the GPU fill pass replaces this one.
     const bool pbr = lit && mat.useTextures && mesh.HasLoopUVs() &&
         (mat.HasCpu(MapSlot::Normal) || mat.HasCpu(MapSlot::Roughness) || mat.HasCpu(MapSlot::Metallic) || mat.HasCpu(MapSlot::AO));
-    static std::vector<Float3> tanT, tanB;
-    if (pbr && mat.HasCpu(MapSlot::Normal)) ComputeLoopTangents(mesh, tanT, tanB);
+    // Tangents are cached per mesh and rebuilt only when its positions, UVs or triangles change;
+    // hashing the arrays is far cheaper than recomputing tangents every frame.
+    struct TangentCache { size_t key = 0; std::vector<Float3> T, B; };
+    static std::unordered_map<const Mesh*, TangentCache> tangentCache;
+    static const std::vector<Float3> noTangents;
+    const std::vector<Float3>* tanTp = &noTangents;
+    const std::vector<Float3>* tanBp = &noTangents;
+    if (pbr && mat.HasCpu(MapSlot::Normal)) {
+        auto bytes = [](const auto& v) { return std::string_view((const char*)v.data(), v.size() * sizeof(v[0])); };
+        std::hash<std::string_view> h;
+        size_t key = h(bytes(mesh.positions)) ^ (h(bytes(mesh.loopUVs)) * 31) ^ (h(bytes(mesh.tris)) * 131);
+        if (tangentCache.size() > 64) tangentCache.clear();   // meshes come and go; keep it bounded
+        TangentCache& c = tangentCache[&mesh];
+        if (c.key != key || c.T.empty()) { ComputeLoopTangents(mesh, c.T, c.B); c.key = key; }
+        tanTp = &c.T; tanBp = &c.B;
+    }
+    const std::vector<Float3>& tanT = *tanTp;
+    const std::vector<Float3>& tanB = *tanBp;
     auto pbrShade = [&](uint32_t ti, int k) {
         const Tri& t = mesh.tris[ti];
         const uint32_t vi = k == 0 ? t.a : k == 1 ? t.b : t.c;

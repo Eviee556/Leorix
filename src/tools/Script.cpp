@@ -126,8 +126,10 @@ void OpenMeshLib(lua_State* L) {
 }
 // Count hook: runaway loops end with an error instead of freezing the UI thread.
 void InstructionHook(lua_State* L, lua_Debug*) {
-    if (++Ctx(L)->hookCalls >= kMaxHookCalls)
+    if (++Ctx(L)->hookCalls >= kMaxHookCalls) {
+        lua_sethook(L, InstructionHook, LUA_MASKCOUNT, 1);   // re-raise on every instruction so pcall can't swallow it
         luaL_error(L, "script took too long (stopped after %d million instructions)", kHookEvery / 1000000 * kMaxHookCalls);
+    }
 }
 
 // Allocator with a hard cap: returning null makes Lua raise a memory error the script can't ignore.

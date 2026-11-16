@@ -233,7 +233,10 @@ private:
     // Undo step for some state of the active object: apply(object, value) puts before/after back.
     template <class T, class F>
     void PushObjectUndo(const std::string& label, T before, T after, F apply, size_t bytes = 0);
-    void PushMaterialTextureUndo(const std::string& label, std::function<void()> change);
+    // onlySlot >= 0 when the caller knows which slot `change` touches, so only that one is copied.
+    void PushMaterialTextureUndo(const std::string& label, std::function<void()> change, int onlySlot = -1);
+    // Undo for an object entering (removed == null: obj was just added at index) or leaving the scene.
+    void PushObjectListUndo(const std::string& label, MeshObject* obj, int index, std::unique_ptr<MeshObject> removed = nullptr);
     void ToolOptionsPanel();
     void ColorPanel();
     void LayersPanel();

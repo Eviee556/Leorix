@@ -119,12 +119,26 @@ struct Scene {
         for (int i = 0; i < (int)objects.size(); ++i) objects[i]->active = (i == index);
         activeIndex = index;
     }
-    void Remove(int index) {
-        if (index < 0 || index >= (int)objects.size()) return;
+    void Remove(int index) { Take(index); }
+    // Takes an object out of the scene and hands it over, so an undo step can put back that exact object.
+    std::unique_ptr<MeshObject> Take(int index) {
+        if (index < 0 || index >= (int)objects.size()) return nullptr;
+        std::unique_ptr<MeshObject> obj = std::move(objects[index]);
         objects.erase(objects.begin() + index);
         if (objects.empty()) activeIndex = -1;
         else activeIndex = std::min(index, (int)objects.size() - 1);
         if (activeIndex >= 0) SelectOnly(activeIndex);
+        return obj;
+    }
+    void Insert(int index, std::unique_ptr<MeshObject> obj) {
+        if (!obj) return;
+        index = std::clamp(index, 0, (int)objects.size());
+        objects.insert(objects.begin() + index, std::move(obj));
+        SelectOnly(index);
+    }
+    int IndexOf(const MeshObject* obj) const {
+        for (int i = 0; i < (int)objects.size(); ++i) if (objects[i].get() == obj) return i;
+        return -1;
     }
     std::string UniqueName(const std::string& base) const {
         bool taken = false;
