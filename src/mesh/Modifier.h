@@ -5,13 +5,7 @@
 #include <string>
 #include <vector>
 
-// A curve in the scene: control points plus how densely to evaluate them.
-struct CurvePath {
-    std::vector<Float3> points;
-    bool  cyclic = false;
-    int   resolution = 12;                 // samples per span
-    std::vector<Float3> Evaluate() const;  // Catmull-Rom through the control points
-};
+#include "mesh/Curve.h"   // CurvePath
 
 enum class ModifierType { Array, Mirror, Solidify, Subdivide, Smooth, Weld, Shrinkwrap, Screw, Remesh,
                           Displace, Triangulate, Decimate, CurveDeform, Count };

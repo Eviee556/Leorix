@@ -294,7 +294,14 @@ private:
     void HierarchyPanel();
     void ModifierPanel();
     void RefreshModifiers(MeshObject& o);
-    void AddCurve(int kind);      // 0 Bezier line, 1 circle, 2 spiral
+    void AddCurve(int kind);      // 0 Bezier line, 1 circle, 2 spiral, 3 path
+    // curve Edit Mode (CurveEdit.cpp)
+    void RebuildCurveMesh(MeshObject& o);              // Sync handles, rebuild the bevel tube
+    void PushCurveUndo(const std::string& label, MeshObject* o, const CurvePath& beforeCurve, const Mesh& beforeMesh, bool beforeIsCurve);
+    void CurveEditOverlay(ImDrawList* dl, MeshObject& c);   // points, handles, selection
+    void CurveEditClick();                             // click / Shift+click picks a point or handle
+    void CurveEditOp(char op);                         // 'E' extrude end, 'X' delete points
+    void CurveSettingsUI();                            // handle types, cyclic, bevel, taper, Convert to Mesh
     void SculptStroke(bool begin);        // deforms multires displacement, or the mesh directly
     void SculptStrokeEnd();               // pushes the stroke as one undo step
     std::vector<Float3> sculptBefore;     // positions or displacement at stroke start

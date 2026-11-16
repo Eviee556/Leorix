@@ -17,6 +17,7 @@
 #include <cfloat>
 #include <functional>
 #include <unordered_set>
+#include <set>
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -164,7 +165,7 @@ void App::EditModePick(bool viewportHovered) {
         MeshObject& obj = *scene.objects[i];
         if (!obj.visible) continue;
         bool isActive = (i == scene.activeIndex);
-        bool objEdit = editMode && isActive;
+        bool objEdit = editMode && isActive && !obj.isCurve;   // a curve edits its points, not its tube
         bool objRetopo = retopoMode && isActive;
         meshPrefs.weightBone = (mode3D == Mode3D::Weight && isActive) ? activeBone : -1;
         PickResult p = DrawAndPickMesh(dl, viewport, obj, edit.selectMode, objEdit, objRetopo, meshPrefs,
@@ -186,6 +187,7 @@ void App::EditModePick(bool viewportHovered) {
             if (havePrev) dl->AddLine(prev, sp, col, 2.0f);
             prev = sp; havePrev = true;
         }
+        if (editMode && i == scene.activeIndex) { CurveEditOverlay(dl, c); continue; }
         for (const Float3& p : c.curve.points) {
             float z; ImVec2 sp;
             if (viewport.ProjectPoint(c.transform.Apply(p), z, sp)) dl->AddCircleFilled(sp, 3.5f, col);
@@ -244,6 +246,7 @@ void App::EditModePick(bool viewportHovered) {
     } else if (editMode) {
         ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
         MeshObject* act = scene.Active();
+        if (act && act->isCurve) { CurveEditClick(); return; }
         if (act && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !lastPick.hit) {
             boxArmed = true;
             boxStart = ImGui::GetIO().MousePos;
@@ -392,6 +395,11 @@ void App::HandleShortcuts3D(bool hoveredViewport) {
         InsertKeyframes(true, true, true);
         return;
     }
+    if (mode3D == Mode3D::Edit && scene.Active() && scene.Active()->isCurve) {
+        if (!io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_E, false)) CurveEditOp('E');
+        if (!io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_X, false)) CurveEditOp('X');
+        return;
+    }
     if (mode3D == Mode3D::Edit) {
         if (ImGui::IsKeyPressed(ImGuiKey_U, false) && !io.KeyCtrl) { UnwrapSelected(); return; }
         if (!io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_E, false)) { RunEditOp('E'); return; }
@@ -478,6 +486,7 @@ static const char* kOrientations[] = {"Global", "Local", "Normal", "Gimbal", "Vi
 static const char* kFalloffs[] = {"Smooth", "Sphere", "Root", "Inverse Square", "Sharp", "Linear", "Constant", "Random"};
 
 void App::ObjectSettingsUI() {
+    CurveSettingsUI();
     const auto& t = kObjectTools[objectTool];
     ImGui::Text("%s", t.name); Hint(t.hint);
     Section("TRANSFORM");
@@ -642,6 +651,7 @@ void App::SculptSettingsUI() {
 }
 
 void App::EditSettingsUI() {
+    if (scene.Active() && scene.Active()->isCurve) { CurveSettingsUI(); return; }
     const auto& t = kEditTools[edit.tool];
     ImVec2 p = ImGui::GetCursorScreenPos();
     DrawIcon(ImGui::GetWindowDrawList(), t.icon, ImVec2(p.x + 14, p.y + 14), 26, ImGui::GetColorU32(kBrass));
@@ -1015,8 +1025,8 @@ void App::AddPrimitiveMenu() {
     ImGui::TextColored(kBrass, "Curves");
     const float ccell = 118.0f;
     struct CurveItem { const char* name; int kind; };
-    static const CurveItem curveItems[] = {{"Bezier Curve", 0}, {"Circle", 1}, {"Spiral", 2}};
-    for (int i = 0; i < 3; ++i) {
+    static const CurveItem curveItems[] = {{"Bezier Curve", 0}, {"Circle", 1}, {"Spiral", 2}, {"Path", 3}};
+    for (int i = 0; i < 4; ++i) {
         if (i) ImGui::SameLine();
         if (ImGui::Button(curveItems[i].name, ImVec2(ccell, 30))) {
             AddCurve(curveItems[i].kind);
@@ -1588,7 +1598,30 @@ void App::BeginTransform(int mode) {
     xform.startMouse = ImGui::GetIO().MousePos;
     xform.objectIndex = scene.activeIndex;
 
-    if (mode3D == Mode3D::Edit) {
+    if (mode3D == Mode3D::Edit && o->isCurve) {
+        // Curve points and handles. A point carries its Aligned/Free handles with it; Auto and
+        // Vector handles are recomputed from the points anyway.
+        o->curve.Sync();
+        std::set<int> elems;
+        for (int e : o->curveSel) {
+            if (e < 0 || e >= o->curve.ElemCount()) continue;
+            elems.insert(e);
+            HandleType t = o->curve.handleType[e / 3];
+            if (e % 3 == 0 && (t == HandleType::Aligned || t == HandleType::Free)) { elems.insert(e + 1); elems.insert(e + 2); }
+        }
+        if (elems.empty()) { ShowStatus("Nothing selected - click a curve point or handle first."); return; }
+        xform.curve = true;
+        xform.savedCurve = o->curve;
+        Float3 sum{0, 0, 0};
+        for (int e : elems) {
+            xform.movedVerts.push_back((uint32_t)e);
+            xform.savedVerts.push_back(o->curve.Elem(e));
+            Float3 w = o->transform.Apply(o->curve.Elem(e));
+            sum.x += w.x; sum.y += w.y; sum.z += w.z;
+        }
+        float n = (float)elems.size();
+        xform.pivot = {sum.x / n, sum.y / n, sum.z / n};
+    } else if (mode3D == Mode3D::Edit) {
         // Collect the vertices the current select mode implies.
         std::unordered_set<uint32_t> verts = o->selVerts;
         for (uint64_t e : o->selEdges) { verts.insert(uint32_t(e >> 32)); verts.insert(uint32_t(e & 0xFFFFFFFF)); }
@@ -1623,7 +1656,10 @@ void App::BeginTransform(int mode) {
 void App::CancelTransform() {
     MeshObject* o = (xform.objectIndex >= 0 && xform.objectIndex < (int)scene.objects.size())
                         ? scene.objects[xform.objectIndex].get() : nullptr;
-    if (o) {
+    if (o && xform.curve) {
+        o->curve = xform.savedCurve;
+        RebuildCurveMesh(*o);
+    } else if (o) {
         if (!xform.movedVerts.empty()) {
             for (size_t i = 0; i < xform.movedVerts.size(); ++i) o->mesh.positions[xform.movedVerts[i]] = xform.savedVerts[i];
             o->mesh.ComputeNormals();
@@ -1689,6 +1725,12 @@ void App::UpdateTransform(bool) {
         std::printf("[xform] update dx=%.1f dy=%.1f perPixel=%.4f pos=%.2f\n", dx, dy, perPixel, o->transform.position.x);
 
     auto applyToVerts = [&](auto fn) {
+        if (xform.curve) {
+            o->curve = xform.savedCurve;
+            for (size_t i = 0; i < xform.movedVerts.size(); ++i) o->curve.SetElem((int)xform.movedVerts[i], fn(xform.savedVerts[i]));
+            RebuildCurveMesh(*o);
+            return;
+        }
         for (size_t i = 0; i < xform.movedVerts.size(); ++i) o->mesh.positions[xform.movedVerts[i]] = fn(xform.savedVerts[i]);
         o->mesh.ComputeNormals();
     };
@@ -1785,7 +1827,11 @@ void App::UpdateTransform(bool) {
         o->MarkTopoDirty();
         static const char* names[] = {"Move", "Rotate", "Scale"};
         int objIndex = xform.objectIndex;
-        if (!xform.movedVerts.empty()) {
+        if (xform.curve) {
+            Mesh beforeMesh = CurveToMesh(xform.savedCurve);
+            beforeMesh.name = o->name;
+            PushCurveUndo(std::string(names[xform.mode]) + " Curve Points", o, xform.savedCurve, beforeMesh, true);
+        } else if (!xform.movedVerts.empty()) {
             auto verts = std::make_shared<std::vector<uint32_t>>(xform.movedVerts);
             auto before = std::make_shared<std::vector<Float3>>(xform.savedVerts);
             auto after = std::make_shared<std::vector<Float3>>();
@@ -3562,7 +3608,7 @@ void App::ModifierPanel() {
 
 // ---------------------------------------------------------------- curves
 void App::AddCurve(int kind) {
-    MeshObject* obj = scene.AddMesh(Mesh{}, kind == 1 ? "Circle Curve" : kind == 2 ? "Spiral" : "Bezier Curve");
+    MeshObject* obj = scene.AddMesh(Mesh{}, kind == 1 ? "Circle Curve" : kind == 2 ? "Spiral" : kind == 3 ? "Path" : "Bezier Curve");
     obj->isCurve = true;
     obj->curve.points.clear();
     obj->curve.resolution = 12;
@@ -3580,10 +3626,15 @@ void App::AddCurve(int kind) {
             float t = i / 23.0f, a = t * 4 * kPi;
             obj->curve.points.push_back({std::cos(a) * (0.4f + t), t * 3.0f, std::sin(a) * (0.4f + t)});
         }
+    } else if (kind == 3) {                // path: a straight line of points, for Curve Deform
+        obj->curve.cyclic = false;
+        for (int i = 0; i < 5; ++i) obj->curve.points.push_back({-2.0f + i, 0.0f, 0.0f});
     } else {                               // gentle S, the default Bezier line
         obj->curve.cyclic = false;
         obj->curve.points = {{-2, 0, 0}, {-0.7f, 0, 1.2f}, {0.7f, 0, -1.2f}, {2, 0, 0}};
     }
+    RebuildCurveMesh(*obj);
+    PushObjectListUndo("Add " + obj->name, obj, scene.activeIndex);
     showModifiers = true;
     ShowStatus("Added " + obj->name + " - add a Curve Deform modifier to a mesh to bend it along this");
 }
@@ -4031,6 +4082,7 @@ void App::AddCameraAtView() {
 
 // ---------------------------------------------------------------- Shift+D duplicate
 void App::DuplicateSelected() {
+    if (mode3D == Mode3D::Edit && scene.Active() && scene.Active()->isCurve) { ShowStatus("Use E on an end point to add curve points"); return; }
     if (mode3D == Mode3D::Edit) { RunEditOp('D'); return; }
     if (mode3D != Mode3D::Object) { ShowStatus("Shift+D duplicates objects in Object Mode or faces in Edit Mode"); return; }
     std::vector<int> picked;

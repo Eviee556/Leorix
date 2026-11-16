@@ -17,4 +17,6 @@ struct TransformOp {
     std::vector<uint32_t> movedVerts;
     Transform savedTransform;         // object mode
     int    objectIndex = -1;
+    bool   curve = false;            // moving curve points/handles (movedVerts holds element ids)
+    CurvePath savedCurve;
 };

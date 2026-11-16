@@ -80,7 +80,9 @@ from descriptions, so names and behavior may differ from the original.
 | Headless rendering: `leorix --open mesh --render out.png` | done |
 | Curves in the Shift+A dialog beside the mesh primitives | done |
 | **Subsurface scattering**: weight, method, per-channel radius, scale, anisotropy, IOR - approximated live in Rendered with wrapped diffuse + back-lit transmission | done |
-| **Curves**: Bezier line, Circle, Spiral objects with Catmull-Rom evaluation, drawn with control points | done |
+| **Curves**: Bezier, Circle, Spiral and Path objects; cubic Bezier evaluation with per-point handles | done |
+| **Curve editing**: Edit Mode on a curve shows points and handles; click/Shift+click select, G/R/S move them (snapping and axis locks included), E extrudes an end point, X deletes points, Cyclic toggle; Auto/Vector/Aligned/Free handle types (dragging an Auto handle makes it Aligned, like Blender); all undoable and saved in .leorix | done |
+| **Curve to mesh**: Bevel Depth and Bevel Resolution sweep a tube along the curve with parallel-transport frames (no flips or twist, cyclic twist spread round the loop), per-point Radius tapers it, open ends are capped, UVs are laid out; Convert to Mesh turns it into a normal mesh; beveled curves render in F12 | done |
 | **Curve Deform modifier**: maps a mesh's extent along a curve, with axis and stretch | done |
 | **Snapping**: move snaps to Increment, 1 m Grid, Nearest Vertex, Edge, Edge Center or Face (Object and Edit Mode); rotate snaps to 15° (Shift 5°), scale to 0.1; Ctrl toggles while dragging | done |
 | **Modifier stack (13)**: Array, Mirror, Solidify, Subdivision (Catmull-Clark), Smooth, Weld, Shrinkwrap, Screw/Spin, Remesh (voxel), Displace, Triangulate, Decimate - non-destructive, live preview, reorder, enable/disable, Apply (undoable) | done |
@@ -180,11 +182,10 @@ app because of how it's structured differently:
 | Webcomic: panel grids, balloons, page guides, bleed/safe area | not started |
 | Cross-object armature parenting (one armature deforming several meshes) | not started - an armature currently belongs to the object it deforms |
 | Multires level switching is nearest-neighbour resampled, not a true displacement hierarchy | open - detail survives a level change but is approximated when the level moves |
-| Curve editing: moving control points in the viewport, handle types, bevel/taper | not started - curves are created from presets and used as deform targets |
 | Cloth simulation | not started |
 | Weight painting (manual, on top of automatic weights): Weight Paint mode, Add/Subtract/Replace/Smooth, falloff curves, X mirror with .L/.R twin bones, blue-red heatmap, Normalize All, Clean, one undo step per stroke | done |
 | Rigid body / physics simulation | not started |
-| Curves (Bezier, NURBS, path, circle) and curve-to-mesh | not started |
+| NURBS curves, box select for curve points, bevel profile objects | not started - Bezier, path and circle curves with round bevels are done |
 | Control rig presets and export for Unreal / Unity / Godot | partial - humanoid rig, UE5/Unity/Mixamo/Godot naming and skinned glTF/GLB export exist; control rigs don't |
 | Gyro-style control rig widgets (control objects driving bones) | not started - constraints exist now, the widgets do not |
 | Texture painting directly onto the 3D model: Sculpt Mode Paint brush paints the active layer through the model's UVs, brush sized to the viewport ring, seam-aware, dirty-tile undo, assigned material slots refresh live | done |

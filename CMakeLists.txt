@@ -124,6 +124,7 @@ add_executable(leorix
   src/tools/VisualScript.cpp
   src/app/VisualScriptPanel.cpp
   src/app/RigPanel.cpp
+  src/app/CurveEdit.cpp
   src/app/UVPaint.cpp
   src/app/WeightPaintPanel.cpp
   src/mesh/Mesh.cpp
@@ -135,6 +136,7 @@ add_executable(leorix
   src/mesh/Unwrap.cpp
   src/mesh/UVEdit.cpp
   src/mesh/Modifier.cpp
+  src/mesh/Curve.cpp
   src/mesh/Multires.cpp
 
   src/viewport/MeshView.cpp)

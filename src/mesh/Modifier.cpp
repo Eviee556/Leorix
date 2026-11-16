@@ -625,32 +625,6 @@ Mesh DoCurveDeform(const Mesh& in, const Modifier& mod, const std::vector<const 
 
 } // namespace
 
-std::vector<Float3> CurvePath::Evaluate() const {
-    std::vector<Float3> out;
-    const size_t n = points.size();
-    if (n < 2) return points;
-    int res = std::clamp(resolution, 1, 64);
-    size_t spans = cyclic ? n : n - 1;
-    for (size_t i = 0; i < spans; ++i) {
-        const Float3& p0 = points[(i + n - 1) % n];
-        const Float3& p1 = points[i];
-        const Float3& p2 = points[(i + 1) % n];
-        const Float3& p3 = points[(i + 2) % n];
-        for (int s = 0; s < res; ++s) {
-            float t = (float)s / res, t2 = t * t, t3 = t2 * t;
-            // Catmull-Rom: passes through every control point
-            Float3 p{0, 0, 0};
-            p.x = 0.5f * ((2 * p1.x) + (-p0.x + p2.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3);
-            p.y = 0.5f * ((2 * p1.y) + (-p0.y + p2.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3);
-            p.z = 0.5f * ((2 * p1.z) + (-p0.z + p2.z) * t + (2 * p0.z - 5 * p1.z + 4 * p2.z - p3.z) * t2 + (-p0.z + 3 * p1.z - 3 * p2.z + p3.z) * t3);
-            out.push_back(p);
-        }
-    }
-    if (!cyclic) out.push_back(points.back());
-    else out.push_back(out.front());
-    return out;
-}
-
 Mesh ApplyModifier(const Mesh& in, const Modifier& m, const std::vector<const Mesh*>& targets,
                    const std::vector<const CurvePath*>& curves) {
     if (!m.enabled || in.positions.empty()) return in;
