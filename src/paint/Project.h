@@ -13,7 +13,8 @@ struct ProjectSaveInfo {
     size_t bytes = 0, layerFiles = 0;
 };
 
+// `blocks` is an optional Visual Scripting graph (SaveGraph text), stored as blocks.json.
 ProjectSaveInfo SaveLeorixProject(const std::string& path, PaintProject& project,
-                                  const BrushSettings& brush);
+                                  const BrushSettings& brush, const std::string& blocks = {});
 ProjectSaveInfo LoadLeorixProject(const std::string& path, PaintProject& project,
-                                  BrushSettings& brush, VulkanContext& vk);
+                                  BrushSettings& brush, VulkanContext& vk, std::string* blocks = nullptr);

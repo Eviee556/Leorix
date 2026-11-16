@@ -42,7 +42,7 @@ from descriptions, so names and behavior may differ from the original.
 | **Blender axes everywhere the user sees them**: X left/right, Y front/back, Z up/down - gizmo (X red, Y green, Z blue), transform fields, G/R/S axis keys, Mirror/Array/Screw/Curve Deform axes, camera Look At. Geometry is still stored Y-up so importers, primitives and the renderer are unchanged | done |
 | **View titles and Auto Perspective**: "Front Orthographic", "Top Orthographic", "User Perspective"; axis views go orthographic, orbiting returns to perspective, panning and zooming keep the view | done |
 | **Ctrl shortcuts actually fire**: Ctrl+Space, Ctrl+J and Ctrl+E were swallowed by a blanket Ctrl check; all Ctrl combos now route first, and plain letters are guarded so Ctrl+S cannot also start a Scale | done |
-| **Shift+D duplicate**: copies the selection and goes straight into moving it; click to place, undoable | done |
+| **Shift+D duplicate**: copies the selection and goes straight into moving it; click to place, undoable; in Edit Mode it duplicates the selected faces, and P separates them into a new object | done |
 | **LMB drag box select**: Object mode selects objects, Edit mode selects vertices / edges / faces by the current select mode; Shift extends, Ctrl subtracts | done |
 | **Multiple cameras**: Shift+A > Camera (or 3D > Add Camera) adds one aligned to the current view; Ctrl+Numpad 0 or right-click > Set Active switches which one renders; delete from the Hierarchy; undoable | done |
 | Camera drawn as a camera: a filled body box plus the lens frustum; the active camera's up triangle is filled, others are outlined | done |
@@ -85,7 +85,7 @@ from descriptions, so names and behavior may differ from the original.
 | Keyframe interpolation: Constant, Linear, Bezier + 9 easing equations (Sinusoidal, Quadratic, Cubic, Quartic, Exponential, Circular, Back, Bounce, Elastic) with Ease In / Out / In-Out | done |
 | Ctrl+Space cycles Object -> Sculpt -> Edit -> Retopology -> Pose | done |
 | **Add Armature**: from the 3D menu or the Shift+A dialog - adds a bone to the selected mesh, or creates a standalone armature object | done |
-| **Visual scripting (blocks)**: beginner node editor, 17 plain-English blocks, typed wires, cycle checks; graphs are not saved yet | done |
+| **Visual scripting (blocks)**: beginner node editor, 21 plain-English blocks (incl. Time, Mirror, Copy Upwards, Scatter Randomly), typed wires, cycle checks, per-copy Random, save/load as `.leorixblocks` and inside `.leorix` projects, Update every frame | done |
 
 ## Known gaps in "everything live"
 Material, Environment, Camera and Sculpt settings update the viewport immediately. Retopology
@@ -174,8 +174,6 @@ app because of how it's structured differently:
 | PBR map set, blend modes, masks, layer effects, selections | maps/layers/blend modes done; masks, effects, selections not yet |
 | 2.5D flat parallax + 3D diorama + camera path | not started |
 | Webcomic: panel grids, balloons, page guides, bleed/safe area | not started |
-| Shift+D in Edit Mode (duplicate geometry) | not started - Shift+D duplicates objects |
-| Separate (P) - the inverse of Join | not started |
 | Cross-object armature parenting (one armature deforming several meshes) | not started - an armature currently belongs to the object it deforms |
 | Multires level switching is nearest-neighbour resampled, not a true displacement hierarchy | open - detail survives a level change but is approximated when the level moves |
 | Snapping for rotate and scale, and face/edge snap targets | not started - move snapping works |

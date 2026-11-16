@@ -209,3 +209,67 @@ EditOpResult MergeAtCenter(Mesh& m, const EditSelection& sel) {
     r.message = "Merged " + std::to_string(s.size()) + " vertices";
     return r;
 }
+
+namespace {
+// Faces that are selected, or (vertex/edge select) have every vertex selected.
+std::vector<uint8_t> RegionOf(const Mesh& m, const EditSelection& sel, size_t& count) {
+    std::unordered_set<uint32_t> vs = TouchedVerts(m, sel, false);
+    std::vector<uint8_t> region(m.polyCount, vs.empty() ? 0 : 1);
+    for (const Tri& t : m.tris)
+        if (!vs.count(t.a) || !vs.count(t.b) || !vs.count(t.c)) region[t.poly] = 0;
+    for (uint32_t f : sel.faces) if (f < m.polyCount) region[f] = 1;
+    count = std::count(region.begin(), region.end(), 1);
+    return region;
+}
+} // namespace
+
+EditOpResult DuplicateFaces(Mesh& m, const EditSelection& sel) {
+    EditOpResult r;
+    size_t count = 0;
+    std::vector<uint8_t> region = RegionOf(m, sel, count);
+    if (!count) { r.message = "Select faces to duplicate"; return r; }
+    const bool hasUV = m.HasLoopUVs();
+    const bool perVertUV = m.uvs.size() == m.positions.size();
+    std::unordered_map<uint32_t, uint32_t> vmap, pmap;
+    auto V = [&](uint32_t v) {
+        auto it = vmap.find(v);
+        if (it != vmap.end()) return it->second;
+        uint32_t n = (uint32_t)m.positions.size();
+        m.positions.push_back(m.positions[v]);
+        if (perVertUV) m.uvs.push_back(m.uvs[v]);
+        r.sel.verts.insert(n);
+        return vmap[v] = n;
+    };
+    const size_t triCount = m.tris.size();
+    for (size_t i = 0; i < triCount; ++i) {
+        const Tri t = m.tris[i];   // copy: push_back may reallocate
+        if (!region[t.poly]) continue;
+        auto pit = pmap.find(t.poly);
+        uint32_t poly = pit != pmap.end() ? pit->second : (pmap[t.poly] = m.polyCount++);
+        m.tris.push_back({V(t.a), V(t.b), V(t.c), poly});
+        if (hasUV) for (int j = 0; j < 3; ++j) m.loopUVs.push_back(m.loopUVs[i * 3 + j]);
+        r.sel.faces.insert(poly);
+    }
+    m.normals.clear();
+    m.ComputeNormals();
+    m.ComputeBounds();
+    r.ok = true;
+    r.message = "Duplicated " + std::to_string(count) + " face" + (count == 1 ? "" : "s") + " - move the mouse, click to place";
+    return r;
+}
+
+EditOpResult SeparateFaces(Mesh& m, const EditSelection& sel, Mesh& out) {
+    EditOpResult r;
+    size_t count = 0;
+    std::vector<uint8_t> region = RegionOf(m, sel, count);
+    if (!count) { r.message = "Select faces to separate"; return r; }
+    if (count == m.polyCount) { r.message = "Every face is selected, so there is nothing to separate from"; return r; }
+    EditSelection keep, take;
+    for (uint32_t p = 0; p < m.polyCount; ++p) (region[p] ? take : keep).faces.insert(p);
+    out = m;
+    DeleteSelected(out, keep);   // the new object keeps only the selected faces
+    DeleteSelected(m, take);
+    r.ok = true;
+    r.message = "Separated " + std::to_string(count) + " face" + (count == 1 ? "" : "s") + " into a new object";
+    return r;
+}

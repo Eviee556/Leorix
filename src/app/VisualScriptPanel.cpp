@@ -2,8 +2,11 @@
 // The graph itself lives in tools/VisualScript.* and is evaluated without any UI.
 #include "app/App.h"
 #include "imgui.h"
+#include <SDL3/SDL_dialog.h>
 #include <cmath>
+#include <fstream>
 #include <memory>
+#include <sstream>
 
 namespace {
 const ImVec4 kBrassV(0.79f, 0.54f, 0.29f, 1.0f);
@@ -41,12 +44,39 @@ float DistToBezier(ImVec2 a, ImVec2 b, ImVec2 p) {
 }
 
 struct Port { int block, input; ImVec2 pos; WireKind kind; };
+
+const SDL_DialogFileFilter kBlocksFilter[] = {{"Leorix Blocks", "leorixblocks"}};
+void SDLCALL OnBlocksSave(void* app, const char* const* files, int) { if (files && files[0]) static_cast<App*>(app)->QueueBlocksPath(files[0], true); }
+void SDLCALL OnBlocksOpen(void* app, const char* const* files, int) { if (files && files[0]) static_cast<App*>(app)->QueueBlocksPath(files[0], false); }
 } // namespace
 
 void App::VisualScriptingPanel() {
     ImGui::SetNextWindowSize(ImVec2(1000, 620), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Visual Scripting", &showVisualScripting)) { ImGui::End(); return; }
     if (!visualStarted) { visualGraph.LoadStarter(); visualStarted = true; visualMessage = "Here's an example to start from. Press Build it! to see it in 3D."; }
+    visualGraph.frame = playback.frame; visualGraph.fps = playback.fps;
+
+    // ---- finished Save / Open dialogs (they report back on another thread)
+    std::string saveTo, openFrom;
+    { std::lock_guard<std::mutex> lock(importMutex); saveTo.swap(pendingBlocksSave); openFrom.swap(pendingBlocksOpen); }
+    if (!saveTo.empty()) {
+        if (saveTo.size() < 13 || saveTo.substr(saveTo.size() - 13) != ".leorixblocks") saveTo += ".leorixblocks";
+        std::ofstream f(saveTo, std::ios::binary);
+        f << SaveGraph(visualGraph);
+        visualMessageOk = (bool)f;
+        visualMessage = f ? "Saved your blocks." : "Couldn't save there. Try another folder.";
+        if (f) blocksPath = saveTo;
+    }
+    if (!openFrom.empty()) {
+        std::ifstream f(openFrom, std::ios::binary);
+        std::stringstream text; text << f.rdbuf();
+        constexpr std::streamoff kMaxFile = 16 << 20;
+        if (!f || text.tellp() > kMaxFile) { visualMessage = "Couldn't open that file."; visualMessageOk = false; }
+        else {
+            visualMessageOk = LoadGraph(visualGraph, text.str(), visualMessage);
+            if (visualMessageOk) { blocksPath = openFrom; visualPan = ImVec2(0, 0); visualNotes.clear(); visualDragFrom = -1; }
+        }
+    }
 
     // ---- top bar
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.54f, 0.37f, 0.22f, 1)); ImGui::PushStyleColor(ImGuiCol_ButtonHovered, kBrassV);
@@ -59,6 +89,16 @@ void App::VisualScriptingPanel() {
         visualMessage = "Back to the starter example."; visualMessageOk = true;
     }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Throws away your blocks and loads the starter example again.");
+    ImGui::SameLine();
+    if (ImGui::Button("Save", ImVec2(70, 34)))
+        SDL_ShowSaveFileDialog(OnBlocksSave, this, window, kBlocksFilter, 1, blocksPath.empty() ? nullptr : blocksPath.c_str());
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Saves your blocks to a .leorixblocks file so you can carry on later.\nSaving a .leorix project keeps them too.");
+    ImGui::SameLine();
+    if (ImGui::Button("Open", ImVec2(70, 34))) SDL_ShowOpenFileDialog(OnBlocksOpen, this, window, kBlocksFilter, 1, nullptr, false);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Opens blocks you saved before. Your current blocks are replaced.");
+    ImGui::SameLine();
+    ImGui::Checkbox("Update every frame", &visualLive);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Rebuilds the model whenever the timeline moves, so Time blocks animate.\nPress Build it! once, then Play on the timeline.");
     ImGui::SameLine();
     ImGui::BeginGroup();
     if (!visualMessage.empty())
@@ -76,13 +116,26 @@ void App::VisualScriptingPanel() {
             "to remove it. Hover anything for help.");
     }
 
+    // Live update: rebuild the last built model in place when the frame changes (no undo step per frame).
+    if (visualLive && !build && playback.frame != visualLastFrame && LiveObjectExists(visualLiveObj)) {
+        visualLastFrame = playback.frame;
+        BuildResult r = EvaluateGraph(visualGraph);
+        if (r.ok) {
+            visualLiveObj->mesh = std::move(r.mesh);
+            visualLiveObj->mesh.EnsureUVs();
+            visualLiveObj->MarkTopoDirty();
+            visualLiveObj->stackDirty = true;
+        } else { visualMessage = r.message; visualMessageOk = false; }
+    }
+
     // Pressing Build it! goes through the same add-object path and undo step as Add Primitive.
     if (build) {
         BuildResult r = EvaluateGraph(visualGraph);
         visualNotes = r.notes; visualMessage = r.message; visualMessageOk = r.ok;
         if (r.ok) {
-            MeshObject* added = scene.AddMesh(std::move(r.mesh), "Visual script");
-            PushObjectListUndo("Build Visual Script", added, scene.activeIndex);
+            visualLiveObj = scene.AddMesh(std::move(r.mesh), "Visual script");
+            visualLastFrame = playback.frame;
+            PushObjectListUndo("Build Visual Script", visualLiveObj, scene.activeIndex);
             showViewport3D = true;
             ShowStatus("Visual script built a model");
         }
@@ -161,6 +214,13 @@ void App::VisualScriptingPanel() {
                 ImGui::EndCombo();
             }
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("Pick the sum: A add B, A take away B, A times B or A divide by B.");
+        }
+        if (b.type == BlockType::Mirror) {
+            if (ImGui::BeginCombo("Flip", MirrorWayName(b.op))) {
+                for (int w = 0; w < kMirrorWayCount; ++w) if (ImGui::Selectable(MirrorWayName(w), w == b.op)) b.op = w;
+                ImGui::EndCombo();
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Which way the reflection goes: left/right, up/down or front/back.");
         }
         ImGui::PopItemWidth();
         if (!b.error.empty()) ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1), "%s", b.error.c_str());

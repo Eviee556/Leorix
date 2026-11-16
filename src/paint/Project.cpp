@@ -37,7 +37,8 @@ bool EncodePng(const Layer& l, int w, int h, std::vector<unsigned char>& out) {
 }
 } // namespace
 
-ProjectSaveInfo SaveLeorixProject(const std::string& path, PaintProject& project, const BrushSettings& brush) {
+ProjectSaveInfo SaveLeorixProject(const std::string& path, PaintProject& project, const BrushSettings& brush,
+                                  const std::string& blocks) {
     ProjectSaveInfo info;
     mz_zip_archive zip{};
     if (!mz_zip_writer_init_file(&zip, path.c_str(), 0)) { info.message = "Could not create the project file"; return info; }
@@ -82,6 +83,7 @@ ProjectSaveInfo SaveLeorixProject(const std::string& path, PaintProject& project
 
     std::string text = manifest.dump(2);
     mz_zip_writer_add_mem(&zip, "manifest.json", text.data(), text.size(), MZ_BEST_COMPRESSION);
+    if (!blocks.empty()) mz_zip_writer_add_mem(&zip, "blocks.json", blocks.data(), blocks.size(), MZ_BEST_COMPRESSION);
 
     mz_zip_writer_finalize_archive(&zip);
     mz_zip_writer_end(&zip);
@@ -92,7 +94,7 @@ ProjectSaveInfo SaveLeorixProject(const std::string& path, PaintProject& project
 }
 
 ProjectSaveInfo LoadLeorixProject(const std::string& path, PaintProject& project,
-                                  BrushSettings& brush, VulkanContext& vk) {
+                                  BrushSettings& brush, VulkanContext& vk, std::string* blocks) {
     ProjectSaveInfo info;
     mz_zip_archive zip{};
     if (!mz_zip_reader_init_file(&zip, path.c_str(), 0)) { info.message = "Not a readable .leorix file"; return info; }
@@ -102,6 +104,14 @@ ProjectSaveInfo LoadLeorixProject(const std::string& path, PaintProject& project
     if (!raw) { mz_zip_reader_end(&zip); info.message = "No manifest.json inside the project"; return info; }
     std::string text((const char*)raw, size);
     mz_free(raw);
+    if (blocks) {
+        blocks->clear();
+        int at = mz_zip_reader_locate_file(&zip, "blocks.json", nullptr, 0);
+        mz_zip_archive_file_stat st{};
+        size_t bsize = 0;
+        if (at >= 0 && mz_zip_reader_file_stat(&zip, (mz_uint)at, &st) && st.m_uncomp_size <= (16u << 20))   // refuse oversized entries
+            if (void* b = mz_zip_reader_extract_to_heap(&zip, (mz_uint)at, &bsize, 0)) { blocks->assign((const char*)b, bsize); mz_free(b); }
+    }
 
     json manifest;
     try { manifest = json::parse(text); }

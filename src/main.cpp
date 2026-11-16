@@ -379,6 +379,91 @@ static int SelfTest() {
         check(!build(empty).ok && !empty.blocks[0].error.empty(), "visual: empty Show in Scene explains itself");
         VisualGraph starter; starter.LoadStarter();
         check(build(starter).ok, "visual: starter example builds");
+
+        // Per-copy Random: Random -> Box size -> Copy in a Line. Each copy's width differs when on.
+        VisualGraph pc; int rn = pc.Add(BlockType::Random), bx = pc.Add(BlockType::Box), ln = pc.Add(BlockType::CopyLine), sh = pc.Add(BlockType::ShowInScene);
+        pc.Find(rn)->values[0] = 1; pc.Find(rn)->values[1] = 5; pc.Find(ln)->values[2] = 20;
+        pc.Connect(rn, bx, 0, why); pc.Connect(bx, ln, 0, why); pc.Connect(ln, sh, 0, why);
+        auto widths = [&](VisualGraph& gr) {
+            std::vector<float> w; BuildResult br = build(gr);
+            for (size_t c = 0; br.ok && c + 8 <= br.mesh.positions.size(); c += 8) {
+                float lo = 1e9f, hi = -1e9f;
+                for (size_t k = c; k < c + 8; ++k) { lo = std::min(lo, br.mesh.positions[k].x); hi = std::max(hi, br.mesh.positions[k].x); }
+                w.push_back(hi - lo);
+            }
+            return w;
+        };
+        std::vector<float> wOn = widths(pc);
+        check(wOn.size() == 3 && std::fabs(wOn[0] - wOn[1]) > 0.01f && std::fabs(wOn[1] - wOn[2]) > 0.01f, "visual: random gives each copy its own pick");
+        check(widths(pc) == wOn, "visual: per-copy random repeats between builds");
+        pc.Find(rn)->values[3] = 0;
+        std::vector<float> wOff = widths(pc);
+        check(wOff.size() == 3 && std::fabs(wOff[0] - wOff[1]) < 1e-4f && std::fabs(wOff[1] - wOff[2]) < 1e-4f, "visual: random shared by all copies when switched off");
+        pc.Find(rn)->values[3] = 1;
+
+        // Save / load round trip, then malformed files.
+        std::string saved = SaveGraph(pc), msg;
+        VisualGraph back; back.LoadStarter();
+        check(LoadGraph(back, saved, msg) && back.blocks.size() == pc.blocks.size() && back.wires.size() == pc.wires.size() &&
+              widths(back) == wOn && back.nextId == pc.nextId, "visual: save / load round trip");
+        VisualGraph keep; keep.LoadStarter();
+        const size_t keepBlocks = keep.blocks.size();
+        bool badOk = !LoadGraph(keep, "not json {", msg) && !LoadGraph(keep, "[1,2,3]", msg) &&
+                     !LoadGraph(keep, "{\"format\":\"other\",\"blocks\":[]}", msg) &&
+                     !LoadGraph(keep, "{\"format\":\"leorix-blocks\",\"blocks\":7}", msg) && keep.blocks.size() == keepBlocks;
+        check(badOk, "visual: malformed files are refused and leave the graph alone");
+        bool odd = LoadGraph(keep, R"({"format":"leorix-blocks","blocks":[
+            {"id":1,"type":"Box","values":[1e9]}, {"id":2,"type":"Teleporter"}, {"id":1,"type":"Ball"}, {"id":"x","type":"Box"},
+            {"id":3,"type":"Show in Scene","values":"oops"}, {"id":4,"type":"Math","op":99}],
+            "wires":[{"from":1,"to":3,"input":0}, {"from":2,"to":3,"input":0}, {"from":1,"to":1,"input":5}, {"from":4,"to":3,"input":0}, 5]})", msg);
+        check(odd && keep.blocks.size() == 3 && keep.wires.size() == 1 && keep.Find(1)->values[0] == 100.0f &&
+              keep.Find(4)->op == kMathOpCount - 1 && keep.nextId == 5 && msg.find("Skipped") != std::string::npos && build(keep).ok,
+              "visual: odd files load what they can, clamp values and skip the rest");
+
+        // Time, Mirror, Copy Upwards, Scatter Randomly
+        VisualGraph tg; int tm = tg.Add(BlockType::Time); tg.Find(tm)->values[0] = 2; tg.frame = 25; tg.fps = 24;
+        float tv = 0;
+        check(EvaluateNumber(tg, tm, tv, why) && std::fabs(tv - 2.0f) < 1e-5f, "visual: time block counts seconds from frame 1");
+        VisualGraph mg2; int mb = mg2.Add(BlockType::Box), mm = mg2.Add(BlockType::Move), mi = mg2.Add(BlockType::Mirror), ms = mg2.Add(BlockType::ShowInScene);
+        mg2.Find(mm)->values[1] = 5;
+        mg2.Connect(mb, mm, 0, why); mg2.Connect(mm, mi, 0, why); mg2.Connect(mi, ms, 0, why);
+        BuildResult mres = build(mg2);
+        float minX = 1e9f; for (const Float3& q : mres.mesh.positions) minX = std::min(minX, q.x);
+        check(mres.ok && mres.mesh.VertexCount() == 16 && mres.mesh.polyCount == 12 && minX < -3.9f && mres.mesh.HasLoopUVs(), "visual: mirror adds a flipped copy");
+        for (BlockType rt : {BlockType::StackUp, BlockType::Scatter}) {
+            VisualGraph rg; int rb = rg.Add(BlockType::Box), rr = rg.Add(rt), rs = rg.Add(BlockType::ShowInScene);
+            rg.Connect(rb, rr, 0, why); rg.Connect(rr, rs, 0, why);
+            BuildResult rres = build(rg);
+            size_t want = 8 * (size_t)std::lround(rg.Find(rr)->values[1]);
+            check(rres.ok && rres.mesh.VertexCount() == want, rt == BlockType::StackUp ? "visual: copy upwards count" : "visual: scatter randomly count");
+        }
+    }
+    // Edit Mode Shift+D and P
+    {
+        PrimitiveParams cp = DefaultParams(Primitive::Cube);
+        EditSelection f0; f0.faces.insert(0);
+        Mesh dup = BuildPrimitive(Primitive::Cube, cp); dup.EnsureUVs();
+        EditOpResult dr = DuplicateFaces(dup, f0);
+        check(dr.ok && dup.VertexCount() == 12 && dup.polyCount == 7 && dup.HasLoopUVs() && dr.sel.faces.size() == 1 && dr.sel.verts.size() == 4,
+              "duplicate one cube face");
+        Mesh sep = BuildPrimitive(Primitive::Cube, cp), part; sep.EnsureUVs();
+        EditOpResult sr = SeparateFaces(sep, f0, part);
+        check(sr.ok && sep.VertexCount() == 8 && sep.polyCount == 5 && part.VertexCount() == 4 && part.polyCount == 1 &&
+              sep.HasLoopUVs() && part.HasLoopUVs(), "separate one cube face");
+        Mesh all = BuildPrimitive(Primitive::Cube, cp), none; EditSelection every;
+        for (uint32_t f = 0; f < all.polyCount; ++f) every.faces.insert(f);
+        check(!SeparateFaces(all, every, none).ok && all.polyCount == 6, "separate refuses to empty the mesh");
+        bool ok = true;
+        for (const Mesh* m : {&dup, &sep, &part})
+            for (const Tri& t : m->tris) ok &= t.a < m->VertexCount() && t.b < m->VertexCount() && t.c < m->VertexCount() && t.poly < m->polyCount;
+        check(ok, "duplicate / separate keep indices in range");
+    }
+    // Lua timeline globals
+    {
+        ScriptResult tr = RunMeshScript("cube(frame + time * fps)", 3.0f, 24);   // 3 + 2/24*24 = 5
+        float hi = -1e9f;
+        if (tr.ok && !tr.meshes.empty()) for (const Float3& q : tr.meshes[0].positions) hi = std::max(hi, q.x);
+        check(tr.ok && std::fabs(hi - 2.5f) < 1e-4f, "script: frame, time and fps globals");
     }
     std::printf(failures ? "self-test FAILED (%d)\n" : "self-test passed\n", failures);
     return failures ? 1 : 0;

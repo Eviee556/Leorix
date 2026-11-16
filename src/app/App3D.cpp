@@ -379,6 +379,7 @@ void App::HandleShortcuts3D(bool hoveredViewport) {
         if (!io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_E, false)) { RunEditOp('E'); return; }
         if (!io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_X, false)) { RunEditOp('X'); return; }
         if (!io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_M, false)) { RunEditOp('M'); return; }
+        if (!io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_P, false)) { SeparateSelected(); return; }
     }
     if (io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_T, false) && scene.Active()) {
         RequestTextureSetImport();   // Node Wrangler style texture setup
@@ -889,13 +890,18 @@ void App::ProcessPendingImport() {
 
     if (!projSave.empty()) {
         if (projSave.size() < 7 || projSave.substr(projSave.size() - 7) != ".leorix") projSave += ".leorix";
-        ProjectSaveInfo r = SaveLeorixProject(projSave, paint, brush2D);
+        ProjectSaveInfo r = SaveLeorixProject(projSave, paint, brush2D, visualStarted ? SaveGraph(visualGraph) : std::string());
         if (r.ok) { projectPath = projSave; paint.name = projSave; }
         ShowStatus(r.message);
     }
     if (!projOpen.empty()) {
-        ProjectSaveInfo r = LoadLeorixProject(projOpen, paint, brush2D, vk);
+        std::string blocks;
+        ProjectSaveInfo r = LoadLeorixProject(projOpen, paint, brush2D, vk, &blocks);
         if (r.ok) {
+            if (!blocks.empty()) {
+                visualMessageOk = LoadGraph(visualGraph, blocks, visualMessage);
+                visualStarted = visualStarted || visualMessageOk;
+            }
             projectPath = projOpen;
             canvasW = paint.width; canvasH = paint.height;
             undoStack.Clear();
@@ -1036,14 +1042,27 @@ void App::ScriptingPanel() {
     if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Enter, false)) run = true;
     ImGui::SameLine();
     if (ImGui::Button("Reset Example")) { std::snprintf(buffer, sizeof(buffer), "%s", DefaultScriptExample()); }
+    ImGui::SameLine(); ImGui::Checkbox("Update every frame", &scriptLive);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Re-runs the script whenever the timeline moves and replaces the mesh it made,\nso scripts that use frame or time animate. Run once, then press Play.");
     ImGui::SameLine(); ImGui::TextDisabled("Each run adds a new object to the scene.");
+    if (scriptLive && !run && playback.frame != scriptLastFrame && LiveObjectExists(scriptLiveObj)) {
+        scriptLastFrame = playback.frame;
+        ScriptResult r = RunMeshScript(scriptCode, playback.frame, playback.fps);
+        if (r.ok && !r.meshes.empty()) {
+            scriptLiveObj->mesh = MergeScriptMeshes(std::move(r.meshes));
+            scriptLiveObj->mesh.EnsureUVs();
+            scriptLiveObj->MarkTopoDirty();
+            scriptLiveObj->stackDirty = true;
+        } else scriptOutput = r.output;
+    }
     if (run) {
         scriptCode = buffer;
-        ScriptResult r = RunMeshScript(scriptCode);
+        ScriptResult r = RunMeshScript(scriptCode, playback.frame, playback.fps);
         scriptOutput = r.output;
+        scriptLastFrame = playback.frame;
         if (r.ok && !r.meshes.empty()) {
-            MeshObject* added = scene.AddMesh(MergeScriptMeshes(std::move(r.meshes)), "Script mesh");
-            PushObjectListUndo("Run Script", added, scene.activeIndex);
+            scriptLiveObj = scene.AddMesh(MergeScriptMeshes(std::move(r.meshes)), "Script mesh");
+            PushObjectListUndo("Run Script", scriptLiveObj, scene.activeIndex);
             showViewport3D = true;
             ShowStatus("Script created a mesh");
         }
@@ -3009,7 +3028,8 @@ void App::RunEditOp(char op) {
     if (o->armature.Bound() || o->multires.valid) { ShowStatus("Apply or clear the armature/multires first"); return; }
     EditSelection sel{o->selVerts, o->selEdges, o->selFaces};
     auto before = std::make_shared<Mesh>(o->mesh);
-    EditOpResult r = op == 'E' ? ExtrudeFaces(o->mesh, sel) : op == 'X' ? DeleteSelected(o->mesh, sel) : MergeAtCenter(o->mesh, sel);
+    EditOpResult r = op == 'E' ? ExtrudeFaces(o->mesh, sel) : op == 'X' ? DeleteSelected(o->mesh, sel)
+                   : op == 'D' ? DuplicateFaces(o->mesh, sel) : MergeAtCenter(o->mesh, sel);
     ShowStatus(r.message);
     if (!r.ok) return;
     o->selVerts = r.sel.verts; o->selEdges = r.sel.edges; o->selFaces = r.sel.faces;
@@ -3027,11 +3047,54 @@ void App::RunEditOp(char op) {
         ob.stackDirty = true;
         uvLayout.valid = false;
     };
-    undoStack.Push(op == 'E' ? "Extrude" : op == 'X' ? "Delete" : "Merge at Center",
+    undoStack.Push(op == 'E' ? "Extrude" : op == 'X' ? "Delete" : op == 'D' ? "Duplicate Faces" : "Merge at Center",
                    [apply, before] { apply(before); }, [apply, after] { apply(after); },
                    (before->positions.size() + after->positions.size()) * sizeof(Float3) +
                    (before->tris.size() + after->tris.size()) * sizeof(Tri));
-    if (op == 'E') BeginTransform(0);   // as in Blender, the extruded region follows the mouse
+    if (op == 'E' || op == 'D') BeginTransform(0);   // as in Blender, the new geometry follows the mouse
+}
+
+// P: the selected faces become a new object with the same transform and material.
+void App::SeparateSelected() {
+    MeshObject* o = scene.Active();
+    if (!o || o->isCurve) { ShowStatus("No mesh selected"); return; }
+    if (o->armature.Bound() || o->multires.valid) { ShowStatus("Apply or clear the armature/multires first"); return; }
+    EditSelection sel{o->selVerts, o->selEdges, o->selFaces};
+    auto before = std::make_shared<Mesh>(o->mesh);
+    auto part = std::make_shared<Mesh>();
+    EditOpResult r = SeparateFaces(o->mesh, sel, *part);
+    ShowStatus(r.message);
+    if (!r.ok) return;
+    auto after = std::make_shared<Mesh>(o->mesh);
+    const int idx = scene.activeIndex;
+    const std::string name = o->name;
+    auto setMesh = [this, idx](const Mesh& m) {
+        if (idx < 0 || idx >= (int)scene.objects.size()) return;
+        MeshObject& ob = *scene.objects[idx];
+        ob.mesh = m;
+        ob.selVerts.clear(); ob.selEdges.clear(); ob.selFaces.clear();
+        ob.MarkTopoDirty();
+        ob.stackDirty = true;
+        uvLayout.valid = false;
+    };
+    auto partObj = std::make_shared<MeshObject*>(nullptr);   // the exact object undo must remove
+    auto addPart = [this, idx, name, part, partObj] {
+        if (idx < 0 || idx >= (int)scene.objects.size()) return;
+        Transform xf = scene.objects[idx]->transform;
+        Material mat = scene.objects[idx]->material;
+        bool smooth = scene.objects[idx]->shadeSmooth;
+        MeshObject* n = scene.AddMesh(*part, name);
+        n->transform = xf; n->material = mat; n->shadeSmooth = smooth;
+        *partObj = n;
+        scene.SelectOnly(idx);   // stay editing the original, as in Blender
+    };
+    setMesh(*after);
+    addPart();
+    undoStack.Push("Separate",
+        [this, setMesh, before, partObj] { int i = scene.IndexOf(*partObj); if (i >= 0) scene.Remove(i); setMesh(*before); },
+        [setMesh, addPart, after] { setMesh(*after); addPart(); },
+        (before->positions.size() * 2 + part->positions.size()) * sizeof(Float3) +
+        (before->tris.size() * 2 + part->tris.size()) * sizeof(Tri));
 }
 
 // ---------------------------------------------------------------- .leorix projects
@@ -3889,7 +3952,8 @@ void App::AddCameraAtView() {
 
 // ---------------------------------------------------------------- Shift+D duplicate
 void App::DuplicateSelected() {
-    if (mode3D != Mode3D::Object) { ShowStatus("Shift+D duplicates objects in Object Mode"); return; }
+    if (mode3D == Mode3D::Edit) { RunEditOp('D'); return; }
+    if (mode3D != Mode3D::Object) { ShowStatus("Shift+D duplicates objects in Object Mode or faces in Edit Mode"); return; }
     std::vector<int> picked;
     for (int i = 0; i < (int)scene.objects.size(); ++i) if (scene.objects[i]->selected) picked.push_back(i);
     if (picked.empty() && scene.Active()) picked.push_back(scene.activeIndex);

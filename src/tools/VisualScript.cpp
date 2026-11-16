@@ -1,5 +1,6 @@
 #include "tools/VisualScript.h"
 #include "mesh/Primitives.h"
+#include "json.hpp"
 #include <algorithm>
 #include <cmath>
 #include <functional>
@@ -59,12 +60,25 @@ const std::vector<BlockInfo>& Table() {
             {{"Value", K::Number, 1, -100, 100, "The number."}}},
         {"Random Number", "Numbers", "A surprise number.", "Picks a number between Min and Max. The same Seed always gives the same number, so your model won't change by itself.\nExample: change the Seed to try a different look.", true, K::Number,
             {{"Min", K::Number, 0, -100, 100, "The smallest it can be."}, {"Max", K::Number, 10, -100, 100, "The biggest it can be."},
-             {"Seed", K::Number, 1, 0, 9999, "Change this for a different random pick."}}},
+             {"Seed", K::Number, 1, 0, 9999, "Change this for a different random pick."},
+             {"Each Copy Different", K::Number, 1, 0, 1, "1: when this ends up inside a Copy block, every copy gets its own pick. 0: all copies share one pick."}}},
         {"Math", "Numbers", "Adds, takes away, times or divides.", "Does simple sums with two numbers.\nExample: Number 3 times 2 gives 6.", true, K::Number,
             {{"A", K::Number, 1, -100, 100, "The first number."}, {"B", K::Number, 1, -100, 100, "The second number."}}},
         // Finish
         {"Show in Scene", "Finish", "Whatever you plug in here appears in 3D.", "The end of every recipe. Plug your final shape in, then press Build it!\nYou need exactly one of these.", false, K::Shape,
             {{"Shape", K::Shape, 0, 0, 0, "Your finished shape."}}},
+        // Added later (kept at the end so the table order matches BlockType)
+        {"Time", "Numbers", "Counts up as the animation plays.", "Gives the seconds since frame 1 of the timeline, times Speed. Wire it into Turn or Move, tick \"Update every frame\", then press Play.\nExample: Time into Spin with Speed 90 turns a quarter turn every second.", true, K::Number,
+            {{"Speed", K::Number, 1, -1000, 1000, "How fast it counts. 2 counts twice as fast, -1 counts backwards."}}},
+        {"Mirror", "Change", "Adds a flipped copy, like a reflection.", "Keeps your shape and adds a mirror image of it on the other side. Pick which way to flip on the block.\nExample: a Ball moved 2 to the right, mirrored left/right, makes a pair of eyes.", true, K::Shape,
+            {kShapeIn}},
+        {"Copy Upwards", "Repeat", "Stacks copies on top of each other.", "Makes copies one above the other, like the floors of a building.\nExample: 10 flat boxes with Gap 1 makes a tower.", true, K::Shape,
+            {kShapeIn, {"How Many", K::Number, 3, 1, kMaxCopies, "How many copies to make."},
+             {"Gap", K::Number, 2.5f, 0, 100, "Distance from one copy to the one above."}}},
+        {"Scatter Randomly", "Repeat", "Sprinkles copies around the ground.", "Drops copies at random spots inside a square and spins each one a random amount. The same Seed always gives the same layout.\nExample: 50 cones in an Area of 40 makes a forest.", true, K::Shape,
+            {kShapeIn, {"How Many", K::Number, 20, 1, kMaxCopies, "How many copies to make."},
+             {"Area", K::Number, 20, 0.1f, 1000, "How wide the square they land in is."},
+             {"Seed", K::Number, 1, 0, 9999, "Change this for a different layout."}}},
     };
     return t;
 }
@@ -95,6 +109,46 @@ struct Eval {
     std::unordered_map<int, float> numbers;
     std::vector<std::string> notes;
     std::string firstError;
+    uint32_t salt = 0;   // which copy is being built; 0 outside every Copy block
+
+    // Every block whose output flows into `id`, including `id` itself.
+    std::vector<int> Upstream(int id) {
+        std::vector<int> out, stack{id};
+        while (!stack.empty()) {
+            int n = stack.back(); stack.pop_back();
+            if (std::find(out.begin(), out.end(), n) != out.end()) continue;
+            out.push_back(n);
+            for (const Wire& w : g.wires) if (w.to == n) stack.push_back(w.from);
+        }
+        return out;
+    }
+    void Forget(const std::vector<int>& ids) { for (int id : ids) { state.erase(id); meshes.erase(id); numbers.erase(id); } }
+
+    // Makes n copies of the shape in input 0, placing copy i with place(i, mesh). When a Random Number
+    // upstream has "Each Copy Different" on, that part of the recipe is rebuilt for every copy.
+    bool Copies(Block& b, int n, const std::function<void(int, Mesh&)>& place) {
+        Mesh base; if (!Shape(b, 0, base)) return false;
+        const std::vector<int> up = Upstream(g.WireInto(b.id, 0)->from);
+        bool perCopy = false;
+        for (int id : up)
+            if (Block* u = g.Find(id)) if (u->type == BlockType::Random && (u->values[3] >= 0.5f || g.WireInto(id, 3))) perCopy = true;
+        if (!perCopy && !CheckSize(b, base.VertexCount(), (size_t)n)) return false;
+        Mesh out; const uint32_t saved = salt;
+        for (int i = 0; i < n; ++i) {
+            Mesh c;
+            if (perCopy) {
+                salt = saved * 1000003u + (uint32_t)i + 1u; Forget(up);
+                bool ok = Shape(b, 0, c);
+                salt = saved;
+                if (!ok) { Forget(up); return false; }
+            } else c = base;
+            if (out.VertexCount() + c.VertexCount() > kMaxVerts) { Forget(up); return Fail(b, "That would make a model with over 2 million points. Use fewer copies."); }
+            place(i, c);
+            Append(out, std::move(c));
+        }
+        if (perCopy) Forget(up);   // later uses outside this block get the shared pick again
+        meshes[b.id] = std::move(out); return true;
+    }
 
     bool Fail(Block& b, const std::string& msg) {
         if (b.error.empty()) b.error = msg;
@@ -171,31 +225,57 @@ struct Eval {
             meshes[b.id] = std::move(m); return true;
         }
         case BlockType::CopyLine: {
-            Mesh m; int n; float gap; if (!Shape(b, 0, m) || !Count(b, 1, n) || !Number(b, 2, gap) || !CheckSize(b, m.VertexCount(), n)) return false;
-            Mesh out;
-            for (int i = 0; i < n; ++i) { Mesh c = m; Transform(c, [&](Float3 q) { q.x += gap * i; return q; }); Append(out, std::move(c)); }
-            meshes[b.id] = std::move(out); return true;
+            int n; float gap; if (!Count(b, 1, n) || !Number(b, 2, gap)) return false;
+            return Copies(b, n, [&](int i, Mesh& c) { Transform(c, [&](Float3 q) { q.x += gap * i; return q; }); });
+        }
+        case BlockType::StackUp: {
+            int n; float gap; if (!Count(b, 1, n) || !Number(b, 2, gap)) return false;
+            return Copies(b, n, [&](int i, Mesh& c) { Transform(c, [&](Float3 q) { q.y += gap * i; return q; }); });
         }
         case BlockType::CopyCircle: {
-            Mesh m; int n; float r; if (!Shape(b, 0, m) || !Count(b, 1, n) || !Number(b, 2, r) || !CheckSize(b, m.VertexCount(), n)) return false;
-            Mesh out;
-            for (int i = 0; i < n; ++i) {
-                float a = 6.2831853f * i / n; Mesh c = m;
+            int n; float r; if (!Count(b, 1, n) || !Number(b, 2, r)) return false;
+            return Copies(b, n, [&](int i, Mesh& c) {
+                float a = 6.2831853f * i / n;
                 Transform(c, [&](Float3 q) { q.z += r; return RotY(q, a); });
-                Append(out, std::move(c));
-            }
-            meshes[b.id] = std::move(out); return true;
+            });
         }
         case BlockType::CopyGrid: {
-            Mesh m; int rows, cols; float gap;
-            if (!Shape(b, 0, m) || !Count(b, 1, rows) || !Count(b, 2, cols) || !Number(b, 3, gap)) return false;
+            int rows, cols; float gap;
+            if (!Count(b, 1, rows) || !Count(b, 2, cols) || !Number(b, 3, gap)) return false;
             if (rows * cols > kMaxCopies) { cols = std::max(1, kMaxCopies / rows); notes.push_back("Copy in a Grid: capped at 1000 copies so your computer doesn't freeze."); }
-            if (!CheckSize(b, m.VertexCount(), (size_t)rows * cols)) return false;
-            Mesh out;
-            for (int r = 0; r < rows; ++r) for (int c = 0; c < cols; ++c) {
-                Mesh k = m; Transform(k, [&](Float3 q) { q.x += gap * c; q.z += gap * r; return q; }); Append(out, std::move(k));
+            return Copies(b, rows * cols, [&](int i, Mesh& k) {
+                const int r = i / cols, c = i % cols;
+                Transform(k, [&](Float3 q) { q.x += gap * c; q.z += gap * r; return q; });
+            });
+        }
+        case BlockType::Scatter: {
+            int n; float area, seed; if (!Count(b, 1, n) || !Number(b, 2, area) || !Number(b, 3, seed)) return false;
+            uint32_t s = (uint32_t)std::lround(std::fabs(seed));
+            std::mt19937 rng(salt ? (s * 2654435761u) ^ salt : s);
+            auto unit = [&] { return (float)(rng() / 4294967296.0); };
+            return Copies(b, n, [&](int, Mesh& c) {
+                float x = (unit() - 0.5f) * area, z = (unit() - 0.5f) * area, a = unit() * 6.2831853f;
+                Transform(c, [&](Float3 q) { q = RotY(q, a); q.x += x; q.z += z; return q; });
+            });
+        }
+        case BlockType::Mirror: {
+            Mesh m; if (!Shape(b, 0, m)) return false;
+            if (m.VertexCount() * 2 > kMaxVerts) return Fail(b, "That would make a model with over 2 million points. Use fewer copies.");
+            Mesh f = m; f.EnsureUVs();
+            const int axis = std::clamp(b.op, 0, kMirrorWayCount - 1);
+            Transform(f, [&](Float3 q) { (axis == 0 ? q.x : axis == 1 ? q.y : q.z) *= -1.0f; return q; });
+            const bool uv = f.HasLoopUVs();
+            for (size_t i = 0; i < f.tris.size(); ++i) {   // a reflection turns faces inside out, so flip them back
+                std::swap(f.tris[i].b, f.tris[i].c);
+                if (uv) std::swap(f.loopUVs[i * 3 + 1], f.loopUVs[i * 3 + 2]);
             }
-            meshes[b.id] = std::move(out); return true;
+            Append(m, std::move(f));
+            meshes[b.id] = std::move(m); return true;
+        }
+        case BlockType::Time: {
+            if (!nums(0, 1)) return false;
+            numbers[b.id] = (g.frame - 1.0f) / (float)std::max(1, g.fps) * v[0];
+            return true;
         }
         case BlockType::PutTogether: {
             Mesh out; bool any = false;
@@ -210,8 +290,9 @@ struct Eval {
         }
         case BlockType::Number: if (!nums(0, 1)) return false; numbers[b.id] = v[0]; return true;
         case BlockType::Random: {
-            if (!nums(0, 3)) return false;
-            std::mt19937 rng((uint32_t)std::lround(std::fabs(v[2])));
+            if (!nums(0, 4)) return false;
+            uint32_t s = (uint32_t)std::lround(std::fabs(v[2]));
+            std::mt19937 rng(v[3] >= 0.5f && salt ? (s * 2654435761u) ^ salt : s);
             numbers[b.id] = v[0] + (v[1] - v[0]) * (float)(rng() / 4294967296.0);
             return true;
         }
@@ -233,6 +314,11 @@ const BlockInfo& GetBlockInfo(BlockType t) { return Table()[(size_t)t]; }
 const char* const* BlockCategories(int& count) {
     static const char* const c[] = {"Shapes", "Change", "Repeat", "Mix", "Numbers", "Finish"};
     count = 6; return c;
+}
+
+const char* MirrorWayName(int way) {
+    static const char* const n[] = {"left / right", "up / down", "front / back"};
+    return n[std::clamp(way, 0, kMirrorWayCount - 1)];
 }
 
 const char* MathOpName(int op) {
@@ -331,5 +417,74 @@ bool EvaluateNumber(VisualGraph& g, int id, float& out, std::string& why) {
     if (!b || !GetBlockInfo(b->type).hasOutput || GetBlockInfo(b->type).output != WireKind::Number) { why = "Not a number block."; return false; }
     if (!e.Run(id)) { why = e.firstError; return false; }
     out = e.numbers[id];
+    return true;
+}
+
+// ---------------------------------------------------------------- .leorixblocks files
+std::string SaveGraph(const VisualGraph& g) {
+    nlohmann::json j;
+    j["format"] = "leorix-blocks";
+    j["version"] = 1;
+    j["blocks"] = nlohmann::json::array();
+    for (const Block& b : g.blocks)
+        j["blocks"].push_back({{"id", b.id}, {"type", GetBlockInfo(b.type).name}, {"x", b.x}, {"y", b.y}, {"op", b.op}, {"values", b.values}});
+    j["wires"] = nlohmann::json::array();
+    for (const Wire& w : g.wires) j["wires"].push_back({{"from", w.from}, {"to", w.to}, {"input", w.input}});
+    return j.dump(1);
+}
+
+bool LoadGraph(VisualGraph& g, const std::string& text, std::string& message) {
+    using nlohmann::json;
+    constexpr size_t kMaxBlocks = 5000;
+    json j = json::parse(text, nullptr, false);
+    if (j.is_discarded() || !j.is_object()) { message = "That file isn't a blocks file (it couldn't be read)."; return false; }
+    auto fmt = j.find("format");
+    if (fmt == j.end() || !fmt->is_string() || fmt->get<std::string>() != "leorix-blocks") { message = "That file isn't a Leorix blocks file."; return false; }
+    if (!j.contains("blocks") || !j["blocks"].is_array()) { message = "The file has no blocks in it."; return false; }
+    if (j["blocks"].size() > kMaxBlocks) { message = "The file has too many blocks (over 5000)."; return false; }
+
+    auto num = [](const json& o, const char* k, float def) {
+        auto it = o.find(k);
+        if (it == o.end() || !it->is_number()) return def;
+        double v = it->get<double>();
+        return std::isfinite(v) ? (float)std::clamp(v, -1e6, 1e6) : def;
+    };
+    VisualGraph out;
+    out.frame = g.frame; out.fps = g.fps;
+    int skippedBlocks = 0, skippedWires = 0, maxId = 0;
+    for (const json& jb : j["blocks"]) {
+        if (!jb.is_object() || !jb.contains("type") || !jb["type"].is_string() || !jb.contains("id") || !jb["id"].is_number_integer()) { ++skippedBlocks; continue; }
+        const std::string type = jb["type"].get<std::string>();
+        int t = 0;
+        while (t < (int)BlockType::Count && type != GetBlockInfo((BlockType)t).name) ++t;
+        const long long id = jb["id"].get<long long>();
+        if (t == (int)BlockType::Count || id < 1 || id > 1000000 || out.Find((int)id)) { ++skippedBlocks; continue; }
+        Block b; b.id = (int)id; b.type = (BlockType)t;
+        b.x = num(jb, "x", 0); b.y = num(jb, "y", 0);
+        b.op = std::clamp((int)num(jb, "op", 0), 0, b.type == BlockType::Mirror ? kMirrorWayCount - 1 : kMathOpCount - 1);
+        const auto& ins = GetBlockInfo(b.type).inputs;
+        const json values = jb.contains("values") && jb["values"].is_array() ? jb["values"] : json::array();
+        for (size_t i = 0; i < ins.size(); ++i) {
+            double v = i < values.size() && values[i].is_number() ? values[i].get<double>() : ins[i].value;
+            if (!std::isfinite(v)) v = ins[i].value;
+            b.values.push_back(ins[i].kind == WireKind::Number ? (float)std::clamp(v, (double)ins[i].min, (double)ins[i].max) : ins[i].value);
+        }
+        maxId = std::max(maxId, b.id);
+        out.blocks.push_back(std::move(b));
+    }
+    out.nextId = maxId + 1;
+    if (j.contains("wires") && j["wires"].is_array()) {
+        if (j["wires"].size() > kMaxBlocks * 4) { message = "The file has too many wires."; return false; }
+        for (const json& jw : j["wires"]) {
+            std::string why;
+            auto in = [&](const char* k) { return jw.contains(k) && jw[k].is_number_integer() && std::llabs(jw[k].get<long long>()) <= 1000000; };
+            if (!jw.is_object() || !in("from") || !in("to") || !in("input") ||
+                !out.Connect(jw["from"].get<int>(), jw["to"].get<int>(), jw["input"].get<int>(), why)) ++skippedWires;
+        }
+    }
+    g = std::move(out);
+    message = "Opened " + std::to_string(g.blocks.size()) + " block" + (g.blocks.size() == 1 ? "" : "s") + ".";
+    if (skippedBlocks) message += " Skipped " + std::to_string(skippedBlocks) + " block(s) this version doesn't know.";
+    if (skippedWires) message += " Skipped " + std::to_string(skippedWires) + " broken wire(s).";
     return true;
 }

@@ -25,3 +25,8 @@ EditOpResult ExtrudeFaces(Mesh& m, const EditSelection& sel);
 EditOpResult DeleteSelected(Mesh& m, const EditSelection& sel);
 // Collapses every selected vertex into one at their average position.
 EditOpResult MergeAtCenter(Mesh& m, const EditSelection& sel);
+// Copies the selected faces (or faces whose vertices are all selected) as new, unconnected
+// geometry on top of the old and selects the copy, ready to be moved (Shift+D).
+EditOpResult DuplicateFaces(Mesh& m, const EditSelection& sel);
+// Moves the selected faces out of `m` into `out`, a new mesh (P). Vertices left unused are removed.
+EditOpResult SeparateFaces(Mesh& m, const EditSelection& sel, Mesh& out);
