@@ -172,21 +172,8 @@ void Armature::Evaluate(std::vector<Mat4>& out) const {
         return (t < self ? cur : fk)[t].Apply(bones[t].head);
     };
 
-    // IK corrections, solved on the FK pose: a world rotation for the parent and for the bone.
+    // IK corrections for a bone, solved when its parent's final pose is known (see the end of pass 2).
     std::vector<Mat4> corr(n);
-    for (int i = 0; i < n; ++i)
-        for (const BoneConstraint& c : bones[i].constraints) {
-            int p = parentOf(i);
-            if (!c.enabled || c.type != BoneConstraint::IK || p < 0) continue;
-            Float3 A = fk[p].Apply(bones[p].head), J = fk[i].Apply(bones[i].head), E = fk[i].Apply(bones[i].tail);
-            Float3 T = targetPos(c.target, c.point, i, fk);
-            Float3 poleP = targetPos(c.poleTarget, c.polePoint, i, fk);
-            Float3 J2, E2;
-            SolveTwoBoneIK(A, J, E, T, c.usePole ? &poleP : nullptr, J2, E2);
-            Mat4 cp = RotateAbout(A, Sub(J, A), Sub(J2, A));
-            corr[p] = cp;
-            corr[i] = RotateAbout(J2, Sub(cp.Apply(E), J2), Sub(E2, J2));
-        }
 
     // Pass 2: FK with the IK corrections, then the remaining constraints in stack order.
     out.assign(n, Mat4::Identity());
@@ -220,6 +207,29 @@ void Armature::Evaluate(std::vector<Mat4>& out) const {
             }
         }
         out[i] = m;
+        // Two-bone IK on a child of i: rotate i about its head, then the child about the new joint. Solving here,
+        // against i's constrained pose, keeps the chain attached when i or its parents were moved by constraints.
+        bool solved = false;   // one IK per parent; a second one would undo the first
+        for (int k = i + 1; k < n && !solved; ++k) {
+            if (parentOf(k) != i) continue;
+            for (const BoneConstraint& c : bones[k].constraints) {
+                if (!c.enabled || c.type != BoneConstraint::IK) continue;
+                Mat4 mk = out[i] * LocalPose(bones[k]);
+                Float3 A = out[i].Apply(b.head), J = mk.Apply(bones[k].head), E = mk.Apply(bones[k].tail);
+                auto at = [&](int t, const Float3& point) {   // bones up to i are final, later ones FK
+                    if (t < 0 || t >= n || t == k) return point;
+                    return (t <= i ? out : fk)[t].Apply(bones[t].head);
+                };
+                Float3 T = at(c.target, c.point), poleP = at(c.poleTarget, c.polePoint);
+                Float3 J2, E2;
+                SolveTwoBoneIK(A, J, E, T, c.usePole ? &poleP : nullptr, J2, E2);
+                Mat4 cp = RotateAbout(A, Sub(J, A), Sub(J2, A));
+                out[i] = cp * out[i];
+                corr[k] = RotateAbout(J2, Sub(cp.Apply(E), J2), Sub(E2, J2));
+                solved = true;
+                break;
+            }
+        }
     }
 }
 

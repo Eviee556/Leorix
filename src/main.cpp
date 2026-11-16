@@ -6,6 +6,7 @@
 #include "mesh/Primitives.h"
 #include "mesh/Unwrap.h"
 #include "mesh/UVEdit.h"
+#include "mesh/Multires.h"
 #include "tools/Script.h"
 #include "render/PathTracer.h"
 #include "tools/Sculpt.h"
@@ -596,6 +597,82 @@ static int SelfTest() {
         check(renamed == 20 && has("upperarm_l") && has("calf_r") && has("pelvis"), "rig naming: plain -> UE5");
         ApplyRigNaming(rig, RigNaming::Mixamo);
         check(has("mixamorig:LeftForeArm") && has("mixamorig:RightUpLeg"), "rig naming: UE5 -> Mixamo");
+
+        // IK is solved against the constrained parent chain: Copy Location on the root moves the shoulder first
+        Armature moved;
+        int r0 = moved.AddBone("root", {0, 0, 0}, {0, 0.5f, 0});
+        int u1 = moved.AddBone("upper", {0, 0.5f, 0}, {0, 1.5f, 0}, r0);
+        int l2 = moved.AddBone("lower", {0, 1.5f, 0}, {0, 2.5f, 0}, u1);
+        BoneConstraint cl; cl.type = BoneConstraint::CopyLocation; cl.point = {0.5f, 0, 0};
+        moved.bones[r0].constraints.push_back(cl);
+        BoneConstraint ik2; ik2.type = BoneConstraint::IK; ik2.point = {1, 1.5f, 0};
+        moved.bones[l2].constraints.push_back(ik2);
+        moved.Evaluate(m);
+        check(near3(m[l2].Apply(moved.bones[l2].tail), {1, 1.5f, 0}, 1e-3f) &&
+              near3(m[u1].Apply(moved.bones[u1].head), {0.5f, 0.5f, 0}, 1e-3f) &&
+              near3(m[l2].Apply(moved.bones[l2].head), m[u1].Apply(moved.bones[u1].tail), 1e-3f),
+              "ik: reaches the target after Copy Location moved the root");
+        // two IKs on one chain run in order and keep it connected (no twist from an overwritten correction)
+        Armature two;
+        int a0 = two.AddBone("a", {0, 0, 0}, {0, 1, 0});
+        int b1 = two.AddBone("b", {0, 1, 0}, {0, 2, 0}, a0);
+        int c2 = two.AddBone("c", {0, 2, 0}, {0, 3, 0}, b1);
+        BoneConstraint ikb; ikb.type = BoneConstraint::IK; ikb.point = {1, 1, 0};
+        two.bones[b1].constraints.push_back(ikb);
+        two.bones[c2].constraints.push_back(ikb);
+        two.Evaluate(m);
+        check(near3(m[b1].Apply(two.bones[b1].head), m[a0].Apply(two.bones[a0].tail), 1e-3f) &&
+              near3(m[c2].Apply(two.bones[c2].head), m[b1].Apply(two.bones[b1].tail), 1e-3f) &&
+              near3(m[c2].Apply(two.bones[c2].tail), {1, 1, 0}, 1e-3f), "ik: two IKs on one chain stay connected");
+
+        // An IK-posed rig exports as posed: each joint chain * inverse bind equals Armature::Evaluate
+        Mesh body = BuildPrimitive(Primitive::Cube, DefaultParams(Primitive::Cube));
+        arm.bones[tgt].poseLocation = {0, 0, 0};
+        arm.BindAutomaticWeights(body);
+        Action act;
+        act.Find(ChannelTarget::Bone, tgt, ChannelProp::Location, 1).Insert(1, 0.0f);
+        act.Find(ChannelTarget::Bone, tgt, ChannelProp::Location, 1).Insert(5, -0.5f);
+        std::string glb = (std::filesystem::temp_directory_path() / "leorix_selftest_ik.glb").string();
+        std::string err;
+        bool ok = ExportMeshAnimated(glb, body, &arm, &act, 24, err);
+        tinygltf::Model gm; tinygltf::TinyGLTF loader; std::string gerr, gwarn;
+        ok = ok && loader.LoadBinaryFromFile(&gm, &gerr, &gwarn, glb) && gm.skins.size() == 1 && gm.skins[0].joints.size() >= 3;
+        check(ok && gm.animations.size() == 1 && gm.animations[0].channels.size() == 9, "ik export: every joint baked when constrained");
+        if (ok) {
+            auto rotate = [](const std::vector<double>& q, Float3 v) {
+                double x = q[0], y = q[1], z = q[2], w = q[3];
+                double tx = 2 * (y * v.z - z * v.y), ty = 2 * (z * v.x - x * v.z), tz = 2 * (x * v.y - y * v.x);
+                return Float3{float(v.x + w * tx + y * tz - z * ty), float(v.y + w * ty + z * tx - x * tz), float(v.z + w * tz + x * ty - y * tx)};
+            };
+            auto local = [&](int node, Float3 p) {
+                const tinygltf::Node& n = gm.nodes[node];
+                p = {float(p.x * n.scale[0]), float(p.y * n.scale[1]), float(p.z * n.scale[2])};
+                p = rotate(n.rotation, p);
+                return Float3{float(p.x + n.translation[0]), float(p.y + n.translation[1]), float(p.z + n.translation[2])};
+            };
+            arm.Evaluate(m);
+            Float3 probe{0.3f, 0.7f, -0.4f};
+            for (int b = 0; b < (int)arm.bones.size() && ok; ++b) {
+                Float3 p{probe.x - arm.bones[b].head.x, probe.y - arm.bones[b].head.y, probe.z - arm.bones[b].head.z};
+                for (int k = b; k >= 0; k = arm.bones[k].parent) p = local(gm.skins[0].joints[k], p);
+                ok = near3(p, m[b].Apply(probe), 1e-4f);
+            }
+        }
+        check(ok, "ik export: joints reproduce the constrained pose");
+        std::filesystem::remove(glb);
+
+        check(near3(AxisMask({1, 2, 3}, 0), {1, 0, 0}, 1e-6f) && near3(AxisMask({1, 2, 3}, 2), {0, 0, 3}, 1e-6f) &&
+              near3(AxisMask({1, 2, 3}, -1), {1, 2, 3}, 1e-6f), "snap: axis constraint survives geometry snapping");
+    }
+    // Multires (Subdivision Surface) keeps the model's UVs, so painting and textures still work on it
+    {
+        Mesh cube = BuildPrimitive(Primitive::Cube, DefaultParams(Primitive::Cube));
+        SmartUVProject(cube);
+        Multires mr; mr.Rebuild(cube, 2);
+        Mesh e = mr.Evaluate();
+        bool inside = !e.tris.empty() && e.HasLoopUVs();
+        for (const Float2& q : e.loopUVs) inside &= q.u >= -1e-5f && q.u <= 1 + 1e-5f && q.v >= -1e-5f && q.v <= 1 + 1e-5f;
+        check(inside && e.tris.size() == 6 * 16 * 2, "multires keeps loop UVs (96 quads, all in 0..1)");
     }
     // Smart UV Project, UV island editing and painting on the model
     {

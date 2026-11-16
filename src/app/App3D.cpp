@@ -1682,9 +1682,7 @@ void App::UpdateTransform(bool) {
         Float3 delta{ (r.x * dx - u.x * dy) * perPixel,
                       (r.y * dx - u.y * dy) * perPixel,
                       (r.z * dx - u.z * dy) * perPixel };
-        if (xform.axis == 0) delta = {delta.x, 0, 0};
-        else if (xform.axis == 1) delta = {0, delta.y, 0};
-        else if (xform.axis == 2) delta = {0, 0, delta.z};
+        delta = AxisMask(delta, xform.axis);
 
         // Snapping. Ctrl toggles it while dragging, the way Blender does.
         bool snapNow = snapEnabled != io.KeyCtrl;
@@ -1698,7 +1696,7 @@ void App::UpdateTransform(bool) {
                 float inc = std::max(0.0001f, to == SnapTo::Grid ? 1.0f : snapIncrement);
                 want = {std::round(want.x / inc) * inc, std::round(want.y / inc) * inc, std::round(want.z / inc) * inc};
             }
-            delta = {want.x - base.x, want.y - base.y, want.z - base.z};
+            delta = AxisMask({want.x - base.x, want.y - base.y, want.z - base.z}, xform.axis);   // G X stays on X
         }
         if (!xform.movedVerts.empty()) {
             // Vertices live in object space, so undo the object's scale/rotation for the move.
@@ -2909,6 +2907,8 @@ void App::UVPanel() {
         if (ImGui::RadioButton("Islands", uvSelectIslands)) uvSelectIslands = true;
         ImGui::SameLine();
         if (ImGui::RadioButton("Vertices", !uvSelectIslands)) uvSelectIslands = false;
+        // the canvas may be hidden, so drop a selection left over from another object or older topology here too
+        if (uvSelOwner != o || uvSel.size() != o->mesh.loopUVs.size()) uvSel.clear();
         Float2 c;
         const bool any = UVSelectionCenter(o->mesh, uvSel, c);
         ImGui::BeginDisabled(!any);

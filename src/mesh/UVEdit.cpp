@@ -121,11 +121,12 @@ void TransformUVSelection(Mesh& mesh, const std::vector<Float2>& base, const std
     }
 }
 
-bool SurfaceUV(const Mesh& mesh, uint32_t tri, const Float3& p, Float2& uv) {
+bool SurfaceUV(const Mesh& mesh, uint32_t tri, const Float3& p, Float2& uv, const std::vector<Float3>* pos) {
     if (!mesh.HasLoopUVs() || tri >= mesh.tris.size()) return false;
+    const std::vector<Float3>& P = pos ? *pos : mesh.positions;
     const Tri& t = mesh.tris[tri];
-    if (t.a >= mesh.positions.size() || t.b >= mesh.positions.size() || t.c >= mesh.positions.size()) return false;
-    const Float3 &A = mesh.positions[t.a], &B = mesh.positions[t.b], &C = mesh.positions[t.c];
+    if (t.a >= P.size() || t.b >= P.size() || t.c >= P.size()) return false;
+    const Float3 &A = P[t.a], &B = P[t.b], &C = P[t.c];
     // barycentrics from sub-triangle areas, measured along the face normal
     Float3 n = Cross3(Sub3(B, A), Sub3(C, A));
     float nn = Dot3(n, n);
