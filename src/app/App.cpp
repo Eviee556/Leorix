@@ -12,6 +12,7 @@ static const char* kToolOptions = "Tool Options", *kColor = "Color", *kLayers = 
 static const char* kRenderSettings = "Render Settings", *kTool3D = "3D Tool Settings";
 static const char* kHierarchy = "Hierarchy", *kMaterial = "Material", *kWorld = "Environment";
 static const char* kCamera = "Camera", *kArmature = "Armature", *kTimeline = "Timeline";
+static const char* kPhysics = "Physics";
 static const char* kMaps = "Maps", *kUV = "UV Editor", *kModifiers = "Modifiers";
 static const char* kRayTracing = "Ray Tracing", *kMultires = "Multiresolution";
 static const ImVec4 kBrass(0.79f, 0.54f, 0.29f, 1.0f);
@@ -205,6 +206,7 @@ void App::Frame() {
     if (showMultires)       MultiresPanel();
     if (showModifiers)      ModifierPanel();
     if (showArmature)       ArmaturePanel();
+    if (showPhysics)        PhysicsPanel();
     if (showTimeline)       TimelinePanel();
     if (showTool3D)         Tool3DPanel();
     if (showToolOptions)    ToolOptionsPanel();
@@ -256,6 +258,7 @@ void App::BuildDefaultLayout(unsigned dockspaceId) {
     ImGui::DockBuilderDockWindow(kRayTracing, right);
     ImGui::DockBuilderDockWindow(kModifiers, right);
     ImGui::DockBuilderDockWindow(kArmature, right);
+    ImGui::DockBuilderDockWindow(kPhysics, right);
     ImGui::DockBuilderDockWindow(kCamera, right);
     ImGui::DockBuilderDockWindow(kWorld, right);
     ImGui::DockBuilderDockWindow(kMaterial, right);
@@ -348,6 +351,7 @@ void App::MenuBar() {
         ImGui::MenuItem(kMultires, nullptr, &showMultires);
         ImGui::MenuItem(kRayTracing, nullptr, &showRayTracing);
         ImGui::MenuItem(kArmature, nullptr, &showArmature);
+        ImGui::MenuItem(kPhysics, nullptr, &showPhysics);
         ImGui::MenuItem(kTimeline, nullptr, &showTimeline);
         ImGui::MenuItem(kTool3D, nullptr, &showTool3D);
         ImGui::MenuItem(kToolOptions, nullptr, &showToolOptions);

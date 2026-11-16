@@ -10,6 +10,7 @@
 #include "paint/Paint.h"
 #include "paint/Project.h"
 #include "mesh/Scene.h"
+#include "physics/Physics.h"
 #include "mesh/UVView.h"
 #include "anim/WeightPaint.h"
 #include "tools/BrushImage.h"
@@ -105,6 +106,9 @@ private:
     } world;
     bool showWorld = false, showMaterial = false, showCamera = false;
     bool showArmature = false, showTimeline = false, showModifiers = false, showRayTracing = false;
+    bool showPhysics = false;
+    PhysicsSettings physics;
+    void PhysicsPanel();
     PathTracer tracer;
     HdriImage  hdri;
     std::string hdriPath;

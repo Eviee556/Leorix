@@ -125,6 +125,8 @@ add_executable(leorix
   src/app/VisualScriptPanel.cpp
   src/app/RigPanel.cpp
   src/app/CurveEdit.cpp
+  src/physics/Physics.cpp
+  src/app/PhysicsPanel.cpp
   src/app/UVPaint.cpp
   src/app/WeightPaintPanel.cpp
   src/mesh/Mesh.cpp

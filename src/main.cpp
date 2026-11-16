@@ -14,6 +14,7 @@
 #include "tools/Snap.h"
 #include "anim/Armature.h"
 #include "anim/WeightPaint.h"
+#include "physics/Physics.h"
 #include "anim/Animation.h"
 #include "paint/Project.h"
 #include "miniz.h"
@@ -984,6 +985,93 @@ static int SelfTest() {
               "weight paint: Clean drops weights under 0.01 and renormalizes");
         c.weights = {both(0.6f)}; c.weights[0].weight[1] = 0.2f;   // sums to 0.8
         check(NormalizeAllWeights(c) == 1 && std::fabs(sum(c.weights[0]) - 1) < 1e-6f, "weight paint: Normalize All");
+    }
+    // Rigid bodies: free fall timing, resting, bounce, stacking, determinism, project round trip
+    {
+        const float top = 0.005f;   // a flat plane collides as a 1 cm slab
+        auto ground = [](Scene& sc) {
+            MeshObject* g = sc.AddMesh(BuildPrimitive(Primitive::Plane, DefaultParams(Primitive::Plane)), "Ground");
+            g->transform.scale = {10, 1, 10};
+            g->rigidBody.enabled = true; g->rigidBody.passive = true;
+        };
+        auto ballAt = [&](Scene& sc, float bounce) {
+            MeshObject* b = sc.AddMesh(BuildPrimitive(Primitive::UVSphere, DefaultParams(Primitive::UVSphere)), "Ball");
+            b->transform.position = {0, top + 1 + 2, 0};   // bottom 2 m above the ground
+            b->rigidBody.enabled = true; b->rigidBody.shape = RigidShape::Sphere; b->rigidBody.bounciness = bounce;
+            return b;
+        };
+        PhysicsSettings ps; ps.fps = 480; ps.frameStart = 1; ps.frameEnd = 480 * 3;
+        auto landing = [&](const std::vector<RigidTransform>& c, int from) {
+            for (int i = from; i < (int)c.size(); ++i) if (c[i].position.y - 1 <= top + 0.003f) return i;
+            return -1;
+        };
+        Scene sc; ground(sc);
+        MeshObject* ball = ballAt(sc, 0);
+        check(BakeRigidBodies(sc, ps) == 1 && ball->rigidBody.cache.size() == 480 * 3, "physics: bake fills one entry per frame");
+        const auto& c = ball->rigidBody.cache;
+        int land = landing(c, 0);
+        float tWant = std::sqrt(2 * 2 / 9.81f);
+        std::printf("  physics: landed at %.4f s (want %.4f), rests at %.4f\n", land / 480.0f, tWant, c.back().position.y - 1 - top);
+        check(land > 0 && std::fabs(land / 480.0f - tWant) < 0.02f * tWant, "physics: sphere lands at sqrt(2h/g)");
+        check(std::fabs(c.back().position.y - 1 - top) < 0.01f && std::fabs(c.back().position.x) < 1e-4f, "physics: sphere rests on the ground");
+
+        Scene sb; ground(sb);
+        MeshObject* bb = ballAt(sb, 0.5f);
+        BakeRigidBodies(sb, ps);
+        const auto& cb = bb->rigidBody.cache;
+        int l1 = landing(cb, 0);
+        float peak = 0;
+        for (int i = l1 + 1; l1 > 0 && i < l1 + 480 && i < (int)cb.size(); ++i) peak = std::max(peak, cb[i].position.y - 1 - top);
+        std::printf("  physics: bounce 0.5 from 2 m peaks at %.3f m\n", peak);
+        check(std::fabs(peak - 0.5f) < 0.1f, "physics: bounciness 0.5 rebounds to about a quarter of the height");
+
+        Scene ss; ground(ss);
+        MeshObject* boxes[3];
+        for (int k = 0; k < 3; ++k) {
+            boxes[k] = ss.AddMesh(BuildPrimitive(Primitive::Cube, DefaultParams(Primitive::Cube)), "Box");
+            boxes[k]->transform.scale = {0.5f, 0.5f, 0.5f};                    // 1 m cubes
+            boxes[k]->transform.position = {0, top + 0.5f + k, 0};
+            boxes[k]->rigidBody.enabled = true;
+            boxes[k]->rigidBody.shape = k == 1 ? RigidShape::ConvexHull : RigidShape::Box;
+        }
+        check(BakeRigidBodies(ss, ps) == 3, "physics: bake a stack of three boxes");
+        float drift = 0;
+        for (int k = 0; k < 3; ++k) {
+            const RigidTransform& e = boxes[k]->rigidBody.cache.back();
+            const Float3& r = boxes[k]->rigidBody.rest.position;
+            drift = std::max({drift, std::fabs(e.position.x - r.x), std::fabs(e.position.y - r.y), std::fabs(e.position.z - r.z),
+                              std::fabs(e.rotation.x), std::fabs(e.rotation.y), std::fabs(e.rotation.z)});
+        }
+        std::printf("  physics: stack drift after 3 s %.5f\n", drift);
+        check(drift < 0.01f, "physics: a stack of three boxes stays put");
+
+        std::vector<RigidTransform> first = boxes[2]->rigidBody.cache;
+        ApplyRigidBodyCache(ss, 480 * 3);   // sit on the last frame, so the rebake must start from the rest pose
+        BakeRigidBodies(ss, ps);
+        const auto& second = boxes[2]->rigidBody.cache;
+        check(second.size() == first.size() &&
+              std::memcmp(second.data(), first.data(), first.size() * sizeof(RigidTransform)) == 0, "physics: two bakes are identical");
+        ApplyRigidBodyCache(ss, 2);
+        check(boxes[2]->transform.position.y == second[1].position.y, "physics: playback reads the cache");
+        FreeRigidBodyBake(ss);
+        check(!boxes[2]->rigidBody.Baked() && boxes[2]->transform.position.y == top + 2.5f, "physics: free bake puts objects back");
+
+        // settings survive a project round trip; a baked object is saved at its rest pose
+        namespace fs = std::filesystem;
+        const std::string proj = (fs::temp_directory_path() / "leorix_selftest_physics.leorix").string();
+        ball->rigidBody.mass = 3; ball->rigidBody.friction = 0.2f; ball->rigidBody.bounciness = 0.4f;
+        ApplyRigidBodyCache(sc, 480 * 3);
+        PaintProject pp; pp.New(16, 16); BrushSettings br; PlaybackState pb;
+        bool saved = SaveLeorixProject(proj, pp, br, {}, &sc, &pb).ok;
+        Scene back; PaintProject pp2;
+        bool same = saved && LoadLeorixProject(proj, pp2, br, g_vk, nullptr, &back, nullptr).ok && back.objects.size() == 2;
+        if (same) {
+            const RigidBody& g = back.objects[0]->rigidBody; const RigidBody& b = back.objects[1]->rigidBody;
+            same = g.enabled && g.passive && b.enabled && !b.passive && b.shape == RigidShape::Sphere && b.mass == 3 &&
+                   b.friction == 0.2f && b.bounciness == 0.4f && back.objects[1]->transform.position.y == top + 3;
+        }
+        check(same, "physics: rigid body settings survive a project round trip");
+        std::error_code ec; fs::remove(proj, ec);
     }
     std::printf(failures ? "self-test FAILED (%d)\n" : "self-test passed\n", failures);
     return failures ? 1 : 0;

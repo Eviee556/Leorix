@@ -8,6 +8,7 @@
 #include "mesh/Modifier.h"
 #include "mesh/Multires.h"
 #include "anim/Animation.h"
+#include "physics/RigidBody.h"
 #include <algorithm>
 #include <cstdio>
 #include <memory>
@@ -48,6 +49,7 @@ struct MeshObject {
     bool     stackDirty = true;
     Armature armature;          // empty until bones are added
     Action   action;            // this object's keyframes
+    RigidBody rigidBody;        // physics settings and baked cache
     std::vector<Float3> skinned;// deformed positions for the current pose
     // Edit-mode selection
     std::unordered_set<uint32_t> selVerts;
