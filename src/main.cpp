@@ -832,6 +832,75 @@ static int SelfTest() {
         }
         check(same, "curve: handles, types, taper and bevel survive a project round trip");
         fs::remove(proj);
+
+        // NURBS: order 2 is a polyline, endpoint knots reach the ends, the circle is exact
+        CurvePath poly; poly.nurbs = true; poly.order = 2; poly.resolution = 4;
+        poly.points = {{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {3, 1, 0}};
+        std::vector<Float3> ps = poly.Evaluate();
+        bool onPoly = ps.size() == 13;
+        for (int s = 0; onPoly && s < 13; ++s) {
+            int seg = std::min(s / 4, 2); float f = (s - seg * 4) / 4.0f;
+            Float3 a = poly.points[seg], b = poly.points[seg + 1];
+            onPoly = near3(ps[s], {a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f, a.z + (b.z - a.z) * f}, 1e-5f);
+        }
+        check(onPoly, "nurbs: order 2 is the polyline through its points");
+        CurvePath ep; ep.nurbs = true; ep.order = 4;
+        ep.points = {{0, 0, 0}, {1, 2, 0}, {3, -1, 1}, {4, 0, 0}, {5, 1, 2}};
+        ep.weight = {1, 2, 0.5f, 1, 1};
+        std::vector<Float3> es = ep.Evaluate();
+        check(near3(es.front(), ep.points.front(), 1e-5f) && near3(es.back(), ep.points.back(), 1e-5f), "nurbs: endpoint knots pass through the end points");
+        CurvePath uni = ep; uni.endpoint = false;
+        check(!near3(uni.Evaluate().front(), ep.points.front(), 1e-3f), "nurbs: uniform knots stay inside the end points");
+        CurvePath cyc = ep; cyc.cyclic = true;
+        std::vector<Float3> cc = cyc.Evaluate();
+        check(cc.size() == 5 * 12 + 1 && near3(cc.front(), cc.back(), 1e-6f), "nurbs: cyclic curve closes");
+        CurvePath circ; SetNurbsCircle(circ, 1.0f); circ.resolution = 16;
+        std::vector<Float3> cp = circ.Evaluate();
+        bool round = cp.size() > 64;
+        for (const Float3& p : cp) round = round && std::fabs(std::sqrt(p.x * p.x + p.z * p.z) - 1) < 1e-4f && std::fabs(p.y) < 1e-6f;
+        check(round, "nurbs: circle points all lie at radius 1");
+
+        // box select: points and Bezier handles inside the box; NURBS has no handles
+        CurvePath bx; bx.points = {{0, 0, 0}, {1, 0, 0}, {2, 0, 0}}; bx.Sync();
+        auto inX = [](const Float3& p) { return p.x >= 0.9f && p.x <= 2.1f; };
+        check(CurveElemsInside(bx, inX) == std::vector<int>{3, 5, 6, 7}, "curve: box select picks the points and handles inside");
+        bx.nurbs = true;
+        check(CurveElemsInside(bx, inX) == std::vector<int>{3, 6}, "nurbs: box select picks only points");
+
+        // bevel profile: the cross-section is the profile curve's shape
+        CurvePath rail; rail.points = {{0, 0, 0}, {0, 1, 0}, {0, 2, 0}}; rail.resolution = 4;   // 9 rings
+        CurvePath vee; vee.nurbs = true; vee.order = 2; vee.resolution = 1;
+        vee.points = {{-0.1f, 0, 0}, {0, 0, 0.1f}, {0.1f, 0, 0}};                              // open, 3 points
+        Mesh pm = CurveToMesh(rail, &vee);
+        check(pm.positions.size() == 3 * 9 && pm.polyCount == 2 * 8, "curve: open profile sweep is profile points x rings, no caps");
+        CurvePath ringProf; SetNurbsCircle(ringProf, 0.1f); ringProf.resolution = 1;           // closed, 8 points
+        Mesh rm = CurveToMesh(rail, &ringProf);
+        bool onRadius = rm.positions.size() == 8 * 9 && rm.polyCount == 8 * 8 + 2;
+        for (const Float3& p : rm.positions) onRadius = onRadius && std::fabs(std::sqrt(p.x * p.x + p.z * p.z) - 0.1f) < 1e-4f;
+        check(onRadius, "curve: closed profile sweep is profile points x rings plus caps, at the profile's radius");
+
+        // project round trip: NURBS fields, explicit knots and the profile reference
+        const std::string proj2 = (fs::temp_directory_path() / "leorix_selftest_nurbs.leorix").string();
+        Scene ns;
+        MeshObject* pr = ns.AddMesh(Mesh{}, "Profile");
+        pr->isCurve = true; SetNurbsCircle(pr->curve, 0.2f); pr->curve.bevelDepth = 0.05f;
+        pr->mesh = CurveToMesh(pr->curve);
+        MeshObject* nc = ns.AddMesh(Mesh{}, "Rail");
+        nc->isCurve = true; nc->curve = ep; nc->curve.order = 3; nc->curve.bevelObject = 0; nc->curve.Sync();
+        nc->mesh = CurveToMesh(nc->curve, &pr->curve);
+        bool nsaved = SaveLeorixProject(proj2, pp, br, {}, &ns, &pb).ok;
+        Scene nb; PaintProject pp3; PlaybackState pb3;
+        bool nsame = nsaved && LoadLeorixProject(proj2, pp3, br, g_vk, nullptr, &nb, &pb3).ok && nb.objects.size() == 2;
+        if (nsame) {
+            const CurvePath& r = nb.objects[1]->curve;
+            const CurvePath& q = nb.objects[0]->curve;
+            std::vector<Float3> a = q.Evaluate(), b = pr->curve.Evaluate();
+            nsame = r.nurbs && r.order == 3 && r.endpoint && r.bevelObject == 0 && r.weight == nc->curve.weight &&
+                    q.nurbs && q.knots == pr->curve.knots && a.size() == b.size() && near3(a[5], b[5], 1e-5f) &&
+                    nb.objects[1]->mesh.positions.size() == nc->mesh.positions.size();
+        }
+        check(nsame, "nurbs: order, weights, knots and bevel profile survive a project round trip");
+        fs::remove(proj2);
     }
     // Polish: deflated undo tiles, stable modifier targets, Live Unwrap
     {
@@ -1264,6 +1333,84 @@ static int SelfTest() {
             check(ok, "control rig: controls and their targets survive a project round trip");
             fs::remove(cproj, ec);
         } else check(false, "control rig: controls and bones found");
+    }
+    // Cloth: hanging, draping on a box, determinism, project round trip
+    {
+        PhysicsSettings ps; ps.fps = 24; ps.frameStart = 1; ps.frameEnd = 48;   // 2 s
+        Scene sc;
+        MeshObject* cl = sc.AddMesh(BuildPrimitive(Primitive::Grid, DefaultParams(Primitive::Grid)), "Cloth");   // 2 x 2 m, flat
+        cl->cloth.enabled = true;
+        float zMax = -1e30f;
+        for (const Float3& p : cl->mesh.positions) zMax = std::max(zMax, p.z);
+        for (uint32_t i = 0; i < cl->mesh.positions.size(); ++i) if (cl->mesh.positions[i].z > zMax - 1e-4f) cl->cloth.pins.push_back(i);
+        const std::vector<Float3> rest = cl->mesh.positions;
+        check(BakeCloth(sc, ps) == 1 && cl->cloth.cache.size() == 48, "cloth: bake fills one entry per frame");
+        const std::vector<Float3>& last = cl->cloth.cache.back();
+        float lowest = 1e30f, strain = 0;
+        for (const Float3& p : last) lowest = std::min(lowest, p.y);
+        for (const Tri& t : cl->mesh.tris)
+            for (auto [a, b] : {std::pair{t.a, t.b}, {t.b, t.c}, {t.c, t.a}}) {
+                Float3 r{rest[a].x - rest[b].x, rest[a].y - rest[b].y, rest[a].z - rest[b].z};
+                Float3 d{last[a].x - last[b].x, last[a].y - last[b].y, last[a].z - last[b].z};
+                float lr = std::sqrt(r.x * r.x + r.y * r.y + r.z * r.z), ld = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+                strain = std::max(strain, std::fabs(ld - lr) / lr);
+            }
+        std::printf("  cloth: hanging lowest point %.3f m, worst edge strain %.3f\n", lowest, strain);
+        check(lowest < -1.5f && strain < 0.05f, "cloth: a pinned cloth hangs without stretching");
+        bool pinsStay = true;
+        for (uint32_t p : cl->cloth.pins) pinsStay &= std::fabs(last[p].z - rest[p].z) < 1e-5f && std::fabs(last[p].y - rest[p].y) < 1e-5f;
+        check(pinsStay, "cloth: pinned vertices stay put");
+
+        std::vector<std::vector<Float3>> first = cl->cloth.cache;
+        ApplyRigidBodyCache(sc, 48);
+        check(cl->mesh.positions[0].y == last[0].y, "cloth: playback writes the cached shape");
+        BakeCloth(sc, ps);
+        bool identical = first.size() == cl->cloth.cache.size();
+        for (size_t f = 0; identical && f < first.size(); ++f)
+            identical = std::memcmp(first[f].data(), cl->cloth.cache[f].data(), first[f].size() * sizeof(Float3)) == 0;
+        check(identical, "cloth: two bakes are identical");
+
+        // settings and pins survive a project round trip, and a baked cloth is saved in its rest shape
+        namespace fs = std::filesystem;
+        const std::string proj = (fs::temp_directory_path() / "leorix_selftest_cloth.leorix").string();
+        cl->cloth.stretch = 0.8f; cl->cloth.bend = 0.3f; cl->cloth.thickness = 0.03f;
+        ApplyRigidBodyCache(sc, 48);
+        PaintProject pp; pp.New(16, 16); BrushSettings br; PlaybackState pb;
+        bool saved = SaveLeorixProject(proj, pp, br, {}, &sc, &pb).ok;
+        Scene back; PaintProject pp2;
+        bool same = saved && LoadLeorixProject(proj, pp2, br, g_vk, nullptr, &back, nullptr).ok && back.objects.size() == 1;
+        if (same) {
+            const MeshObject& b = *back.objects[0];
+            same = b.cloth.enabled && b.cloth.stretch == 0.8f && b.cloth.bend == 0.3f && b.cloth.thickness == 0.03f &&
+                   b.cloth.pins == cl->cloth.pins && b.mesh.positions.size() == rest.size() && b.mesh.positions[0].y == rest[0].y;
+        }
+        check(same, "cloth: settings and pins survive a project round trip");
+        std::error_code ec; fs::remove(proj, ec);
+        FreeRigidBodyBake(sc);
+        check(!cl->cloth.Baked() && cl->mesh.positions[5].y == rest[5].y, "cloth: free bake restores the rest shape");
+
+        // a cloth dropped on a passive box drapes over it without passing through
+        Scene sd;
+        MeshObject* box = sd.AddMesh(BuildPrimitive(Primitive::Cube, DefaultParams(Primitive::Cube)), "Box");
+        box->transform.scale = {0.5f, 0.5f, 0.5f};   // 1 m cube, top at y = 0.5
+        box->rigidBody.enabled = true; box->rigidBody.passive = true; box->rigidBody.shape = RigidShape::Box;
+        MeshObject* drape = sd.AddMesh(BuildPrimitive(Primitive::Grid, DefaultParams(Primitive::Grid)), "Drape");
+        drape->transform.scale = {0.75f, 1, 0.75f};   // 1.5 m square
+        drape->transform.position = {0, 1.0f, 0};
+        drape->cloth.enabled = true;
+        PhysicsSettings pd = ps; pd.frameEnd = 36;
+        BakeRigidBodies(sd, pd);
+        check(BakeCloth(sd, pd) == 1, "cloth: bake a cloth over a box");
+        const float th = drape->cloth.thickness;
+        float deepest = 0, topY = 1e30f;
+        for (const Float3& lp : drape->cloth.cache.back()) {
+            Float3 p = drape->transform.Apply(lp);
+            float inside = std::min({0.5f - std::fabs(p.x), 0.5f - std::fabs(p.y), 0.5f - std::fabs(p.z)});   // > 0 inside the box
+            deepest = std::max(deepest, inside);
+            if (std::fabs(p.x) < 0.3f && std::fabs(p.z) < 0.3f) topY = std::min(topY, p.y);
+        }
+        std::printf("  cloth: on a box, deepest point inside %.4f m, centre rests at y %.3f\n", deepest, topY);
+        check(deepest <= th && topY > 0.5f && topY < 0.6f, "cloth: drapes over a passive box without passing through");
     }
     std::printf(failures ? "self-test FAILED (%d)\n" : "self-test passed\n", failures);
     return failures ? 1 : 0;

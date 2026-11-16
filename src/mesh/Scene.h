@@ -51,6 +51,7 @@ struct MeshObject {
     Armature armature;          // empty until bones are added
     Action   action;            // this object's keyframes
     RigidBody rigidBody;        // physics settings and baked cache
+    Cloth     cloth;            // cloth settings and baked vertex cache
     std::vector<Float3> skinned;// deformed positions for the current pose
     // Another object whose armature deforms this mesh (by id, 0 = none). This mesh keeps its own
     // weights and rest positions in `armature`; the bones come from that object.
