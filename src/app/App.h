@@ -317,14 +317,35 @@ private:
     // Weight Paint mode: brushes the active bone's weights on the active object (WeightPaintPanel.cpp)
     struct WeightPaintSettings {
         SculptSettings brush;            // radius, strength, hardness and falloff curve
-        int   mode = 0;                  // WeightBrush: Add, Subtract, Replace, Smooth
+        int   mode = 0;                  // WeightBrush: Add, Subtract, Replace, Smooth, Blur, Average, Sharpen, Multiply
+        int   tool = 0;                  // 0 brush, 1 sample weight, 2 gradient
         float value = 1.0f;
         bool  mirrorX = true;
+        bool  accumulate = false;        // off: a stroke can't push past one full dab
+        bool  frontOnly = false;
+        bool  autoNormalize = true;
+        bool  gradientRadial = false;
+        bool  zeroBlack = false;         // show zero / missing weights in black instead of blue
+        bool  contours = false;          // iso lines every 0.1
+        char  boneFilter[64] = "";
+        bool  allBones = false;          // operations target every unlocked bone, not just the active one
+        float levelsOffset = 0.0f, levelsGain = 1.0f, clampLo = 0.0f, clampHi = 1.0f;
+        int   smoothIter = 1, limitTotal = 4, quantizeSteps = 4;
+        float smoothFactor = 0.5f, smoothExpand = 0.0f, assignValue = 1.0f;
+        int   transferSource = -1;       // object id of the mesh to copy weights from
         WeightPaintSettings() { brush.radiusPx = 50.0f; brush.strength = 0.5f; }
     } weightPaint;
     bool  weightPainting = false;
     int   weightUndoIndex = -1;
     std::vector<VertexWeights> weightBefore;
+    int   weightAdjust = 0;              // F / Shift+F: 1 radius, 2 strength, dragged with the mouse
+    float weightAdjustStart = 0, weightAdjustMouse = 0;
+    bool  weightGradientDrag = false;
+    Float3 weightGradientA{0, 0, 0};     // object space start of the gradient drag
+    ImVec2 weightGradientScreen{0, 0};
+    float weightReadout = -1;            // last value shown in the status bar under the cursor
+    void WeightViewportInput(ImDrawList* dl, ImVec2 mouse);
+    void WeightOp(const char* label, const std::function<size_t(Armature&)>& op);
     void WeightStroke(bool begin);
     void WeightStrokeEnd();
     void WeightSettingsUI();

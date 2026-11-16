@@ -173,6 +173,8 @@ void App::EditModePick(bool viewportHovered) {
         bool objEdit = editMode && isActive && !obj.isCurve;   // a curve edits its points, not its tube
         bool objRetopo = retopoMode && isActive;
         meshPrefs.weightBone = (mode3D == Mode3D::Weight && isActive) ? activeBone : -1;
+        meshPrefs.weightZeroBlack = weightPaint.zeroBlack;
+        meshPrefs.weightContours = weightPaint.contours;
         PickResult p = DrawAndPickMesh(dl, viewport, obj, edit.selectMode, objEdit, objRetopo, meshPrefs,
                                        mouse, viewportHovered, shading, BuildLighting());
         if (p.hit && p.depth < bestDepth) { bestDepth = p.depth; pickedObject = i; if (isActive || !editMode) { lastPick = p; lastPickObject = i; } }
@@ -286,10 +288,7 @@ void App::EditModePick(bool viewportHovered) {
             dl->AddCircle(mouse, r * std::clamp(sculpt.hardness, 0.05f, 1.0f), IM_COL32(230, 180, 90, 90), 64, 1.0f);
         dl->AddCircleFilled(mouse, 2.0f, onSurface ? IM_COL32(255, 255, 255, 220) : IM_COL32(200, 200, 200, 120));
     } else if (mode3D == Mode3D::Weight) {
-        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && lastPick.hit) WeightStroke(true);
-        else if (weightPainting && ImGui::IsMouseDown(ImGuiMouseButton_Left)) WeightStroke(false);
-        ImGui::SetMouseCursor(ImGuiMouseCursor_None);
-        dl->AddCircle(mouse, weightPaint.brush.radiusPx, lastPick.hit ? IM_COL32(230, 180, 90, 230) : IM_COL32(150, 158, 175, 120), 64, 1.6f);
+        WeightViewportInput(dl, mouse);
     } else if (retopoMode) {
         ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
     }

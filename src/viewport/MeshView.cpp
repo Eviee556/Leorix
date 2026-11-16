@@ -366,6 +366,7 @@ PickResult DrawAndPickMesh(ImDrawList* dl, const Viewport3D& vp, MeshObject& obj
             dl->PrimWriteIdx((ImDrawIdx)base); dl->PrimWriteIdx((ImDrawIdx)(base + 1)); dl->PrimWriteIdx((ImDrawIdx)(base + 2));
         }
     }
+    std::vector<std::pair<ImVec2, ImVec2>> contourLines;   // weight iso lines, drawn over the faces
     if (prefs.shaded && !wireMode && !order.empty()) {
         if (textured) dl->PushTexture(mat.maps[(int)MapSlot::BaseColor].Id());
         dl->PrimReserve(static_cast<int>(order.size() * 3), static_cast<int>(order.size() * 3));
@@ -379,12 +380,30 @@ PickResult DrawAndPickMesh(ImDrawList* dl, const Viewport3D& vp, MeshObject& obj
             if (heat) {
                 auto H = [&](const ProjV& P, uint32_t v, float sh) {
                     float w = std::clamp(BoneWeight(obj.armature.weights[v], prefs.weightBone), 0.0f, 1.0f);
+                    if (prefs.weightZeroBlack && w <= 0.0f) { dl->PrimWriteVtx(P.s, uv, IM_COL32(0, 0, 0, 255)); return; }
                     // blue -> cyan -> green -> yellow -> red, like Blender's weight ramp
                     float r = std::clamp(w * 4.0f - 2.0f, 0.0f, 1.0f), g = w < 0.75f ? std::clamp(w * 4.0f, 0.0f, 1.0f) : std::clamp(4.0f - w * 4.0f, 0.0f, 1.0f);
                     float b = std::clamp(2.0f - w * 4.0f, 0.0f, 1.0f), k = 255.0f * (0.35f + 0.65f * sh);
                     dl->PrimWriteVtx(P.s, uv, IM_COL32((int)(r * k), (int)(g * k), (int)(b * k), 255));
                 };
                 H(A, t.a, cs[0]); H(B, t.b, cs[1]); H(C, t.c, cs[2]);
+                if (prefs.weightContours) {   // where each 0.1 level crosses the triangle's edges
+                    const ProjV* P[3] = {&A, &B, &C};
+                    const float wv[3] = {BoneWeight(obj.armature.weights[t.a], prefs.weightBone), BoneWeight(obj.armature.weights[t.b], prefs.weightBone),
+                                         BoneWeight(obj.armature.weights[t.c], prefs.weightBone)};
+                    for (int lv = 1; lv < 10; ++lv) {
+                        const float L = lv * 0.1f;
+                        ImVec2 hit[2]; int nh = 0;
+                        for (int e = 0; e < 3 && nh < 2; ++e) {
+                            const float w0 = wv[e], w1 = wv[(e + 1) % 3];
+                            if ((w0 < L) == (w1 < L)) continue;
+                            const float f = (L - w0) / (w1 - w0);
+                            const ImVec2 &s0 = P[e]->s, &s1 = P[(e + 1) % 3]->s;
+                            hit[nh++] = ImVec2(s0.x + (s1.x - s0.x) * f, s0.y + (s1.y - s0.y) * f);
+                        }
+                        if (nh == 2) contourLines.push_back({hit[0], hit[1]});
+                    }
+                }
             } else if (textured) {
                 const Float2* luv = &mesh.loopUVs[oi * 3];
                 auto W = [&](const ProjV& P, const Float2& t2, float sh) {
@@ -420,6 +439,7 @@ PickResult DrawAndPickMesh(ImDrawList* dl, const Viewport3D& vp, MeshObject& obj
         }
         if (textured) dl->PopTexture();
     }
+    for (auto& [p0, p1] : contourLines) dl->AddLine(p0, p1, IM_COL32(20, 20, 20, 200), 1.0f);
 
     // ---- face orientation overlay
     if (prefs.faceOrientation && shading != ShadingMode::Wireframe) {
@@ -682,6 +702,26 @@ void DrawGroundShadow(ImDrawList* dl, const Viewport3D& vp, MeshObject& obj, con
     }
     dl->PrimUnreserve(((int)mesh.tris.size() - written) * 3, ((int)mesh.tris.size() - written) * 3);
     dl->Flags = saved;
+}
+
+int PickArmatureBone(const Viewport3D& vp, const MeshObject& obj, ImVec2 mouse, float maxPx) {
+    const Armature& arm = obj.armature;
+    if (arm.bones.empty()) return -1;
+    std::vector<Mat4> mats;
+    arm.Evaluate(mats);
+    int best = -1;
+    float bestD = maxPx;
+    for (size_t i = 0; i < arm.bones.size(); ++i) {
+        float z0, z1; ImVec2 s0, s1;
+        if (!vp.ProjectPoint(obj.transform.Apply(mats[i].Apply(arm.bones[i].head)), z0, s0) ||
+            !vp.ProjectPoint(obj.transform.Apply(mats[i].Apply(arm.bones[i].tail)), z1, s1)) continue;
+        const float dx = s1.x - s0.x, dy = s1.y - s0.y, l2 = dx * dx + dy * dy;
+        float t = l2 > 0 ? ((mouse.x - s0.x) * dx + (mouse.y - s0.y) * dy) / l2 : 0;
+        t = std::clamp(t, 0.0f, 1.0f);
+        const float ex = s0.x + dx * t - mouse.x, ey = s0.y + dy * t - mouse.y, d = std::sqrt(ex * ex + ey * ey);
+        if (d < bestD) { bestD = d; best = (int)i; }
+    }
+    return best;
 }
 
 // Bones drawn as Blender-style octahedra, with the selected one highlighted.

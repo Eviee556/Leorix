@@ -200,7 +200,7 @@ json SaveArmature(const Armature& a, const Scene& scene) {
                             {"targetObject", scene.IndexOfId((int)c.targetObject)}, {"poleObject", scene.IndexOfId((int)c.poleObject)}});
         bones.push_back({{"name", b.name}, {"parent", b.parent}, {"head", J3(b.head)}, {"tail", J3(b.tail)},
                          {"poseRotation", J3(b.poseRotation)}, {"poseLocation", J3(b.poseLocation)},
-                         {"poseScale", J3(b.poseScale)}, {"envelope", b.envelope}, {"deform", b.deform},
+                         {"poseScale", J3(b.poseScale)}, {"envelope", b.envelope}, {"deform", b.deform}, {"weightLocked", b.weightLocked},
                          {"constraints", cons}});
     }
     return {{"enabled", a.enabled}, {"bones", bones}};
@@ -220,7 +220,7 @@ void LoadArmature(const json& j, Armature& a) {
         b.poseLocation = V3(x, "poseLocation", b.poseLocation);
         b.poseScale = V3(x, "poseScale", b.poseScale);
         b.envelope = F(x, "envelope", b.envelope, 0, 1000);
-        b.deform = B(x, "deform", b.deform);
+        b.deform = B(x, "deform", b.deform); b.weightLocked = B(x, "weightLocked", false);
         for (const json& y : Arr(x, "constraints")) {
             if (!y.is_object() || b.constraints.size() >= 64) continue;
             BoneConstraint c;
