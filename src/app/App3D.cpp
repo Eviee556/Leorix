@@ -1025,9 +1025,9 @@ void App::AddPrimitiveMenu() {
     ImGui::TextColored(kBrass, "Curves");
     const float ccell = 118.0f;
     struct CurveItem { const char* name; int kind; };
-    static const CurveItem curveItems[] = {{"Bezier Curve", 0}, {"Circle", 1}, {"Spiral", 2}, {"Path", 3}};
-    for (int i = 0; i < 4; ++i) {
-        if (i) ImGui::SameLine();
+    static const CurveItem curveItems[] = {{"Bezier Curve", 0}, {"Circle", 1}, {"Spiral", 2}, {"Path", 3}, {"NURBS Curve", 4}, {"NURBS Circle", 5}};
+    for (int i = 0; i < 6; ++i) {
+        if (i % 4) ImGui::SameLine();
         if (ImGui::Button(curveItems[i].name, ImVec2(ccell, 30))) {
             AddCurve(curveItems[i].kind);
             showAddPrimitive = false;
@@ -1829,7 +1829,7 @@ void App::UpdateTransform(bool) {
         int objIndex = xform.objectIndex;
         bool bakeCleared = false;
         if (xform.curve) {
-            Mesh beforeMesh = CurveToMesh(xform.savedCurve);
+            Mesh beforeMesh = CurveToMesh(xform.savedCurve, CurveProfile(*o));
             beforeMesh.name = o->name;
             PushCurveUndo(std::string(names[xform.mode]) + " Curve Points", o, xform.savedCurve, beforeMesh, true);
         } else if (!xform.movedVerts.empty()) {
@@ -3635,7 +3635,8 @@ void App::ModifierPanel() {
 
 // ---------------------------------------------------------------- curves
 void App::AddCurve(int kind) {
-    MeshObject* obj = scene.AddMesh(Mesh{}, kind == 1 ? "Circle Curve" : kind == 2 ? "Spiral" : kind == 3 ? "Path" : "Bezier Curve");
+    static const char* names[] = {"Bezier Curve", "Circle Curve", "Spiral", "Path", "NURBS Curve", "NURBS Circle"};
+    MeshObject* obj = scene.AddMesh(Mesh{}, names[std::clamp(kind, 0, 5)]);
     obj->isCurve = true;
     obj->curve.points.clear();
     obj->curve.resolution = 12;
@@ -3656,6 +3657,11 @@ void App::AddCurve(int kind) {
     } else if (kind == 3) {                // path: a straight line of points, for Curve Deform
         obj->curve.cyclic = false;
         for (int i = 0; i < 5; ++i) obj->curve.points.push_back({-2.0f + i, 0.0f, 0.0f});
+    } else if (kind == 4) {                // NURBS curve: order 4, the curve stays inside its points
+        obj->curve.nurbs = true;
+        obj->curve.points = {{-2, 0, 0}, {-1, 0, 1}, {1, 0, -1}, {2, 0, 0}};
+    } else if (kind == 5) {                // NURBS circle: exact, from rational weights
+        SetNurbsCircle(obj->curve, 1.0f);
     } else {                               // gentle S, the default Bezier line
         obj->curve.cyclic = false;
         obj->curve.points = {{-2, 0, 0}, {-0.7f, 0, 1.2f}, {0.7f, 0, -1.2f}, {2, 0, 0}};
@@ -4169,6 +4175,13 @@ void App::FinishBoxSelect(ImVec2 a, ImVec2 b, bool extend, bool subtract) {
     if (mode3D == Mode3D::Edit) {
         MeshObject* o = scene.Active();
         if (!o) return;
+        if (o->isCurve) {
+            if (!extend && !subtract) o->curveSel.clear();
+            std::vector<int> in = CurveElemsInside(o->curve, [&](const Float3& p) { return inside(o->transform.Apply(p)); });
+            for (int e : in) { if (subtract) o->curveSel.erase(e); else o->curveSel.insert(e); }
+            ShowStatus("Box select: " + std::to_string(in.size()) + " curve element" + (in.size() == 1 ? "" : "s"));
+            return;
+        }
         const Mesh& m = o->mesh;
         std::vector<char> in(m.positions.size());
         for (size_t i = 0; i < m.positions.size(); ++i) in[i] = inside(o->transform.Apply(m.positions[i])) ? 1 : 0;
